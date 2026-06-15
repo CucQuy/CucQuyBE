@@ -1,7 +1,8 @@
-name: Deploy Backend
+name: Build & Push Backend
 
-# Push lên main → build image trên runner GitHub (RAM dư) → push GHCR → VPS pull.
-# VPS KHÔNG build nữa (tránh OOM trên máy 1.4GB).
+# Push lên main → build image trên runner GitHub → push GHCR.
+# KHÔNG deploy ở đây nữa: Keel (trong k3s @ ricevps) tự poll ghcr,
+# thấy :latest đổi digest là tự rollout (pull-based, không cần SSH).
 on:
   push:
     branches: [main]
@@ -11,7 +12,7 @@ env:
   IMAGE: ghcr.io/cucquy/cucquy-backend
 
 jobs:
-  # 1) CI — gate nhanh: code biên dịch được không (không đụng server)
+  # 1) CI — gate nhanh: code biên dịch được không
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -43,30 +44,3 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
-
-  # 3) Deploy — SSH vào VPS: login GHCR, pull image mới, up lại (KHÔNG build)
-  deploy:
-    needs: build-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - name: SSH deploy
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER
-          script: |
-            set -e
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-            cd /root/cucquy/backend
-            git pull origin main
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
-            docker image prune -f
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
