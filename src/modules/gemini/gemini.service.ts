@@ -1,59 +1,96 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GoogleGenAI } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 import { BillValidationResult, StockReceiptStructured } from './gemini.types';
+
+// LLM đọc bill đã chuyển sang Claude (Anthropic). Tên class/route giữ "gemini"
+// làm hợp đồng API với frontend (services/geminiService.ts gọi /gemini/...).
+// Đổi model qua env CLAUDE_MODEL (claude-haiku-4-5 / claude-sonnet-4-6) nếu cần.
+const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8';
 
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
+  private client: Anthropic | null = null;
 
-  private getClient() {
-    const apiKey = process.env.GEMINI_API_KEY;
+  private getClient(): Anthropic {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      this.logger.warn('GEMINI_API_KEY is not set in the environment.');
-      return null;
+      this.logger.warn('ANTHROPIC_API_KEY is not set in the environment.');
+      throw new Error('Thiếu ANTHROPIC_API_KEY trong môi trường.');
     }
-    return new GoogleGenAI({ apiKey });
+    if (!this.client) this.client = new Anthropic({ apiKey });
+    return this.client;
   }
 
-  private parseValidationJson(raw: string): BillValidationResult {
+  /** Lấy text từ block đầu tiên của response. */
+  private firstText(resp: Anthropic.Message): string {
+    const block = resp.content.find((b) => b.type === 'text');
+    if (!block || block.type !== 'text') {
+      throw new Error('Claude không trả về nội dung text.');
+    }
+    return block.text;
+  }
+
+  /** Parse JSON bền: bỏ ```json fence, hoặc cắt từ '{' đến '}' nếu lẫn chữ thừa. */
+  private parseJson<T>(raw: string): T {
     let s = raw.trim();
     const fence = s.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
     if (fence) s = fence[1].trim();
-
-    let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(s) as Record<string, unknown>;
+      return JSON.parse(s) as T;
     } catch {
-      throw new Error('Gemini trả lời kiểm tra bill không phải JSON hợp lệ. Thử lại.');
+      const a = s.indexOf('{');
+      const b = s.lastIndexOf('}');
+      if (a >= 0 && b > a) return JSON.parse(s.slice(a, b + 1)) as T;
+      throw new Error('Claude trả về không phải JSON hợp lệ.');
     }
-    const isLikelyReceipt = Boolean(parsed.isLikelyReceipt ?? parsed.isLikelyPurchaseReceipt);
-    const confidence =
-      typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0;
-    const reasonVi = typeof parsed.reasonVi === 'string' ? parsed.reasonVi : String(parsed.reason ?? '');
-    return { isLikelyReceipt, confidence, reasonVi };
   }
 
-  private parseStructuredJson(raw: string): StockReceiptStructured {
-    let s = raw.trim();
-    const fence = s.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
-    if (fence) s = fence[1].trim();
+  private normalizeStr(v: unknown): string | null {
+    if (typeof v !== 'string') return null;
+    const t = v.trim();
+    return t ? t : null;
+  }
 
-    const parsed = JSON.parse(s) as Partial<StockReceiptStructured>;
-    if (!parsed || typeof parsed !== 'object') {
-      throw new Error('Gemini không trả về object JSON hợp lệ.');
-    }
+  async validateReceipt(ocrText: string): Promise<BillValidationResult> {
+    const resp = await this.getClient().messages.create({
+      model: MODEL,
+      max_tokens: 512,
+      system: VALIDATE_SYSTEM_VI,
+      messages: [{ role: 'user', content: ocrText.slice(0, 8000) }],
+    });
+
+    const p = this.parseJson<Record<string, unknown>>(this.firstText(resp));
+    return {
+      isLikelyReceipt: Boolean(p.isLikelyReceipt ?? p.isLikelyPurchaseReceipt),
+      confidence:
+        typeof p.confidence === 'number'
+          ? Math.max(0, Math.min(1, p.confidence))
+          : 0,
+      reasonVi:
+        typeof p.reasonVi === 'string' ? p.reasonVi : String(p.reason ?? ''),
+    };
+  }
+
+  async structureStockReceipt(ocrText: string): Promise<StockReceiptStructured> {
+    const resp = await this.getClient().messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: STRUCTURE_SYSTEM_VI,
+      messages: [{ role: 'user', content: ocrText.slice(0, 12000) }],
+    });
+
+    const parsed = this.parseJson<Partial<StockReceiptStructured>>(
+      this.firstText(resp),
+    );
     if (!Array.isArray(parsed.lineItems)) parsed.lineItems = [];
 
-    const normalizeStr = (v: unknown): string | null => {
-      if (typeof v !== 'string') return null;
-      const trimmed = v.trim();
-      return trimmed ? trimmed : null;
-    };
+    parsed.supplierName = this.normalizeStr(parsed.supplierName);
+    parsed.supplierPhone = this.normalizeStr(parsed.supplierPhone);
+    parsed.supplierAddress = this.normalizeStr(parsed.supplierAddress);
+    parsed.invoiceNumber = this.normalizeStr(parsed.invoiceNumber);
 
-    parsed.supplierPhone = normalizeStr(parsed.supplierPhone);
-    parsed.supplierAddress = normalizeStr(parsed.supplierAddress);
-    parsed.invoiceNumber = normalizeStr(parsed.invoiceNumber);
-
+    // Chuẩn hoá SĐT NCC (giữ logic cũ).
     if (parsed.supplierPhone) {
       const onlyDigitsPlus = parsed.supplierPhone.replace(/[\s.\-()]/g, '');
       parsed.supplierPhone = /^\+?\d{8,15}$/.test(onlyDigitsPlus)
@@ -63,15 +100,11 @@ export class GeminiService {
 
     return parsed as StockReceiptStructured;
   }
+}
 
-  async validateReceipt(ocrText: string): Promise<BillValidationResult> {
-    const ai = this.getClient();
-    if (!ai) throw new Error('Thiếu GEMINI_API_KEY trong môi trường.');
+const VALIDATE_SYSTEM_VI = `Bạn kiểm tra nội dung OCR có phải chứng từ MUA HÀNG / BÁN HÀNG (hoá đơn, phiếu tính tiền, biên lai siêu thị, phiếu NCC, phiếu bán lẻ của shop…) hay không.
 
-    const snippet = ocrText.slice(0, 8000);
-    const prompt = `Bạn kiểm tra nội dung OCR có phải chứng từ MUA HÀNG / BÁN HÀNG (hoá đơn, phiếu tính tiền, biên lai siêu thị, phiếu NCC, phiếu bán lẻ của shop…) hay không.
-
-Trả về DUY NHẤT JSON (không markdown):
+Trả về DUY NHẤT một JSON (không markdown, không giải thích):
 {"isLikelyReceipt": boolean, "confidence": number từ 0 đến 1, "reasonVi": string ngắn (tối đa 2 câu, tiếng Việt)}
 
 HỢP LỆ — confidence >= 0.6, kể cả khi ảnh bị cắt mất phần dưới hoặc thiếu tổng tiền:
@@ -88,45 +121,12 @@ KHÔNG HỢP LỆ — confidence < 0.3:
 
 Khi không chắc nhưng có dấu hiệu giống bill (chữ số tiền + tên sản phẩm) → confidence ~ 0.5–0.6, isLikelyReceipt = true, không reject vội.
 
-OCR:
-"""
-${snippet}
-"""`;
+Nội dung OCR nằm trong message của người dùng.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-
-    const text = response.text?.trim();
-    if (!text) throw new Error('Gemini không trả lời khi kiểm tra bill.');
-    return this.parseValidationJson(text);
-  }
-
-  async structureStockReceipt(ocrText: string): Promise<StockReceiptStructured> {
-    const ai = this.getClient();
-    if (!ai) throw new Error('Thiếu GEMINI_API_KEY trong môi trường.');
-
-    const prompt = `${STRUCTURE_PROMPT_VI}
-"""
-${ocrText.slice(0, 12000)}
-"""`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-
-    const text = response.text?.trim();
-    if (!text) throw new Error('Gemini không trả lời nội dung.');
-    return this.parseStructuredJson(text);
-  }
-}
-
-const STRUCTURE_PROMPT_VI = `Bạn là trợ lý kế toán kho. Nhiệm vụ: làm sạch và cấu trúc hoá dữ liệu từ chữ đã OCR của một hoá đơn/phiếu mua hàng (nhập hàng).
+const STRUCTURE_SYSTEM_VI = `Bạn là trợ lý kế toán kho. Nhiệm vụ: làm sạch và cấu trúc hoá dữ liệu từ chữ đã OCR của một hoá đơn/phiếu mua hàng (nhập hàng).
 
 Quy tắc chung:
-- Trả về DUY NHẤT một JSON hợp lệ, không markdown, không giải thích.
+- Trả về DUY NHẤT một JSON hợp lệ, KHÔNG markdown, KHÔNG giải thích.
 - Số tiền: số thuần (number), không chuỗi. Không chắc thì null.
 - Ngày: ưu tiên yyyy-mm-dd; nếu chỉ có dd/mm/yyyy hãy chuyển sang yyyy-mm-dd; không đoán bừa thì null.
 - productLineCount = số dòng mặt hàng (sản phẩm) bạn trích được.
@@ -158,7 +158,7 @@ QUY TẮC TRÍCH XUẤT THÔNG TIN NCC (BẮT BUỘC CỐ GẮNG):
 
 5) storeOrBranch: dùng cho tên chi nhánh ("Chi nhánh Q.10", "CN Hà Đông"…) — KHÔNG dùng cho địa chỉ.
 
-Schema JSON (bám sát các key sau):
+Trả về JSON đúng các key sau:
 {
   "supplierName": string | null,
   "supplierPhone": string | null,
@@ -178,5 +178,4 @@ Schema JSON (bám sát các key sau):
   "notes": string | null
 }
 
-Nội dung OCR:
-`;
+Nội dung OCR nằm trong message của người dùng.`;

@@ -12,7 +12,7 @@
     "test": "echo \"(chưa có test)\" && exit 0"
   },
   "dependencies": {
-    "@google/genai": "^1.52.0",
+    "@anthropic-ai/sdk": "^0.104.1",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.4.0",
     "@nestjs/config": "^3.2.3",

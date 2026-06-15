@@ -7,10 +7,14 @@ import { AppModule } from './app.module';
 import { loadConfig } from './config/configuration';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { TransformInterceptor } from './common/transform.interceptor';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const config = loadConfig();
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  // Tự cấu hình body-parser (tắt mặc định 100kb) để nhận ảnh bill base64 (vài MB).
+  const app = await NestFactory.create(AppModule, { bufferLogs: false, bodyParser: false });
+  app.use(json({ limit: '25mb' }));
+  app.use(urlencoded({ extended: true, limit: '25mb' }));
 
   // Sau nginx reverse proxy: tin X-Forwarded-For để req.ip ra IP thật của client
   // (không phải IP của nginx). Cần cho hệ thống nhật ký request.
