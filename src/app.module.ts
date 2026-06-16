@@ -27,6 +27,7 @@ import { ZaloModule } from './modules/zalo/zalo.module';
 import { RevenueModule } from './modules/revenue/revenue.module';
 import { RequestLogsModule } from './modules/request-logs/request-logs.module';
 import { LoggingMiddleware } from './modules/request-logs/logging.middleware';
+import { PromotionsModule } from './modules/promotions/promotions.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { LoggingMiddleware } from './modules/request-logs/logging.middleware';
     ZaloModule,
     RevenueModule,
     RequestLogsModule,
+    PromotionsModule,
   ],
   controllers: [HealthController],
 })

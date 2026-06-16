@@ -2,6 +2,7 @@
  * Types domain Order — port từ FE (frontend/types/order.ts).
  * Giữ NGUYÊN shape để FE không phải sửa.
  */
+import { AppliedPromotion, GiftItem } from '../promotions/promotions.types';
 
 export interface OrderItem {
   id: string;
@@ -55,6 +56,15 @@ export interface Order {
   email?: string;
   items: OrderItem[];
   decorations?: OrderDecoration[];
+  /** Tổng tiền hàng TRƯỚC giảm (items + decorations). */
+  subtotal?: number;
+  /** Tổng tiền đã giảm bởi khuyến mãi. */
+  discountAmount?: number;
+  /** Các khuyến mãi đã áp vào đơn. */
+  appliedPromotions?: AppliedPromotion[];
+  /** Quà tặng (Mua X tặng Y) — giá 0. */
+  giftItems?: GiftItem[];
+  /** = subtotal + shippingCost − discountAmount. */
   total: number;
   shippingCost?: number;
   status?: string;

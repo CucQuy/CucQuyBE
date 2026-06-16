@@ -10,6 +10,8 @@ import {
   PAYMENT_METHOD_CASH,
   PAYMENT_STATUS_UNPAID,
 } from './orders.types';
+import { AppliedPromotion } from '../promotions/promotions.types';
+import { PromotionsService } from '../promotions/promotions.service';
 
 const COL = 'orders';
 
@@ -18,7 +20,10 @@ export const ORDER_EDIT_DENIED = 'ORDER_EDIT_DENIED';
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly fs: FirestoreService) {}
+  constructor(
+    private readonly fs: FirestoreService,
+    private readonly promotions: PromotionsService,
+  ) {}
 
   // ── Resolve tên hiển thị người tạo (như FE getUserByUid) ──
   private async resolveCreatorNames(
@@ -117,6 +122,28 @@ export class OrdersService {
       (await this.getNextOrderNumber());
 
     const c = orderData.customer || {};
+    const items = orderData.items || [];
+    const decorations = orderData.decorations || [];
+    const shippingCost = orderData.shippingCost || 0;
+
+    // Tính giảm giá THẨM QUYỀN từ backend (không tin số discount/total do FE gửi).
+    // LƯU Ý: item đơn dùng `id` = productId → map sang productId cho engine.
+    const promo = await this.promotions.computeForCart({
+      items: items.map((it: any) => ({
+        productId: it.productId || it.id,
+        price: it.price,
+        quantity: it.quantity,
+      })),
+      decorations,
+      shippingCost,
+      code: orderData.appliedPromotionCode,
+      promotionIds: orderData.appliedPromotionIds,
+    });
+    const hasItems = items.length > 0;
+    const subtotal = hasItems ? promo.subtotal : (orderData.total || 0);
+    const discountAmount = hasItems ? promo.discountAmount : 0;
+    const total = hasItems ? promo.total : (orderData.total || 0);
+
     const payload: Record<string, any> = {
       orderNumber,
       sepayId: orderData.sepayId || null,
@@ -133,10 +160,14 @@ export class OrdersService {
         city: c.city || '',
         country: c.country || '',
       },
-      items: orderData.items || [],
-      decorations: orderData.decorations || [],
-      shippingCost: orderData.shippingCost || 0,
-      total: orderData.total || 0,
+      items,
+      decorations,
+      shippingCost,
+      subtotal,
+      discountAmount,
+      appliedPromotions: promo.appliedPromotions,
+      giftItems: hasItems ? promo.giftItems : [],
+      total,
       note: orderData.note || '',
       status: orderData.status,
       deliveryDate: orderData.deliveryDate || null,
@@ -162,6 +193,11 @@ export class OrdersService {
     );
 
     const ref = await this.fs.collection(COL).add(cleaned);
+
+    // Trừ lượt dùng khuyến mãi (atomic). Huỷ đơn sau này gọi release() để hoàn.
+    if (promo.appliedPromotions.length > 0) {
+      await this.promotions.redeem(promo.appliedPromotions);
+    }
 
     // Trả order đã tạo (gồm id + orderNumber) cho FE gửi Zalo.
     return {
@@ -207,16 +243,39 @@ export class OrdersService {
       country: c.country || '',
     };
 
+    // Tính lại khuyến mãi THẨM QUYỀN khi sửa đơn (giống lúc tạo) — không tin số FE.
+    const items = orderData.items || [];
+    const decorations = orderData.decorations || [];
+    const shippingCost = orderData.shippingCost || 0;
+    const promo = await this.promotions.computeForCart({
+      items: items.map((it: any) => ({
+        productId: it.productId || it.id,
+        price: it.price,
+        quantity: it.quantity,
+      })),
+      decorations,
+      shippingCost,
+      code: orderData.appliedPromotionCode,
+      promotionIds: orderData.appliedPromotionIds,
+    });
+    const hasItems = items.length > 0;
+    const subtotal = hasItems ? promo.subtotal : (orderData.total || 0);
+    const discountAmount = hasItems ? promo.discountAmount : 0;
+    const total = hasItems ? promo.total : (orderData.total || 0);
+
     const payload: Record<string, any> = {
       customerName: safeCustomer.name,
       phone: safeCustomer.phone,
       address: safeCustomer.address,
       email: safeCustomer.email,
       customer: safeCustomer,
-      items: orderData.items || [],
-      decorations: orderData.decorations || [],
-      shippingCost: orderData.shippingCost || 0,
-      total: orderData.total || 0,
+      items,
+      decorations,
+      shippingCost,
+      subtotal,
+      discountAmount,
+      appliedPromotions: promo.appliedPromotions,
+      total,
       note: orderData.note || '',
       status: orderData.status,
       ...(orderData.deliveryDate !== undefined && {
@@ -265,6 +324,15 @@ export class OrdersService {
 
     await orderRef.update(payload);
 
+    // Điều chỉnh lượt dùng khuyến mãi: hoàn lượt của bộ cũ, trừ lượt cho bộ mới.
+    if (hasItems) {
+      const oldApplied = Array.isArray(existing.appliedPromotions)
+        ? existing.appliedPromotions
+        : [];
+      if (oldApplied.length) await this.promotions.release(oldApplied);
+      if (promo.appliedPromotions.length) await this.promotions.redeem(promo.appliedPromotions);
+    }
+
     // Trả order sau cập nhật + `changes` + `prevOrder` để FE gửi Zalo update.
     // KHÔNG gửi Zalo trong BE.
     return {
@@ -285,10 +353,13 @@ export class OrdersService {
   async deleteOrder(id: string): Promise<{ id: string; prevOrder: unknown }> {
     const ref = this.fs.collection(COL).doc(id);
     const snap = await ref.get();
-    const prevOrder = snap.exists
-      ? { ...(snap.data() as Record<string, unknown>), id }
-      : null;
+    const data = snap.exists ? (snap.data() as Record<string, unknown>) : null;
+    const prevOrder = data ? { ...data, id } : null;
     await ref.delete();
+    // Hoàn lượt dùng khuyến mãi của đơn bị xoá.
+    if (data && Array.isArray(data.appliedPromotions) && data.appliedPromotions.length) {
+      await this.promotions.release(data.appliedPromotions as AppliedPromotion[]);
+    }
     return { id, prevOrder };
   }
 }
