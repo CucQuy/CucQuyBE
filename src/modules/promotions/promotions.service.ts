@@ -33,6 +33,7 @@ export class PromotionsService {
       discountType: (str(r.discountType) ?? 'FIXED') as Promotion['discountType'],
       discountValue: num(r.discountValue) ?? 0,
       maxDiscount: num(r.maxDiscount) ?? null,
+      groupCategoryId: str(r.groupCategoryId) ?? null,
       groupBadgeId: str(r.groupBadgeId) ?? null,
       buyQuantity: num(r.buyQuantity),
       getQuantity: num(r.getQuantity),
@@ -124,16 +125,23 @@ export class PromotionsService {
     const now = Date.now();
     const errors: string[] = [];
 
-    // Bản đồ productId -> category (chỉ nạp khi có promo scope CATEGORIES)
+    // Bản đồ productId -> category (TÊN). Nạp khi có promo scope CATEGORIES
+    // HOẶC có BUY_X_GET_Y gom nhóm theo category.
     let catMap: Map<string, string> | null = null;
-    const needCat = all.some((p) => p.scope === 'CATEGORIES');
+    const needCat = all.some(
+      (p) =>
+        p.scope === 'CATEGORIES' ||
+        (p.discountType === 'BUY_X_GET_Y' && !!p.groupCategoryId),
+    );
     if (needCat) catMap = await this.productCategoryMap(items.map((i) => i.productId));
 
-    // BUY_X_GET_Y theo nhóm: sản phẩm lưu badge dưới dạng TÊN trong `tags`,
-    // còn promo lưu groupBadgeId → cần map id→tên để so khớp.
+    // BUY_X_GET_Y (legacy badge): sản phẩm lưu badge dưới dạng TÊN trong `tags`,
+    // promo lưu groupBadgeId → map id→tên để so khớp. Chỉ nạp cho promo còn dùng badge.
     let productTags: Map<string, string[]> | null = null;
     let badgeNameById: Map<string, string> | null = null;
-    const needBadge = all.some((p) => p.discountType === 'BUY_X_GET_Y');
+    const needBadge = all.some(
+      (p) => p.discountType === 'BUY_X_GET_Y' && !p.groupCategoryId && !!p.groupBadgeId,
+    );
     if (needBadge) {
       productTags = await this.productTagsMap(items.map((i) => i.productId));
       badgeNameById = await this.badgeNameMap();
@@ -156,9 +164,9 @@ export class PromotionsService {
         continue;
       }
 
-      // Mua N tặng M theo nhóm (badge): món rẻ nhất thành 0đ → giảm tiền.
+      // Mua N tặng M theo nhóm (category, fallback badge): món rẻ nhất thành 0đ → giảm tiền.
       if (p.discountType === 'BUY_X_GET_Y') {
-        const amt = this.bxgyDiscount(p, items, productTags, badgeNameById);
+        const amt = this.bxgyDiscount(p, items, catMap, productTags, badgeNameById);
         if (amt > 0) bxgyApplied.push({ promo: p, amount: amt });
         else errors.push(`"${p.name}": đơn chưa đủ điều kiện mua N tặng M của nhóm.`);
         continue;
@@ -214,23 +222,35 @@ export class PromotionsService {
   private bxgyDiscount(
     p: Promotion,
     items: ComputeInput['items'],
+    catMap: Map<string, string> | null,
     productTags: Map<string, string[]> | null,
     badgeNameById: Map<string, string> | null,
   ): number {
-    const gid = p.groupBadgeId;
-    if (!gid || !productTags || !badgeNameById) return 0;
-    // Sản phẩm lưu badge bằng TÊN trong tags → resolve groupBadgeId sang tên.
-    const groupName = badgeNameById.get(gid);
-    if (!groupName) return 0;
+    // Hàm kiểm tra 1 sản phẩm có thuộc nhóm khuyến mãi không.
+    // Ưu tiên gom theo CATEGORY (product.category === groupCategoryId);
+    // fallback BADGE (tên badge nằm trong product.tags) cho promo cũ.
+    let inGroup: (productId: string) => boolean;
+    if (p.groupCategoryId) {
+      const groupCat = p.groupCategoryId;
+      if (!catMap) return 0;
+      inGroup = (id) => catMap.get(id) === groupCat;
+    } else if (p.groupBadgeId && productTags && badgeNameById) {
+      const groupName = badgeNameById.get(p.groupBadgeId);
+      if (!groupName) return 0;
+      inGroup = (id) => (productTags.get(id) ?? []).includes(groupName);
+    } else {
+      return 0;
+    }
+
     const N = p.buyQuantity && p.buyQuantity > 0 ? p.buyQuantity : 1;
     const M = p.getQuantity && p.getQuantity > 0 ? p.getQuantity : 1;
     const block = N + M;
 
-    // Bung từng đơn vị (mỗi cái 1 giá) của các sản phẩm có tag = tên nhóm.
+    // Bung từng đơn vị (mỗi cái 1 giá) của các sản phẩm thuộc nhóm.
     const units: number[] = [];
     for (const it of items) {
       if (!it.productId) continue;
-      if (!(productTags.get(it.productId) ?? []).includes(groupName)) continue;
+      if (!inGroup(it.productId)) continue;
       for (let i = 0; i < (it.quantity || 0); i++) units.push(it.price || 0);
     }
     if (units.length < block) return 0;

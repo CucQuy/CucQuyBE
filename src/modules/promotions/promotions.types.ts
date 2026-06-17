@@ -19,8 +19,9 @@ export interface Promotion {
   discountValue?: number; // % (0–100) cho PERCENT, hoặc số tiền VND cho FIXED
   maxDiscount?: number | null; // trần giảm cho PERCENT
 
-  // BUY_X_GET_Y theo NHÓM (badge): bỏ (buyQuantity+getQuantity) món cùng badge → getQuantity món RẺ NHẤT thành 0đ.
-  groupBadgeId?: string | null; // badge gom nhóm sản phẩm điều kiện
+  // BUY_X_GET_Y theo NHÓM: bỏ (buyQuantity+getQuantity) món cùng nhóm → getQuantity món RẺ NHẤT thành 0đ.
+  groupCategoryId?: string | null; // TÊN danh mục gom nhóm (so khớp product.category). Ưu tiên dùng cái này.
+  groupBadgeId?: string | null; // (legacy) badge gom nhóm — fallback khi chưa set groupCategoryId
   buyQuantity?: number; // N — số phải mua
   getQuantity?: number; // M — số được tặng (rẻ nhất)
   // (legacy, không dùng ở cơ chế nhóm)

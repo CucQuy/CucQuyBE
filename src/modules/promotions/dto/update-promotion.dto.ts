@@ -32,6 +32,7 @@ export class UpdatePromotionDto {
   @IsOptional() @IsNumber() @Min(0) discountValue?: number;
   @IsOptional() @IsNumber() @Min(0) maxDiscount?: number;
 
+  @IsOptional() @IsString() groupCategoryId?: string;
   @IsOptional() @IsString() groupBadgeId?: string;
   @IsOptional() @IsInt() @Min(1) buyQuantity?: number;
   @IsOptional() @IsInt() @Min(1) getQuantity?: number;

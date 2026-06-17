@@ -48,7 +48,10 @@ export class CreatePromotionDto {
   @Min(0)
   maxDiscount?: number;
 
-  // BUY_X_GET_Y theo nhóm (badge)
+  // BUY_X_GET_Y theo nhóm (category — ưu tiên; badge — legacy)
+  @IsOptional()
+  @IsString()
+  groupCategoryId?: string;
   @IsOptional()
   @IsString()
   groupBadgeId?: string;
