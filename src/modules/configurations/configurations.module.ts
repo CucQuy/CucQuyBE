@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigurationsController } from './configurations.controller';
 import { ConfigurationsService } from './configurations.service';
+import { ConfigurationProc } from './configurations.proc';
 
 @Module({
   controllers: [ConfigurationsController],
-  providers: [ConfigurationsService],
+  providers: [ConfigurationsService, ConfigurationProc],
 })
 export class ConfigurationsModule {}

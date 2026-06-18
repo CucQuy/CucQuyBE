@@ -35,6 +35,11 @@ export interface StockReceiptValidationSnapshot {
   heuristicNoteVi: string;
 }
 
+/**
+ * Thông tin liên hệ NCC. Bảng `suppliers` chỉ có cột phone/address nên các field
+ * còn lại (contactPerson/email/taxCode/category/notes) hiện KHÔNG được lưu —
+ * proc app.* sẽ bỏ qua. Giữ optional để API/FE cũ không vỡ.
+ */
 export interface SupplierContactInfo {
   phone?: string | null;
   address?: string | null;

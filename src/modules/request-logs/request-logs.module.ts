@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RequestLogsController } from './request-logs.controller';
 import { RequestLogsService } from './request-logs.service';
+import { RequestLogProc } from './request-logs.proc';
 import { LoggingMiddleware } from './logging.middleware';
 
 /**
@@ -9,7 +10,7 @@ import { LoggingMiddleware } from './logging.middleware';
  */
 @Module({
   controllers: [RequestLogsController],
-  providers: [RequestLogsService, LoggingMiddleware],
+  providers: [RequestLogsService, RequestLogProc, LoggingMiddleware],
   exports: [RequestLogsService, LoggingMiddleware],
 })
 export class RequestLogsModule {}

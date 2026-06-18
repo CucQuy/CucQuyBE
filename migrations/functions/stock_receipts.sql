@@ -1,0 +1,570 @@
+-- ============================================================
+-- Domain: stock_receipts (nhập kho) — toàn bộ logic ở DB, BE chỉ gọi.
+-- Bảng: stock_receipts (1)-(n) stock_receipt_lines, + suppliers, materials.
+-- Khi tạo phiếu: upsert supplier + upsert materials + cập nhật thống kê,
+-- tất cả trong 1 transaction (1 lần gọi function = 1 transaction).
+-- ============================================================
+
+-- ── Helpers chuẩn hoá (port từ stock-receipts.service.ts / FE normalize) ───
+
+-- Sinh id kiểu Firestore auto-id (20 ký tự alphanumeric).
+CREATE OR REPLACE FUNCTION sr_gen_id()
+RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_alphabet text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  v_id text := '';
+  i int;
+BEGIN
+  FOR i IN 1..20 LOOP
+    v_id := v_id || substr(v_alphabet, 1 + floor(random() * length(v_alphabet))::int, 1);
+  END LOOP;
+  RETURN v_id;
+END;
+$$;
+
+-- Bỏ dấu tiếng Việt + lowercase (port stripAccent: NFD + xoá dấu kết hợp).
+CREATE OR REPLACE FUNCTION sr_strip_accent(p_in text)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  v text;
+BEGIN
+  IF p_in IS NULL THEN RETURN ''; END IF;
+  v := lower(p_in);
+  -- xoá ký tự dấu kết hợp U+0300..U+036F (giống regex /[̀-ͯ]/g sau NFD)
+  v := normalize(v, NFD);
+  v := regexp_replace(v, '[̀-ͯ]', '', 'g');
+  -- đ -> d (NFD không tách đ)
+  v := replace(v, 'đ', 'd');
+  RETURN v;
+END;
+$$;
+
+-- normalizeSupplierKey: stripAccent + chỉ giữ [a-z0-9], gộp khoảng trắng.
+CREATE OR REPLACE FUNCTION sr_supplier_key(p_raw text)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  v text;
+BEGIN
+  v := sr_strip_accent(trim(COALESCE(p_raw, '')));
+  v := regexp_replace(v, '[^a-z0-9]+', ' ', 'g');
+  v := regexp_replace(v, '\s+', ' ', 'g');
+  RETURN trim(v);
+END;
+$$;
+
+-- canonicalUnit: chuẩn hoá đơn vị về dạng gốc.
+CREATE OR REPLACE FUNCTION sr_canonical_unit(p_raw text)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  v text;
+  v_only text;
+  v_map jsonb := '{
+    "ki":"kg","kilo":"kg","kilogam":"kg","kg":"kg",
+    "gam":"g","gr":"g","g":"g",
+    "lit":"l","l":"l",
+    "ml":"ml","cl":"cl",
+    "thung":"thung","chai":"chai","lon":"lon","goi":"goi",
+    "hop":"hop","cai":"cai","cay":"cay","tui":"tui","bich":"tui","qua":"qua"
+  }'::jsonb;
+BEGIN
+  IF p_raw IS NULL THEN RETURN NULL; END IF;
+  v := sr_strip_accent(trim(p_raw));
+  IF v = '' THEN RETURN NULL; END IF;
+  -- bỏ phần số ở đầu (vd "5 kg" -> "kg")
+  v_only := trim(regexp_replace(v, '^\d+(?:[.,]\d+)?\s*', ''));
+  IF v_map ? v_only THEN RETURN v_map->>v_only; END IF;
+  IF v_map ? v THEN RETURN v_map->>v; END IF;
+  RETURN NULL;
+END;
+$$;
+
+-- normalizeItem.fullKey: base (đã bỏ token đơn vị) + "|<num><unit>" nếu có gói.
+CREATE OR REPLACE FUNCTION sr_material_key(p_raw text)
+RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  v_clean text;
+  -- Lưu ý: Postgres regex dùng \y cho word boundary (\b = backspace).
+  v_unit_re text := '(\d+(?:[.,]\d+)?)\s*(kg|kilogam|kilo|gam|gr|g|l|lit|ml|cl|goi|hop|chai|thung|lon|cai|cay|tui|bich|qua)\y';
+  m text[];
+  v_pack text := NULL;
+  v_num text;
+  v_unit text;
+  v_base text;
+  v_map jsonb := '{
+    "ki":"kg","kilo":"kg","kilogam":"kg","kg":"kg",
+    "gam":"g","gr":"g","g":"g",
+    "lit":"l","l":"l",
+    "ml":"ml","cl":"cl",
+    "thung":"thung","chai":"chai","lon":"lon","goi":"goi",
+    "hop":"hop","cai":"cai","cay":"cay","tui":"tui","bich":"tui","qua":"qua"
+  }'::jsonb;
+BEGIN
+  v_clean := sr_strip_accent(COALESCE(p_raw, ''));
+  m := regexp_match(v_clean, v_unit_re);
+  IF m IS NOT NULL THEN
+    v_num := replace(m[1], ',', '.');
+    v_unit := COALESCE(v_map->>m[2], m[2]);
+    v_pack := v_num || v_unit;
+  END IF;
+  -- base: xoá token đơn vị, chỉ giữ a-z0-9, gộp khoảng trắng
+  v_base := regexp_replace(v_clean, v_unit_re, ' ', 'g');
+  v_base := regexp_replace(v_base, '[^a-z0-9]+', ' ', 'g');
+  v_base := regexp_replace(v_base, '\s+', ' ', 'g');
+  v_base := trim(v_base);
+  IF v_pack IS NULL THEN
+    RETURN v_base;
+  END IF;
+  RETURN v_base || '|' || v_pack;
+END;
+$$;
+
+-- computeBillHash: sha256 hex của supplierKey||receiptDate||totalAmount||ocr(4000).
+CREATE OR REPLACE FUNCTION sr_bill_hash(
+  p_supplier_key text, p_receipt_date text, p_total text, p_ocr text
+) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT encode(
+    digest(
+      concat_ws('||',
+        COALESCE(p_supplier_key, ''),
+        COALESCE(p_receipt_date, ''),
+        COALESCE(p_total, ''),
+        left(trim(COALESCE(p_ocr, '')), 4000)
+      ),
+      'sha256'
+    ),
+    'hex'
+  );
+$$;
+
+-- ── READ ───────────────────────────────────────────────────────────────────
+
+-- Danh sách NCC đã nhập (mới cập nhật trước).
+CREATE OR REPLACE FUNCTION stock_receipt_supplier_list()
+RETURNS SETOF suppliers
+LANGUAGE sql STABLE AS $$
+  SELECT * FROM suppliers ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST;
+$$;
+
+-- Danh sách nguyên liệu đã nhập (mới cập nhật trước).
+CREATE OR REPLACE FUNCTION stock_receipt_material_list()
+RETURNS SETOF materials
+LANGUAGE sql STABLE AS $$
+  SELECT * FROM materials ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST;
+$$;
+
+-- Danh sách phiếu nhập (summary) — mới tạo trước.
+CREATE OR REPLACE FUNCTION stock_receipt_list()
+RETURNS SETOF stock_receipts
+LANGUAGE sql STABLE AS $$
+  SELECT * FROM stock_receipts ORDER BY created_at DESC NULLS LAST;
+$$;
+
+-- Chi tiết 1 phiếu nhập kèm lines -> jsonb (NULL nếu không tồn tại).
+CREATE OR REPLACE FUNCTION stock_receipt_get(p_id text)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_h stock_receipts%ROWTYPE;
+  v_lines jsonb;
+BEGIN
+  SELECT * INTO v_h FROM stock_receipts WHERE id = p_id;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT COALESCE(jsonb_agg(
+           jsonb_build_object(
+             'name', l.name,
+             'quantity', l.quantity,
+             'unit', l.unit,
+             'unitPrice', l.unit_price,
+             'lineTotal', l.line_total
+           ) ORDER BY l.created_at ASC NULLS LAST
+         ), '[]'::jsonb)
+  INTO v_lines
+  FROM stock_receipt_lines l
+  WHERE l.receipt_id = p_id;
+
+  RETURN jsonb_build_object('header', to_jsonb(v_h), 'lines', v_lines);
+END;
+$$;
+
+-- ── WRITE đơn giản ───────────────────────────────────────────────────────────
+
+-- Cập nhật thông tin NCC (chỉ field có trong p_patch & tồn tại cột: name/phone/address).
+-- p_patch: jsonb camelCase {name,phone,address,...}. Field rỗng -> NULL.
+CREATE OR REPLACE FUNCTION stock_receipt_supplier_update(p_id text, p_patch jsonb)
+RETURNS SETOF suppliers
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_name text;
+BEGIN
+  -- name: chỉ set nếu gửi lên & không rỗng (đồng thời cập nhật normalized_name)
+  IF p_patch ? 'name' THEN
+    v_name := trim(COALESCE(p_patch->>'name', ''));
+    IF v_name <> '' THEN
+      UPDATE suppliers
+      SET name = v_name,
+          normalized_name = sr_supplier_key(v_name)
+      WHERE id = p_id;
+    END IF;
+  END IF;
+
+  IF p_patch ? 'phone' THEN
+    UPDATE suppliers SET phone = NULLIF(trim(COALESCE(p_patch->>'phone','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'address' THEN
+    UPDATE suppliers SET address = NULLIF(trim(COALESCE(p_patch->>'address','')), '') WHERE id = p_id;
+  END IF;
+
+  UPDATE suppliers SET updated_at = now() WHERE id = p_id;
+
+  RETURN QUERY SELECT * FROM suppliers WHERE id = p_id;
+END;
+$$;
+
+-- ── WRITE phức tạp: tạo phiếu nhập (1 transaction) ──────────────────────────
+-- p_input: jsonb camelCase, gồm:
+--   structured {supplierName,supplierPhone,supplierAddress,invoiceNumber,storeOrBranch,
+--               receiptDate,receiptTime,lineItems[],productLineCount,subtotal,tax,discount,
+--               totalAmount,currency,paymentMethod,notes}
+--   validation {isLikelyReceipt,confidence,reasonVi,heuristicScore,heuristicNoteVi}
+--   ocrText, receiptImageBase64, receiptImageMimeType,
+--   targetSupplierId, supplierContact {phone,address,...}, createdByUid
+-- Trả về jsonb { id } khi tạo mới, hoặc RAISE EXCEPTION 'DUPLICATE_BILL:<id>' nếu trùng billHash.
+CREATE OR REPLACE FUNCTION stock_receipt_create(p_input jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_struct jsonb := COALESCE(p_input->'structured', '{}'::jsonb);
+  v_valid  jsonb := COALESCE(p_input->'validation', '{}'::jsonb);
+  v_contact jsonb := COALESCE(p_input->'supplierContact', '{}'::jsonb);
+  v_target_supplier text := NULLIF(p_input->>'targetSupplierId', '');
+  v_created_by text := NULLIF(p_input->>'createdByUid', '');
+  v_ocr text := COALESCE(p_input->>'ocrText', '');
+
+  v_supplier_name_raw text := NULLIF(v_struct->>'supplierName', '');
+  v_supplier_id text;
+  v_supplier_name text;
+  v_supplier_key text;
+  v_supplier_is_new boolean := false;
+
+  v_total numeric := COALESCE(NULLIF(v_struct->>'totalAmount','')::numeric, 0);
+  v_bill_hash text;
+  v_dup_id text;
+
+  v_contact_phone text;
+  v_contact_address text;
+
+  v_receipt_date text := NULLIF(v_struct->>'receiptDate', '');
+  v_now timestamptz := now();
+  v_now_iso text := to_char(v_now AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+
+  v_header_id text := sr_gen_id();
+  v_line_count int := 0;
+
+  v_sum_lines numeric := 0;
+  v_delta_pct numeric := 0;
+  v_warn boolean := false;
+
+  v_line jsonb;
+  v_lname text;
+  v_lkey text;
+  v_lunit text;
+  v_lunit_canon text;
+  v_lqty numeric;
+  v_lamount numeric;
+  v_lunitprice numeric;
+  v_mat_id text;
+  v_mat_is_new boolean;
+BEGIN
+  -- ── resolveSupplier ──────────────────────────────────────────────────────
+  -- 1) targetSupplierId tồn tại -> dùng lại
+  IF v_target_supplier IS NOT NULL THEN
+    SELECT id, name, COALESCE(NULLIF(normalized_name,''), sr_supplier_key(name))
+      INTO v_supplier_id, v_supplier_name, v_supplier_key
+    FROM suppliers WHERE id = v_target_supplier;
+    IF FOUND THEN
+      v_supplier_is_new := false;
+    END IF;
+  END IF;
+
+  -- 2) chưa có -> tìm theo normalized_name; nếu không có thì sẽ tạo mới
+  IF v_supplier_id IS NULL AND v_supplier_name_raw IS NOT NULL THEN
+    v_supplier_name := trim(v_supplier_name_raw);
+    v_supplier_key := sr_supplier_key(v_supplier_name);
+    IF v_supplier_key <> '' THEN
+      SELECT id INTO v_supplier_id FROM suppliers WHERE normalized_name = v_supplier_key LIMIT 1;
+      IF v_supplier_id IS NULL THEN
+        v_supplier_id := sr_gen_id();
+        v_supplier_is_new := true;
+      END IF;
+    ELSE
+      v_supplier_name := NULL; -- key rỗng -> không có supplier
+    END IF;
+  END IF;
+  v_supplier_key := COALESCE(v_supplier_key, '');
+
+  -- ── computeBillHash + chống trùng ────────────────────────────────────────
+  v_bill_hash := sr_bill_hash(
+    v_supplier_key,
+    v_receipt_date,
+    CASE WHEN (v_struct->>'totalAmount') IS NULL THEN '' ELSE (v_struct->>'totalAmount') END,
+    v_ocr
+  );
+  SELECT id INTO v_dup_id FROM stock_receipts WHERE bill_hash = v_bill_hash LIMIT 1;
+  IF v_dup_id IS NOT NULL THEN
+    RAISE EXCEPTION 'DUPLICATE_BILL:%', v_dup_id;
+  END IF;
+
+  -- contact (chỉ phone/address có cột trong suppliers)
+  v_contact_phone := NULLIF(trim(COALESCE(v_contact->>'phone','')), '');
+  v_contact_address := NULLIF(trim(COALESCE(v_contact->>'address','')), '');
+
+  -- ── upsert supplier + thống kê ───────────────────────────────────────────
+  IF v_supplier_id IS NOT NULL AND v_supplier_name IS NOT NULL THEN
+    IF v_supplier_is_new THEN
+      INSERT INTO suppliers (
+        id, name, normalized_name, receipt_count, total_amount, last_receipt_date,
+        phone, address, created_at, updated_at
+      ) VALUES (
+        v_supplier_id, v_supplier_name, v_supplier_key, 1, v_total, v_now_iso,
+        v_contact_phone, v_contact_address, v_now, v_now
+      );
+    ELSE
+      UPDATE suppliers SET
+        receipt_count = COALESCE(receipt_count, 0) + 1,
+        total_amount = COALESCE(total_amount, 0) + v_total,
+        last_receipt_date = v_now_iso,
+        phone = COALESCE(v_contact_phone, phone),
+        address = COALESCE(v_contact_address, address),
+        updated_at = v_now
+      WHERE id = v_supplier_id;
+    END IF;
+  ELSE
+    v_supplier_id := NULL; -- không có supplier hợp lệ
+  END IF;
+
+  -- ── amountCheck (computeAmountCheck) ─────────────────────────────────────
+  SELECT COALESCE(SUM(COALESCE(NULLIF(li->>'lineTotal','')::numeric, 0)), 0)
+    INTO v_sum_lines
+  FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
+  WHERE trim(COALESCE(li->>'name','')) <> '';
+  IF (v_struct->>'totalAmount') IS NOT NULL AND v_total > 0 THEN
+    v_delta_pct := abs(v_sum_lines - v_total) / v_total;
+  ELSE
+    v_delta_pct := 0;
+  END IF;
+  v_warn := v_delta_pct > 0.02;
+
+  -- số dòng hợp lệ (cho productLineCount fallback)
+  SELECT count(*) INTO v_line_count
+  FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
+  WHERE trim(COALESCE(li->>'name','')) <> '';
+
+  -- ── insert header ────────────────────────────────────────────────────────
+  INSERT INTO stock_receipts (
+    id, supplier_id, supplier_name_raw, supplier_name_canonical, store_or_branch,
+    invoice_number, supplier_phone, supplier_address, receipt_date, receipt_time,
+    subtotal, tax, discount, total_amount, currency, payment_method, notes,
+    product_line_count, ocr_text, receipt_image_base64, receipt_image_mime_type,
+    validation_is_likely_receipt, validation_confidence, validation_reason_vi,
+    validation_heuristic_score, validation_heuristic_note_vi,
+    amount_check_sum_lines, amount_check_delta_pct, amount_check_warn,
+    bill_hash, status, created_by_uid, created_at, updated_at
+  ) VALUES (
+    v_header_id,
+    v_supplier_id,
+    v_supplier_name_raw,
+    v_supplier_name,
+    NULLIF(v_struct->>'storeOrBranch',''),
+    NULLIF(v_struct->>'invoiceNumber',''),
+    NULLIF(v_struct->>'supplierPhone',''),
+    NULLIF(v_struct->>'supplierAddress',''),
+    v_receipt_date,
+    NULLIF(v_struct->>'receiptTime',''),
+    NULLIF(v_struct->>'subtotal','')::numeric,
+    NULLIF(v_struct->>'tax','')::numeric,
+    NULLIF(v_struct->>'discount','')::numeric,
+    NULLIF(v_struct->>'totalAmount','')::numeric,
+    COALESCE(NULLIF(v_struct->>'currency',''), 'VND'),
+    NULLIF(v_struct->>'paymentMethod',''),
+    NULLIF(v_struct->>'notes',''),
+    COALESCE(NULLIF(v_struct->>'productLineCount','')::int, v_line_count),
+    v_ocr,
+    NULLIF(p_input->>'receiptImageBase64',''),
+    NULLIF(p_input->>'receiptImageMimeType',''),
+    COALESCE((v_valid->>'isLikelyReceipt')::boolean, false),
+    COALESCE(NULLIF(v_valid->>'confidence','')::numeric, 0),
+    COALESCE(v_valid->>'reasonVi', ''),
+    COALESCE(NULLIF(v_valid->>'heuristicScore','')::numeric, 0),
+    COALESCE(v_valid->>'heuristicNoteVi', ''),
+    v_sum_lines,
+    v_delta_pct,
+    v_warn,
+    v_bill_hash,
+    'committed',
+    v_created_by,
+    v_now,
+    v_now
+  );
+
+  -- ── lines + upsert materials + thống kê ──────────────────────────────────
+  FOR v_line IN
+    SELECT li FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
+  LOOP
+    v_lname := trim(COALESCE(v_line->>'name', ''));
+    CONTINUE WHEN v_lname = '';
+    v_lkey := sr_material_key(v_lname);
+    CONTINUE WHEN v_lkey = '';
+
+    v_lunit := NULLIF(trim(COALESCE(v_line->>'unit','')), '');
+    v_lunit_canon := sr_canonical_unit(v_lunit);
+    v_lqty := COALESCE(NULLIF(v_line->>'quantity','')::numeric, 0);
+    v_lamount := COALESCE(NULLIF(v_line->>'lineTotal','')::numeric, 0);
+    -- unitPrice: ưu tiên gửi lên; nếu thiếu, tính amount/qty khi cả hai > 0
+    IF (v_line->>'unitPrice') IS NOT NULL AND (v_line->>'unitPrice') <> '' THEN
+      v_lunitprice := (v_line->>'unitPrice')::numeric;
+    ELSIF v_lqty > 0 AND v_lamount > 0 THEN
+      v_lunitprice := v_lamount / v_lqty;
+    ELSE
+      v_lunitprice := NULL;
+    END IF;
+
+    -- resolveMaterial: tìm theo normalized_name, không có thì tạo mới
+    SELECT id INTO v_mat_id FROM materials WHERE normalized_name = v_lkey LIMIT 1;
+    IF v_mat_id IS NULL THEN
+      v_mat_id := sr_gen_id();
+      v_mat_is_new := true;
+    ELSE
+      v_mat_is_new := false;
+    END IF;
+
+    IF v_mat_is_new THEN
+      INSERT INTO materials (
+        id, name, normalized_name, canonical_unit, import_count, total_qty, total_amount,
+        last_unit_price, last_supplier_id, last_supplier_name, last_receipt_date,
+        created_at, updated_at
+      ) VALUES (
+        v_mat_id, v_lname, v_lkey, v_lunit_canon, 1, v_lqty, v_lamount,
+        v_lunitprice, v_supplier_id, v_supplier_name, v_now_iso, v_now, v_now
+      );
+    ELSE
+      UPDATE materials SET
+        import_count = COALESCE(import_count, 0) + 1,
+        total_qty = COALESCE(total_qty, 0) + v_lqty,
+        total_amount = COALESCE(total_amount, 0) + v_lamount,
+        last_unit_price = v_lunitprice,
+        last_supplier_id = v_supplier_id,
+        last_supplier_name = v_supplier_name,
+        last_receipt_date = v_now_iso,
+        updated_at = v_now
+      WHERE id = v_mat_id;
+    END IF;
+
+    INSERT INTO stock_receipt_lines (
+      id, receipt_id, material_id, material_name_raw, name, quantity, unit,
+      unit_price, line_total, supplier_id, receipt_date, created_at
+    ) VALUES (
+      sr_gen_id(), v_header_id, v_mat_id, v_lname, v_lname,
+      NULLIF(v_line->>'quantity','')::numeric,
+      v_lunit,
+      v_lunitprice,
+      NULLIF(v_line->>'lineTotal','')::numeric,
+      v_supplier_id, v_receipt_date, v_now
+    );
+  END LOOP;
+
+  RETURN jsonb_build_object('id', v_header_id);
+END;
+$$;
+
+-- ── MERGE NCC ────────────────────────────────────────────────────────────────
+-- Gộp các NCC trùng (p_dup_ids) vào root: chuyển receipt/material trỏ về root,
+-- cộng dồn thống kê, xoá NCC trùng. Tất cả 1 transaction.
+CREATE OR REPLACE FUNCTION stock_receipt_merge_suppliers(p_root_id text, p_dup_ids jsonb)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_root_name text;
+  v_dups text[];
+  v_count_sum int := 0;
+  v_amount_sum numeric := 0;
+BEGIN
+  SELECT name INTO v_root_name FROM suppliers WHERE id = p_root_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Root supplier không tồn tại'; END IF;
+  v_root_name := COALESCE(v_root_name, '');
+
+  -- danh sách dup hợp lệ (khác root, tồn tại)
+  SELECT array_agg(DISTINCT d) INTO v_dups
+  FROM jsonb_array_elements_text(COALESCE(p_dup_ids, '[]'::jsonb)) AS d
+  WHERE d <> '' AND d <> p_root_id AND EXISTS (SELECT 1 FROM suppliers s WHERE s.id = d);
+  IF v_dups IS NULL OR array_length(v_dups, 1) IS NULL THEN RETURN; END IF;
+
+  SELECT COALESCE(SUM(COALESCE(receipt_count,0)),0), COALESCE(SUM(COALESCE(total_amount,0)),0)
+    INTO v_count_sum, v_amount_sum
+  FROM suppliers WHERE id = ANY(v_dups);
+
+  UPDATE stock_receipts
+  SET supplier_id = p_root_id, supplier_name_canonical = v_root_name, updated_at = now()
+  WHERE supplier_id = ANY(v_dups);
+
+  UPDATE materials
+  SET last_supplier_id = p_root_id, last_supplier_name = v_root_name, updated_at = now()
+  WHERE last_supplier_id = ANY(v_dups);
+
+  UPDATE suppliers
+  SET receipt_count = COALESCE(receipt_count,0) + v_count_sum,
+      total_amount = COALESCE(total_amount,0) + v_amount_sum,
+      updated_at = now()
+  WHERE id = p_root_id;
+
+  DELETE FROM suppliers WHERE id = ANY(v_dups);
+END;
+$$;
+
+-- ── MERGE nguyên liệu ────────────────────────────────────────────────────────
+-- Gộp các nguyên liệu trùng vào root: lines trỏ về root, cộng dồn thống kê, xoá dup.
+CREATE OR REPLACE FUNCTION stock_receipt_merge_materials(p_root_id text, p_dup_ids jsonb)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_root_name text;
+  v_dups text[];
+  v_import_sum int := 0;
+  v_qty_sum numeric := 0;
+  v_amount_sum numeric := 0;
+BEGIN
+  SELECT name INTO v_root_name FROM materials WHERE id = p_root_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Root material không tồn tại'; END IF;
+  v_root_name := COALESCE(v_root_name, '');
+
+  SELECT array_agg(DISTINCT d) INTO v_dups
+  FROM jsonb_array_elements_text(COALESCE(p_dup_ids, '[]'::jsonb)) AS d
+  WHERE d <> '' AND d <> p_root_id AND EXISTS (SELECT 1 FROM materials m WHERE m.id = d);
+  IF v_dups IS NULL OR array_length(v_dups, 1) IS NULL THEN RETURN; END IF;
+
+  SELECT COALESCE(SUM(COALESCE(import_count,0)),0),
+         COALESCE(SUM(COALESCE(total_qty,0)),0),
+         COALESCE(SUM(COALESCE(total_amount,0)),0)
+    INTO v_import_sum, v_qty_sum, v_amount_sum
+  FROM materials WHERE id = ANY(v_dups);
+
+  UPDATE stock_receipt_lines
+  SET material_id = p_root_id, material_name_raw = v_root_name
+  WHERE material_id = ANY(v_dups);
+
+  UPDATE materials
+  SET import_count = COALESCE(import_count,0) + v_import_sum,
+      total_qty = COALESCE(total_qty,0) + v_qty_sum,
+      total_amount = COALESCE(total_amount,0) + v_amount_sum,
+      updated_at = now()
+  WHERE id = p_root_id;
+
+  DELETE FROM materials WHERE id = ANY(v_dups);
+END;
+$$;

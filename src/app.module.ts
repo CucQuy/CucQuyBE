@@ -3,12 +3,12 @@ import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { bullConnection } from './queue/queue.constants';
 import { FirebaseModule } from './firebase/firebase.module';
+import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthController } from './health/health.controller';
 import { CommissionModule } from './modules/commission/commission.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
-import { ExpensesModule } from './modules/expenses/expenses.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { BadgesModule } from './modules/badges/badges.module';
@@ -17,7 +17,6 @@ import { ConfigurationsModule } from './modules/configurations/configurations.mo
 import { UsersModule } from './modules/users/users.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { StockReceiptsModule } from './modules/stock-receipts/stock-receipts.module';
-import { AdminDbModule } from './modules/admin-db/admin-db.module';
 import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
@@ -33,6 +32,7 @@ import { PromotionsModule } from './modules/promotions/promotions.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     FirebaseModule,
+    DbModule,
     RedisModule,
     // BullMQ — hàng đợi job (gửi Zalo, xử webhook) chạy nền + retry. Dùng Redis.
     BullModule.forRoot({
@@ -47,7 +47,6 @@ import { PromotionsModule } from './modules/promotions/promotions.module';
     CommissionModule,
     ProductsModule,
     CustomersModule,
-    ExpensesModule,
     TransactionsModule,
     CategoriesModule,
     BadgesModule,
@@ -56,7 +55,6 @@ import { PromotionsModule } from './modules/promotions/promotions.module';
     UsersModule,
     OrdersModule,
     StockReceiptsModule,
-    AdminDbModule,
     ImagesModule,
     WebhooksModule,
     SerpapiModule,

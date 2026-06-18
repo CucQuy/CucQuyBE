@@ -86,6 +86,20 @@ export interface Order {
   isTest?: boolean;
   commissionAmount?: number;
   commissionStatus?: 'pending' | 'paid';
+  /** ISO thời điểm trả hoa hồng (cột commission_paid_at). */
+  commissionPaidAt?: string | null;
+}
+
+/** Kết quả app.order_update: order sau cập nhật + diff + snapshot trước (FE gửi Zalo). */
+export interface OrderUpdateResult extends Order {
+  changes: OrderFieldChange[];
+  prevOrder: Order;
+}
+
+/** Kết quả app.order_delete: id + snapshot đã xoá (FE gửi Zalo delete notify). */
+export interface OrderDeleteResult {
+  id: string;
+  prevOrder: Order | null;
 }
 
 /** Enum default mirror FE (frontend/types/enums.ts). */

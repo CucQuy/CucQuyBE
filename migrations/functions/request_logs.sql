@@ -1,0 +1,136 @@
+-- ============================================================
+-- Domain: request_logs — nhật ký request. Toàn bộ logic ở DB, BE chỉ gọi.
+-- Bảng public.request_logs (cột geo là jsonb).
+-- ============================================================
+
+-- Ghi 1 log. Tự sinh id, timestamp = now(), expire_at = now() + p_retention_days ngày.
+-- p_entry: jsonb {method,path,query,statusCode,durationMs,responseSize,ip,geo,
+--                 uid,email,role,userAgent,referer,body}
+-- Trả về dòng vừa ghi. KHÔNG throw cho input thiếu — chỉ chèn những gì có.
+CREATE OR REPLACE FUNCTION request_log_insert(
+  p_entry jsonb,
+  p_retention_days int DEFAULT 30
+)
+RETURNS SETOF request_logs
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_now timestamptz := now();
+BEGIN
+  RETURN QUERY
+  INSERT INTO request_logs (
+    id, method, path, query, status_code, duration_ms, response_size,
+    ip, geo, uid, email, role, user_agent, referer, body, timestamp, expire_at
+  )
+  VALUES (
+    gen_random_uuid()::text,
+    p_entry->>'method',
+    p_entry->>'path',
+    p_entry->>'query',
+    NULLIF(p_entry->>'statusCode','')::int,
+    NULLIF(p_entry->>'durationMs','')::int,
+    NULLIF(p_entry->>'responseSize','')::int,
+    p_entry->>'ip',
+    CASE WHEN p_entry->'geo' IS NULL OR jsonb_typeof(p_entry->'geo') = 'null'
+         THEN NULL ELSE p_entry->'geo' END,
+    NULLIF(p_entry->>'uid',''),
+    NULLIF(p_entry->>'email',''),
+    NULLIF(p_entry->>'role',''),
+    p_entry->>'userAgent',
+    NULLIF(p_entry->>'referer',''),
+    NULLIF(p_entry->>'body',''),
+    v_now,
+    v_now + make_interval(days => GREATEST(p_retention_days, 0))
+  )
+  RETURNING *;
+END;
+$$;
+
+-- Danh sách log có lọc + phân trang (offset). orderBy timestamp desc.
+-- Lấy dư 1 dòng (limit+1) để BE biết còn trang sau không (hasMore).
+-- p_status NULL = không lọc theo status. p_method tự upper.
+CREATE OR REPLACE FUNCTION request_log_list(
+  p_from timestamptz DEFAULT NULL,
+  p_to timestamptz DEFAULT NULL,
+  p_method text DEFAULT NULL,
+  p_status int DEFAULT NULL,
+  p_uid text DEFAULT NULL,
+  p_email text DEFAULT NULL,
+  p_ip text DEFAULT NULL,
+  p_page int DEFAULT 1,
+  p_limit int DEFAULT 50
+)
+RETURNS SETOF request_logs
+LANGUAGE sql STABLE AS $$
+  SELECT *
+  FROM request_logs
+  WHERE (p_from IS NULL OR timestamp >= p_from)
+    AND (p_to IS NULL OR timestamp <= p_to)
+    AND (p_method IS NULL OR method = upper(p_method))
+    AND (p_status IS NULL OR status_code = p_status)
+    AND (p_uid IS NULL OR uid = p_uid)
+    AND (p_email IS NULL OR email = p_email)
+    AND (p_ip IS NULL OR ip = p_ip)
+  ORDER BY timestamp DESC
+  OFFSET (GREATEST(p_page, 1) - 1) * LEAST(GREATEST(p_limit, 1), 200)
+  LIMIT LEAST(GREATEST(p_limit, 1), 200) + 1;
+$$;
+
+-- Thống kê nhanh trên cửa sổ gần nhất (tối đa p_cap dòng mới nhất trong khoảng lọc).
+-- Trả 1 dòng jsonb: {scanned,total,errorCount,uniqueIps,topPaths,topIps}.
+CREATE OR REPLACE FUNCTION request_log_stats(
+  p_from timestamptz DEFAULT NULL,
+  p_to timestamptz DEFAULT NULL,
+  p_cap int DEFAULT 2000
+)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH scan AS (
+    SELECT
+      COALESCE(NULLIF(ip,''), 'unknown') AS ip,
+      COALESCE(NULLIF(path,''), 'unknown') AS path,
+      COALESCE(status_code, 0) AS status_code,
+      geo->>'country' AS country
+    FROM request_logs
+    WHERE (p_from IS NULL OR timestamp >= p_from)
+      AND (p_to IS NULL OR timestamp <= p_to)
+    ORDER BY timestamp DESC
+    LIMIT GREATEST(p_cap, 0)
+  ),
+  paths AS (
+    SELECT jsonb_agg(jsonb_build_object('path', path, 'count', c) ORDER BY c DESC) AS top
+    FROM (
+      SELECT path, count(*) AS c FROM scan GROUP BY path ORDER BY c DESC LIMIT 10
+    ) p
+  ),
+  ips AS (
+    SELECT jsonb_agg(
+             jsonb_build_object('ip', ip, 'country', country, 'count', c) ORDER BY c DESC
+           ) AS top
+    FROM (
+      SELECT ip, (array_agg(country))[1] AS country, count(*) AS c
+      FROM scan GROUP BY ip ORDER BY c DESC LIMIT 10
+    ) i
+  )
+  SELECT jsonb_build_object(
+    'scanned', (SELECT count(*) FROM scan),
+    'total', (SELECT count(*) FROM scan),
+    'errorCount', (SELECT count(*) FROM scan WHERE status_code >= 400),
+    'uniqueIps', (SELECT count(DISTINCT ip) FROM scan),
+    'topPaths', COALESCE((SELECT top FROM paths), '[]'::jsonb),
+    'topIps', COALESCE((SELECT top FROM ips), '[]'::jsonb)
+  );
+$$;
+
+-- Xoá log đã hết hạn (expire_at <= now()). TTL thủ công thay cho Firestore TTL.
+-- Trả số dòng đã xoá.
+CREATE OR REPLACE FUNCTION request_log_purge_expired()
+RETURNS bigint
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_count bigint;
+BEGIN
+  DELETE FROM request_logs WHERE expire_at IS NOT NULL AND expire_at <= now();
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;

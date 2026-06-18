@@ -43,6 +43,4 @@ export interface BadgesConfiguration {
   orderBadges: OrderBadge[];
   productBadges: ProductBadge[];
   customerRules: CustomerBadgeRule[];
-  updatedAt?: string;
-  updatedBy?: string | null;
 }

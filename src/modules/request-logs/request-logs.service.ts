@@ -1,13 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as admin from 'firebase-admin';
-import { FirestoreService } from '../../firebase/firestore.service';
+import { RequestLogProc, RequestLogRow } from './request-logs.proc';
 
-const COL = 'request_logs';
-
-/** Số ngày giữ log trước khi TTL Firestore tự xoá. */
+/** Số ngày giữ log trước khi purge tự xoá. */
 export const RETENTION_DAYS = 30;
 
-/** Trần số doc đọc khi tính thống kê (tránh đọc cả collection tốn chi phí). */
+/** Trần số dòng đọc khi tính thống kê (tránh quét cả bảng). */
 const STATS_SCAN_CAP = 2000;
 
 export interface GeoInfo {
@@ -18,7 +15,7 @@ export interface GeoInfo {
   lng?: number;
 }
 
-/** 1 bản ghi request ghi vào Firestore (chưa kèm timestamp/expireAt). */
+/** 1 bản ghi request ghi vào DB (chưa kèm timestamp/expireAt). */
 export interface RequestLogEntry {
   method: string;
   path: string;
@@ -48,11 +45,33 @@ export interface QueryLogsParams {
   limit?: number;
 }
 
+/** Map dòng DB → camelCase (field cũ mà FE/API đang dùng). */
+const mapRow = (r: RequestLogRow): Record<string, unknown> => ({
+  id: r.id,
+  method: r.method,
+  path: r.path,
+  query: r.query,
+  statusCode: r.status_code,
+  durationMs: r.duration_ms,
+  responseSize: r.response_size,
+  ip: r.ip,
+  geo: r.geo,
+  uid: r.uid,
+  email: r.email,
+  role: r.role,
+  userAgent: r.user_agent,
+  referer: r.referer,
+  body: r.body,
+  timestamp: r.timestamp,
+  expireAt: r.expire_at,
+});
+
+/** Toàn bộ logic ở stored function app.request_log_* — service chỉ gọi. */
 @Injectable()
 export class RequestLogsService {
   private readonly logger = new Logger(RequestLogsService.name);
 
-  constructor(private readonly fs: FirestoreService) {}
+  constructor(private readonly proc: RequestLogProc) {}
 
   /**
    * Ghi log (fire-and-forget). KHÔNG throw ra ngoài — lỗi log không được làm
@@ -60,11 +79,7 @@ export class RequestLogsService {
    */
   async writeLog(entry: RequestLogEntry): Promise<void> {
     try {
-      const now = admin.firestore.Timestamp.now();
-      const expireAt = admin.firestore.Timestamp.fromMillis(
-        now.toMillis() + RETENTION_DAYS * 24 * 60 * 60 * 1000,
-      );
-      await this.fs.collection(COL).add({ ...entry, timestamp: now, expireAt });
+      await this.proc.insert(entry, RETENTION_DAYS);
     } catch (err) {
       this.logger.error(`Ghi request log thất bại: ${String(err)}`);
     }
@@ -80,32 +95,27 @@ export class RequestLogsService {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(200, Math.max(1, params.limit ?? 50));
 
-    let q: admin.firestore.Query = this.fs.collection(COL);
-    if (params.from) q = q.where('timestamp', '>=', this.toTs(params.from));
-    if (params.to) q = q.where('timestamp', '<=', this.toTs(params.to));
-    if (params.method) q = q.where('method', '==', params.method.toUpperCase());
-    if (typeof params.status === 'number') q = q.where('statusCode', '==', params.status);
-    if (params.uid) q = q.where('uid', '==', params.uid);
-    if (params.email) q = q.where('email', '==', params.email);
-    if (params.ip) q = q.where('ip', '==', params.ip);
+    const rows = await this.proc.list({
+      from: params.from ?? null,
+      to: params.to ?? null,
+      method: params.method ?? null,
+      status: typeof params.status === 'number' ? params.status : null,
+      uid: params.uid ?? null,
+      email: params.email ?? null,
+      ip: params.ip ?? null,
+      page,
+      limit,
+    });
 
-    q = q.orderBy('timestamp', 'desc');
-
-    // Lấy dư 1 doc để biết còn trang sau không.
-    const snap = await q
-      .offset((page - 1) * limit)
-      .limit(limit + 1)
-      .get();
-
-    const docs = snap.docs;
-    const hasMore = docs.length > limit;
-    const items = docs.slice(0, limit).map((d) => ({ id: d.id, ...d.data() }));
+    // Hàm trả dư 1 dòng (limit+1) để biết còn trang sau.
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(mapRow);
     return { items, page, limit, hasMore };
   }
 
   /**
-   * Thống kê nhanh trên cửa sổ gần nhất (tối đa STATS_SCAN_CAP doc trong khoảng
-   * thời gian lọc). Trả kèm `scanned` để minh bạch số doc đã quét.
+   * Thống kê nhanh trên cửa sổ gần nhất (tối đa STATS_SCAN_CAP dòng trong khoảng
+   * thời gian lọc). Trả kèm `scanned` để minh bạch số dòng đã quét.
    */
   async stats(params: Pick<QueryLogsParams, 'from' | 'to'>): Promise<{
     scanned: number;
@@ -115,52 +125,39 @@ export class RequestLogsService {
     topPaths: Array<{ path: string; count: number }>;
     topIps: Array<{ ip: string; country?: string; count: number }>;
   }> {
-    let q: admin.firestore.Query = this.fs.collection(COL);
-    if (params.from) q = q.where('timestamp', '>=', this.toTs(params.from));
-    if (params.to) q = q.where('timestamp', '<=', this.toTs(params.to));
-    q = q.orderBy('timestamp', 'desc').limit(STATS_SCAN_CAP);
+    const [row] = await this.proc.stats(
+      params.from ?? null,
+      params.to ?? null,
+      STATS_SCAN_CAP,
+    );
 
-    const snap = await q.get();
-    const rows = snap.docs.map((d) => d.data() as Record<string, unknown>);
-
-    const ips = new Set<string>();
-    let errorCount = 0;
-    const pathCount = new Map<string, number>();
-    const ipCount = new Map<string, { count: number; country?: string }>();
-
-    for (const r of rows) {
-      const ip = typeof r.ip === 'string' ? r.ip : 'unknown';
-      const path = typeof r.path === 'string' ? r.path : 'unknown';
-      const status = typeof r.statusCode === 'number' ? r.statusCode : 0;
-      const country = (r.geo as GeoInfo | null)?.country;
-      ips.add(ip);
-      if (status >= 400) errorCount++;
-      pathCount.set(path, (pathCount.get(path) ?? 0) + 1);
-      const cur = ipCount.get(ip) ?? { count: 0, country };
-      cur.count++;
-      ipCount.set(ip, cur);
-    }
-
-    const topPaths = [...pathCount.entries()]
-      .map(([path, count]) => ({ path, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
-    const topIps = [...ipCount.entries()]
-      .map(([ip, v]) => ({ ip, country: v.country, count: v.count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+    const s = (row?.stats ?? {}) as {
+      scanned?: number;
+      total?: number;
+      errorCount?: number;
+      uniqueIps?: number;
+      topPaths?: Array<{ path: string; count: number }>;
+      topIps?: Array<{ ip: string; country?: string; count: number }>;
+    };
 
     return {
-      scanned: rows.length,
-      total: rows.length,
-      errorCount,
-      uniqueIps: ips.size,
-      topPaths,
-      topIps,
+      scanned: s.scanned ?? 0,
+      total: s.total ?? 0,
+      errorCount: s.errorCount ?? 0,
+      uniqueIps: s.uniqueIps ?? 0,
+      topPaths: s.topPaths ?? [],
+      topIps: s.topIps ?? [],
     };
   }
 
-  private toTs(iso: string): admin.firestore.Timestamp {
-    return admin.firestore.Timestamp.fromDate(new Date(iso));
+  /** Xoá log đã hết hạn (TTL thủ công). Trả số dòng đã xoá. */
+  async purgeExpired(): Promise<number> {
+    try {
+      const [row] = await this.proc.purgeExpired();
+      return Number(row?.count ?? 0);
+    } catch (err) {
+      this.logger.error(`Purge request log hết hạn thất bại: ${String(err)}`);
+      return 0;
+    }
   }
 }

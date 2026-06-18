@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { FirestoreService } from '../firebase/firestore.service';
+import { DbService } from '../db/db.service';
 import { RedisService } from '../redis/redis.service';
 import { IS_PUBLIC_KEY } from './roles.decorator';
 import { AuthUser, UserRole } from './user.types';
@@ -14,13 +15,13 @@ import { AuthUser, UserRole } from './user.types';
 const USER_CACHE_TTL = 300;
 export const userCacheKey = (uid: string) => `auth:user:${uid}`;
 
-/** Phần hồ sơ lấy từ Firestore (cache được) — email lấy từ token, không cache. */
+/** Phần hồ sơ lấy từ Postgres (cache được) — email lấy từ token, không cache. */
 interface CachedProfile {
   role: UserRole | null;
   displayName: string | null;
 }
 
-/** Chuẩn hoá role thô từ Firestore về UserRole enum (giống normalizeRole của FE). */
+/** Chuẩn hoá role thô về UserRole enum (giống normalizeRole của FE). */
 function normalizeRole(raw: unknown): UserRole | undefined {
   if (typeof raw !== 'string') return undefined;
   const s = raw.toLowerCase();
@@ -31,14 +32,15 @@ function normalizeRole(raw: unknown): UserRole | undefined {
 }
 
 /**
- * Verify Firebase ID token (Authorization: Bearer <token>), nạp role từ
- * collection `users` (doc id = uid), gắn AuthUser vào request.
+ * Verify Firebase ID token (Authorization: Bearer <token>) bằng Firebase Auth,
+ * nạp role từ bảng `users` ở Postgres (user_get), gắn AuthUser vào request.
  */
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly firestore: FirestoreService,
+    private readonly firestore: FirestoreService, // chỉ dùng .auth() để verify token
+    private readonly db: DbService,
     private readonly redis: RedisService,
   ) {}
 
@@ -63,20 +65,17 @@ export class FirebaseAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token không hợp lệ hoặc đã hết hạn');
     }
 
-    // Cache hồ sơ user → tránh đọc Firestore users/{uid} trên MỖI request.
-    // Miss/Redis lỗi → đọc Firestore rồi nạp lại cache (TTL ngắn).
+    // Cache hồ sơ user → tránh đọc Postgres users trên MỖI request.
+    // Miss/Redis lỗi → đọc Postgres rồi nạp lại cache (TTL ngắn).
     let profile = await this.redis.get<CachedProfile>(userCacheKey(decoded.uid));
     if (!profile) {
-      const snap = await this.firestore.collection('users').doc(decoded.uid).get();
-      const data = snap.exists ? (snap.data() as Record<string, unknown>) : {};
+      const rows = await this.db.sql<
+        { role: string | null; custom_name: string | null; display_name: string | null }[]
+      >`SELECT role, custom_name, display_name FROM user_get(${decoded.uid})`;
+      const data = rows[0] ?? { role: null, custom_name: null, display_name: null };
       profile = {
         role: normalizeRole(data.role) ?? null,
-        displayName:
-          typeof data.customName === 'string'
-            ? data.customName
-            : typeof data.displayName === 'string'
-              ? data.displayName
-              : null,
+        displayName: data.custom_name ?? data.display_name ?? null,
       };
       await this.redis.set(userCacheKey(decoded.uid), profile, USER_CACHE_TTL);
     }
