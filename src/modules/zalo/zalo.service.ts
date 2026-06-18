@@ -50,7 +50,14 @@ export class ZaloService {
 
   /** Gửi thật tới Zalo. Lỗi → throw để BullMQ retry. */
   async deliver(payload: ZaloSendPayload): Promise<void> {
-    const message = payload?.message ?? '';
+    // Gắn nhãn môi trường vào noti để biết bắn từ đâu. production → để sạch (không tag);
+    // staging/local → prefix [STAGING]/[LOCAL] tránh nhầm tin test với đơn thật.
+    const envLabel = String(process.env.APP_ENV ?? '').trim();
+    const envTag =
+      envLabel && envLabel.toLowerCase() !== 'production'
+        ? `[${envLabel.toUpperCase()}] `
+        : '';
+    const message = envTag + (payload?.message ?? '');
     const baseUrl = String(process.env.ZALO_URL ?? '').trim();
     const shopCode = String(process.env.ZALO_SHOP_CODE ?? '').trim();
     const token = String(process.env.ZALO_TOKEN ?? '').trim();
@@ -84,7 +91,7 @@ export class ZaloService {
           message,
         };
         if (useImage && payload.image) {
-          body.caption = payload.image.caption;
+          body.caption = envTag + (payload.image.caption ?? '');
           body.image_url = payload.image.image_url;
         }
 
