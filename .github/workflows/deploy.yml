@@ -1,18 +1,25 @@
-name: Build & Push Backend
+name: build-and-deploy
 
-# Push lên main → build image trên runner GitHub → push GHCR.
-# KHÔNG deploy ở đây nữa: Keel (trong k3s @ ricevps) tự poll ghcr,
-# thấy :latest đổi digest là tự rollout (pull-based, không cần SSH).
+# Merge/push vào staging hoặc production → CI gate (tsc) → build image amd64
+# (native trên runner ubuntu) → push GHCR. KHÔNG deploy ở đây:
+# keel (k3s @ ricevps) poll GHCR @every 1m (policy=force) và TỰ rollout:
+#   - production → :latest  → ns cucquy           (api.cucquy.site)
+#   - staging    → :staging → ns cucquy-staging   (api-staging.cucquy.site)
+# Backend config-driven (DATABASE_URL/secret lấy từ k8s) → 1 image cho cả 2 môi trường.
+# Không cần kubeconfig/SSH trong CI. Push GHCR bằng GITHUB_TOKEN (packages: write).
 on:
   push:
-    branches: [main]
+    branches: [staging, production]
   workflow_dispatch: {}
+
+concurrency:
+  group: deploy-backend-${{ github.ref_name }}
+  cancel-in-progress: true
 
 env:
   IMAGE: ghcr.io/cucquy/cucquy-backend
 
 jobs:
-  # 1) CI — gate nhanh: code biên dịch được không
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +30,6 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
 
-  # 2) Build image + push lên GitHub Container Registry (GHCR)
   build-push:
     needs: ci
     runs-on: ubuntu-latest
@@ -32,6 +38,15 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve tag theo nhánh
+        id: env
+        run: |
+          if [ "${{ github.ref_name }}" = "production" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=staging" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -40,7 +55,9 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.env.outputs.tag }}
             ${{ env.IMAGE }}:${{ github.sha }}
+      - run: echo "Pushed ${IMAGE}:${{ steps.env.outputs.tag }} (+sha). keel tự rollout trong ~1 phút."
