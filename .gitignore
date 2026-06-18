@@ -12,3 +12,4 @@ firebase-service-account*.json
 # Local data backups (không commit)
 scripts/backup-*.json
 service_account.json
+k8s/*secret*.yaml
