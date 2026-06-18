@@ -12,7 +12,7 @@ Mục tiêu: MỌI logic data nằm trong stored function trong schema **`public
 
 ## File
 - Mỗi domain 1 file: `backend/migrations/functions/<domain>.sql`.
-- Áp vào DB: `docker exec -i cucquy-postgres-1 psql -U cucquy -d cucquy -v ON_ERROR_STOP=1 -q < migrations/functions/<domain>.sql`
+- Áp vào DB: `docker exec -i cucquy-postgres psql -U cucquy -d cucquy -v ON_ERROR_STOP=1 -q < migrations/functions/<domain>.sql`
 
 ## Model (TS)
 - Cập nhật `src/modules/<module>/<domain>.types.ts` cho KHỚP cột bảng (giữ field name camelCase mà API/FE đang dùng).
@@ -31,4 +31,4 @@ Mục tiêu: MỌI logic data nằm trong stored function trong schema **`public
 ## Verify (KHÔNG phá data)
 - `npx tsc --noEmit -p tsconfig.json` phải pass.
 - Test proc bằng SELECT đọc (KHÔNG chạy save_all với list rỗng/thiếu → sẽ xoá data!).
-- Xem schema bảng: `docker exec cucquy-postgres-1 psql -U cucquy -d cucquy -c "\d <table>"`.
+- Xem schema bảng: `docker exec cucquy-postgres psql -U cucquy -d cucquy -c "\d <table>"`.
