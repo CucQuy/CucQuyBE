@@ -66,6 +66,10 @@ export interface ComputeCartLine {
 export interface ComputeInput {
   items: ComputeCartLine[];
   decorations?: { price: number; quantity: number }[];
+  /** Phụ thu tổng cho cả đơn (VND) — cộng vào subtotal TRƯỚC giảm giá. */
+  surchargeAmount?: number;
+  /** Nhãn loại phụ thu: 'decoration' | 'theme' | 'accessory'. */
+  surchargeTag?: string;
   shippingCost?: number;
   code?: string | null; // mã khách/CTV nhập
   promotionIds?: string[]; // chiến dịch CTV chọn áp (opt-in, không tự áp)
