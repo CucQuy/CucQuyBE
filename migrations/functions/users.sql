@@ -53,7 +53,7 @@ BEGIN
 
   IF v_existing.uid IS NOT NULL THEN
     -- đã tồn tại → chỉ cập nhật last_login_at
-    UPDATE users SET last_login_at = v_now WHERE uid = v_existing.uid;
+    UPDATE users SET last_login_at = v_now::timestamptz WHERE uid = v_existing.uid;
     RETURN QUERY SELECT * FROM users WHERE uid = v_existing.uid;
   ELSE
     -- tạo mới
@@ -70,8 +70,8 @@ BEGIN
       'pending',
       'colaborator',
       NULL,
-      v_now,
-      v_now
+      v_now::timestamptz,
+      v_now::timestamptz
     )
     RETURNING *;
   END IF;
