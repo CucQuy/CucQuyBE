@@ -101,6 +101,9 @@ export interface MaterialPriceOption {
   unitPrice: number;
 }
 
+/** Nguồn tạo phiếu nhập: OCR ảnh bill hoặc nhập thủ công qua form. */
+export type StockReceiptSource = 'ocr' | 'manual';
+
 /** Payload lưu phiếu nhập (saveStockReceiptDraft). */
 export interface SaveStockReceiptDraftInput {
   structured: StockReceiptStructured;
@@ -110,4 +113,6 @@ export interface SaveStockReceiptDraftInput {
   receiptImageMimeType?: string | null;
   targetSupplierId?: string | null;
   supplierContact?: SupplierContactInfo | null;
+  /** Mặc định 'ocr' (BE coi thiếu = 'ocr'). 'manual' → bỏ chống trùng DUPLICATE_BILL. */
+  source?: StockReceiptSource;
 }
