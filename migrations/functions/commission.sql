@@ -322,7 +322,7 @@ LANGUAGE sql AS $$
   UPDATE orders SET
     commission_status  = CASE WHEN p_paid THEN 'paid' ELSE 'pending' END,
     commission_paid_at = CASE WHEN p_paid
-                              THEN to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+                              THEN now()
                               ELSE NULL END
   WHERE id = ANY(COALESCE(p_order_ids, ARRAY[]::text[]));
 $$;
