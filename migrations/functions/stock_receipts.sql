@@ -332,14 +332,14 @@ BEGIN
         id, name, normalized_name, receipt_count, total_amount, last_receipt_date,
         phone, address, created_at, updated_at
       ) VALUES (
-        v_supplier_id, v_supplier_name, v_supplier_key, 1, v_total, v_now_iso,
+        v_supplier_id, v_supplier_name, v_supplier_key, 1, v_total, v_now,
         v_contact_phone, v_contact_address, v_now, v_now
       );
     ELSE
       UPDATE suppliers SET
         receipt_count = COALESCE(receipt_count, 0) + 1,
         total_amount = COALESCE(total_amount, 0) + v_total,
-        last_receipt_date = v_now_iso,
+        last_receipt_date = v_now,
         phone = COALESCE(v_contact_phone, phone),
         address = COALESCE(v_contact_address, address),
         updated_at = v_now
@@ -451,7 +451,7 @@ BEGIN
         created_at, updated_at
       ) VALUES (
         v_mat_id, v_lname, v_lkey, v_lunit_canon, 1, v_lqty, v_lamount,
-        v_lunitprice, v_supplier_id, v_supplier_name, v_now_iso, v_now, v_now
+        v_lunitprice, v_supplier_id, v_supplier_name, v_now, v_now, v_now
       );
     ELSE
       UPDATE materials SET
@@ -461,7 +461,7 @@ BEGIN
         last_unit_price = v_lunitprice,
         last_supplier_id = v_supplier_id,
         last_supplier_name = v_supplier_name,
-        last_receipt_date = v_now_iso,
+        last_receipt_date = v_now,
         updated_at = v_now
       WHERE id = v_mat_id;
     END IF;

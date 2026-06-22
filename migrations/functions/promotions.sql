@@ -130,14 +130,14 @@ BEGIN
     NULLIF(p_input->>'getQuantity','')::int,
     COALESCE(NULLIF(p_input->>'scope',''), 'ALL'),
     COALESCE(NULLIF(p_input->>'minOrderValue','')::numeric, 0),
-    NULLIF(p_input->>'startAt',''),
-    NULLIF(p_input->>'endAt',''),
+    NULLIF(p_input->>'startAt','')::timestamptz,
+    NULLIF(p_input->>'endAt','')::timestamptz,
     NULLIF(p_input->>'maxUses','')::int,
     0,
     COALESCE(NULLIF(p_input->>'status',''), 'active'),
     COALESCE(NULLIF(p_input->>'priority','')::int, 0),
     NULLIF(p_input->>'createdBy',''),
-    v_now, v_now
+    now(), now()
   );
 
   PERFORM promotion_sync_links(v_id, p_input);
@@ -176,12 +176,12 @@ BEGIN
     get_quantity      = CASE WHEN p_input ? 'getQuantity'     THEN NULLIF(p_input->>'getQuantity','')::int           ELSE get_quantity END,
     scope             = CASE WHEN p_input ? 'scope'           THEN COALESCE(NULLIF(p_input->>'scope',''),'ALL')      ELSE scope END,
     min_order_value   = CASE WHEN p_input ? 'minOrderValue'   THEN COALESCE(NULLIF(p_input->>'minOrderValue','')::numeric,0) ELSE min_order_value END,
-    start_at          = CASE WHEN p_input ? 'startAt'         THEN NULLIF(p_input->>'startAt','')                    ELSE start_at END,
-    end_at            = CASE WHEN p_input ? 'endAt'           THEN NULLIF(p_input->>'endAt','')                      ELSE end_at END,
+    start_at          = CASE WHEN p_input ? 'startAt'         THEN NULLIF(p_input->>'startAt','')::timestamptz       ELSE start_at END,
+    end_at            = CASE WHEN p_input ? 'endAt'           THEN NULLIF(p_input->>'endAt','')::timestamptz         ELSE end_at END,
     max_uses          = CASE WHEN p_input ? 'maxUses'         THEN NULLIF(p_input->>'maxUses','')::int               ELSE max_uses END,
     status            = CASE WHEN p_input ? 'status'          THEN COALESCE(NULLIF(p_input->>'status',''),'active')  ELSE status END,
     priority          = CASE WHEN p_input ? 'priority'        THEN COALESCE(NULLIF(p_input->>'priority','')::int,0)  ELSE priority END,
-    updated_at        = v_now
+    updated_at        = now()
   WHERE id = p_id;
 
   PERFORM promotion_sync_links(p_id, p_input);
@@ -263,11 +263,11 @@ BEGIN
 
     -- Điều kiện hợp lệ
     v_reason := NULL;
-    IF p.start_at IS NOT NULL AND p.start_at <> ''
-       AND v_now < (extract(epoch from (p.start_at)::timestamptz) * 1000)::bigint THEN
+    IF p.start_at IS NOT NULL
+       AND v_now < (extract(epoch from p.start_at) * 1000)::bigint THEN
       v_reason := 'Chương trình chưa bắt đầu.';
-    ELSIF p.end_at IS NOT NULL AND p.end_at <> ''
-       AND v_now > (extract(epoch from (p.end_at)::timestamptz) * 1000)::bigint THEN
+    ELSIF p.end_at IS NOT NULL
+       AND v_now > (extract(epoch from p.end_at) * 1000)::bigint THEN
       v_reason := 'Chương trình đã kết thúc.';
     ELSIF COALESCE(p.min_order_value,0) > 0 AND v_subtotal < p.min_order_value THEN
       v_reason := 'Đơn tối thiểu ' || to_char(p.min_order_value, 'FM999G999G999') || 'đ để áp dụng.';
