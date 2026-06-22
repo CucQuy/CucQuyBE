@@ -238,7 +238,8 @@ BEGIN
   INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, image)
   SELECT
     p_order_id,
-    NULLIF(COALESCE(it->>'productId', it->>'id'), ''),
+    -- chỉ gán product_id nếu product còn tồn tại (tránh FK vỡ với product đã xoá/legacy); NULL nếu không
+    (SELECT p.id FROM products p WHERE p.id = NULLIF(COALESCE(it->>'productId', it->>'id'), '')),
     NULLIF(it->>'name', ''),
     COALESCE(NULLIF(it->>'price','')::numeric, 0),
     COALESCE(NULLIF(it->>'quantity','')::numeric, 0),
@@ -270,7 +271,7 @@ BEGIN
   INSERT INTO order_gift_items (order_id, product_id, name, image, quantity, price)
   SELECT
     p_order_id,
-    NULLIF(g->>'productId', ''),
+    (SELECT p.id FROM products p WHERE p.id = NULLIF(g->>'productId', '')),
     NULLIF(g->>'name', ''),
     NULLIF(g->>'image', ''),
     COALESCE(NULLIF(g->>'quantity','')::numeric, 0),
