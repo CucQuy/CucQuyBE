@@ -202,14 +202,16 @@ $$;
 
 -- ─────────────────── Engine tính giảm giá ───────────────────
 -- p_input: { items:[{productId,price,quantity}], decorations:[{price,quantity}],
---            shippingCost, code, promotionIds:[...] }
+--            surchargeAmount, shippingCost, code, promotionIds:[...] }
 -- Trả ComputeResult { subtotal, shippingCost, discountAmount, total,
 --                     appliedPromotions[], giftItems[], errors[] }.
+-- subtotal = items + decorations + surcharge (phụ thu tổng theo đơn, TRƯỚC giảm).
 CREATE OR REPLACE FUNCTION promotion_compute(p_input jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_shipping     numeric := COALESCE(NULLIF(p_input->>'shippingCost','')::numeric, 0);
+  v_surcharge    numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
   v_code         text    := NULLIF(upper(btrim(COALESCE(p_input->>'code',''))), '');
   v_selected     text[];
   v_items_total  numeric := 0;
@@ -248,7 +250,7 @@ BEGIN
   INTO v_deco_total
   FROM jsonb_array_elements(COALESCE(p_input->'decorations','[]'::jsonb)) AS d;
 
-  v_subtotal := round(v_items_total + v_deco_total);
+  v_subtotal := round(v_items_total + v_deco_total + v_surcharge);
 
   -- Duyệt từng promotion
   FOR p IN SELECT * FROM promotions LOOP
