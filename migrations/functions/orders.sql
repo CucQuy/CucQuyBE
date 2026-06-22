@@ -151,6 +151,8 @@ LANGUAGE sql STABLE AS $$
     'email',             COALESCE(o.email, ''),
     'items',             order_items_json(o.id),
     'decorations',       order_decorations_json(o.id),
+    'surchargeAmount',   COALESCE(o.surcharge_amount, 0),
+    'surchargeTag',      o.surcharge_tag,
     'subtotal',          COALESCE(o.subtotal, 0),
     'discountAmount',    COALESCE(o.discount_amount, 0),
     'appliedPromotions', order_applied_promotions_json(o.id),
@@ -346,6 +348,8 @@ DECLARE
   v_items    jsonb := COALESCE(p_input->'items', '[]'::jsonb);
   v_decos    jsonb := COALESCE(p_input->'decorations', '[]'::jsonb);
   v_shipping numeric := COALESCE(NULLIF(p_input->>'shippingCost','')::numeric, 0);
+  v_surcharge numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
+  v_surcharge_tag text := NULLIF(p_input->>'surchargeTag', '');
   v_has      boolean;
   v_compute_in jsonb;
   v_promo    jsonb;
@@ -368,6 +372,7 @@ BEGIN
        'quantity',  COALESCE(NULLIF(it->>'quantity','')::numeric, 0)
      )), '[]'::jsonb),
     'decorations', v_decos,
+    'surchargeAmount', v_surcharge,
     'shippingCost', v_shipping,
     'code', p_input->>'appliedPromotionCode',
     'promotionIds', COALESCE(p_input->'appliedPromotionIds', '[]'::jsonb)
@@ -377,7 +382,8 @@ BEGIN
   -- Khi không có item, vòng FROM rỗng -> v_compute_in NULL: dựng input rỗng.
   IF v_compute_in IS NULL THEN
     v_compute_in := jsonb_build_object(
-      'items', '[]'::jsonb, 'decorations', v_decos, 'shippingCost', v_shipping,
+      'items', '[]'::jsonb, 'decorations', v_decos,
+      'surchargeAmount', v_surcharge, 'shippingCost', v_shipping,
       'code', p_input->>'appliedPromotionCode',
       'promotionIds', COALESCE(p_input->'appliedPromotionIds', '[]'::jsonb));
   END IF;
@@ -408,6 +414,7 @@ BEGIN
     id, order_number, order_date, customer_id,
     customer_name, phone, address, email, customer_city, customer_country,
     subtotal, shipping_cost, discount_amount, total,
+    surcharge_amount, surcharge_tag,
     payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, sepay_id,
     commission_status, is_test, created_by, created_at
@@ -417,6 +424,7 @@ BEGIN
     COALESCE(v_cust->>'address',''), COALESCE(v_cust->>'email',''),
     NULLIF(v_cust->>'city',''), NULLIF(v_cust->>'country',''),
     v_subtotal, v_shipping, v_discount, v_total,
+    v_surcharge, v_surcharge_tag,
     COALESCE(NULLIF(p_input->>'paymentStatus',''), 'UNPAID'),
     COALESCE(NULLIF(p_input->>'paymentMethod',''), 'CASH'),
     p_input->>'status',
@@ -466,6 +474,8 @@ DECLARE
   v_items     jsonb := COALESCE(p_input->'items', '[]'::jsonb);
   v_decos     jsonb := COALESCE(p_input->'decorations', '[]'::jsonb);
   v_shipping  numeric := COALESCE(NULLIF(p_input->>'shippingCost','')::numeric, 0);
+  v_surcharge numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
+  v_surcharge_tag text := NULLIF(p_input->>'surchargeTag', '');
   v_has       boolean;
   v_compute_in jsonb;
   v_promo     jsonb;
@@ -506,6 +516,7 @@ BEGIN
        'quantity',  COALESCE(NULLIF(it->>'quantity','')::numeric, 0)
      )), '[]'::jsonb),
     'decorations', v_decos,
+    'surchargeAmount', v_surcharge,
     'shippingCost', v_shipping,
     'code', p_input->>'appliedPromotionCode',
     'promotionIds', COALESCE(p_input->'appliedPromotionIds', '[]'::jsonb)
@@ -514,7 +525,8 @@ BEGIN
 
   IF v_compute_in IS NULL THEN
     v_compute_in := jsonb_build_object(
-      'items', '[]'::jsonb, 'decorations', v_decos, 'shippingCost', v_shipping,
+      'items', '[]'::jsonb, 'decorations', v_decos,
+      'surchargeAmount', v_surcharge, 'shippingCost', v_shipping,
       'code', p_input->>'appliedPromotionCode',
       'promotionIds', COALESCE(p_input->'appliedPromotionIds', '[]'::jsonb));
   END IF;
@@ -555,6 +567,10 @@ BEGIN
     subtotal         = v_subtotal,
     discount_amount  = v_discount,
     total            = v_total,
+    surcharge_amount = CASE WHEN p_input ? 'surchargeAmount'
+                            THEN v_surcharge ELSE surcharge_amount END,
+    surcharge_tag    = CASE WHEN p_input ? 'surchargeTag'
+                            THEN v_surcharge_tag ELSE surcharge_tag END,
     note             = COALESCE(p_input->>'note',''),
     status           = p_input->>'status',
     delivery_date    = CASE WHEN p_input ? 'deliveryDate'

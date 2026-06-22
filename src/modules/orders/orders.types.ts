@@ -20,6 +20,9 @@ export interface OrderDecoration {
   price: number; // đơn giá VND
 }
 
+/** Nhãn loại phụ thu tổng theo đơn. */
+export type SurchargeTag = 'decoration' | 'theme' | 'accessory';
+
 export interface OrderFieldChange {
   field: string;
   label?: string;
@@ -56,7 +59,11 @@ export interface Order {
   email?: string;
   items: OrderItem[];
   decorations?: OrderDecoration[];
-  /** Tổng tiền hàng TRƯỚC giảm (items + decorations). */
+  /** Phụ thu tổng cho cả đơn (VND) — cộng vào subtotal TRƯỚC giảm. Đơn cũ = 0. */
+  surchargeAmount?: number;
+  /** Nhãn loại phụ thu (null nếu không có). */
+  surchargeTag?: SurchargeTag | string | null;
+  /** Tổng tiền hàng TRƯỚC giảm (items + decorations + surcharge). */
   subtotal?: number;
   /** Tổng tiền đã giảm bởi khuyến mãi. */
   discountAmount?: number;

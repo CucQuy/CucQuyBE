@@ -9,6 +9,17 @@ export class PreviewPromotionDto {
   @IsArray()
   decorations?: { price: number; quantity: number }[];
 
+  /** Phụ thu tổng cho cả đơn (VND) — cộng vào subtotal TRƯỚC giảm giá. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  surchargeAmount?: number;
+
+  /** Nhãn loại phụ thu: 'decoration' | 'theme' | 'accessory'. */
+  @IsOptional()
+  @IsString()
+  surchargeTag?: string;
+
   @IsOptional()
   @IsNumber()
   @Min(0)
