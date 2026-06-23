@@ -119,3 +119,122 @@ BEGIN
   );
 END;
 $$;
+
+-- ============================================================
+-- Đối soát hàng loạt (nút "Đồng bộ với đơn").
+-- Tiêu chí 1 đơn ứng viên: payment_method='BANKING', total = transfer_amount,
+-- chưa PAID, chưa có sepay_id, GD xảy ra SAU khi tạo đơn và trong vòng 7 ngày.
+-- Chỉ auto-khớp khi GD có ĐÚNG 1 ứng viên VÀ đơn đó chỉ được 1 GD nhắm tới (không tranh chấp).
+-- ============================================================
+
+-- PREVIEW (dry-run, KHÔNG ghi): trả { matched[], skippedAmbiguous, skippedNoMatch, totalUnmatched }.
+CREATE OR REPLACE FUNCTION transaction_reconcile_preview()
+RETURNS jsonb
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  WITH unmatched AS (
+    SELECT id AS tx_id, sepay_id, transfer_amount,
+           NULLIF(transaction_date, '')::timestamptz AS tx_date
+    FROM transactions
+    WHERE transfer_type = 'in'
+      AND order_number IS NULL
+      AND COALESCE(is_external, false) = false
+      AND NULLIF(transaction_date, '') IS NOT NULL
+  ),
+  pairs AS (
+    SELECT u.tx_id, u.sepay_id, u.transfer_amount, u.tx_date,
+           o.id AS order_id, o.order_number, o.created_at
+    FROM unmatched u
+    JOIN orders o
+      ON o.payment_method = 'BANKING'
+     AND o.payment_status IS DISTINCT FROM 'PAID'
+     AND o.sepay_id IS NULL
+     AND o.order_number IS NOT NULL
+     AND o.created_at IS NOT NULL
+     AND o.total = u.transfer_amount
+     AND u.tx_date >= o.created_at
+     AND u.tx_date <= o.created_at + interval '7 days'
+  ),
+  tx_counts AS (SELECT tx_id, count(*) AS cand FROM pairs GROUP BY tx_id),
+  order_counts AS (SELECT order_id, count(*) AS claims FROM pairs GROUP BY order_id),
+  clean AS (
+    SELECT p.* FROM pairs p
+    JOIN tx_counts tc ON tc.tx_id = p.tx_id AND tc.cand = 1
+    JOIN order_counts oc ON oc.order_id = p.order_id AND oc.claims = 1
+  )
+  SELECT jsonb_build_object(
+    'matched', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'transactionId', tx_id,
+        'sepayId', sepay_id,
+        'orderId', order_id,
+        'orderNumber', order_number,
+        'amount', transfer_amount,
+        'transactionDate', tx_date,
+        'orderCreatedAt', created_at
+      ) ORDER BY tx_date) FROM clean), '[]'::jsonb),
+    'skippedAmbiguous', (SELECT count(*)::int FROM unmatched u
+        WHERE EXISTS (SELECT 1 FROM pairs p WHERE p.tx_id = u.tx_id)
+          AND NOT EXISTS (SELECT 1 FROM clean c WHERE c.tx_id = u.tx_id)),
+    'skippedNoMatch', (SELECT count(*)::int FROM unmatched u
+        WHERE NOT EXISTS (SELECT 1 FROM pairs p WHERE p.tx_id = u.tx_id)),
+    'totalUnmatched', (SELECT count(*)::int FROM unmatched)
+  ) INTO v_result;
+  RETURN v_result;
+END;
+$$;
+
+-- APPLY: ghi map cho danh sách cặp đã confirm. Atomic (1 function = 1 transaction), IDEMPOTENT.
+-- p_pairs: jsonb array [{transactionId, orderId, orderNumber, sepayId}].
+-- Chỉ ghi khi GD vẫn chưa map (order_number NULL) VÀ đơn vẫn eligible (chưa PAID, chưa sepay_id)
+-- → GD và đơn luôn đồng bộ (cùng ghi hoặc cùng bỏ qua). Trả { applied, skipped }.
+CREATE OR REPLACE FUNCTION transaction_reconcile_apply(p_pairs jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_pair jsonb;
+  v_tx_id text;
+  v_order_id text;
+  v_order_number text;
+  v_sepay_id text;
+  v_applied int := 0;
+  v_skipped int := 0;
+  v_ord_updated int;
+BEGIN
+  IF p_pairs IS NULL OR jsonb_typeof(p_pairs) <> 'array' THEN
+    RETURN jsonb_build_object('applied', 0, 'skipped', 0);
+  END IF;
+
+  FOR v_pair IN SELECT * FROM jsonb_array_elements(p_pairs) LOOP
+    v_tx_id := v_pair->>'transactionId';
+    v_order_id := v_pair->>'orderId';
+    v_order_number := v_pair->>'orderNumber';
+    v_sepay_id := NULLIF(v_pair->>'sepayId', '');
+
+    -- GD phải còn chưa map.
+    PERFORM 1 FROM transactions WHERE id = v_tx_id AND order_number IS NULL;
+    IF NOT FOUND THEN
+      v_skipped := v_skipped + 1;
+      CONTINUE;
+    END IF;
+
+    -- Claim đơn: chỉ khi còn eligible (idempotent + không cướp link đơn đã PAID/đã có sepay).
+    UPDATE orders
+      SET sepay_id = v_sepay_id, payment_status = 'PAID'
+      WHERE id = v_order_id
+        AND sepay_id IS NULL
+        AND payment_status IS DISTINCT FROM 'PAID';
+    GET DIAGNOSTICS v_ord_updated = ROW_COUNT;
+
+    IF v_ord_updated = 1 THEN
+      UPDATE transactions SET order_number = v_order_number WHERE id = v_tx_id;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object('applied', v_applied, 'skipped', v_skipped);
+END;
+$$;
