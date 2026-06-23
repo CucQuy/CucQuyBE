@@ -246,6 +246,8 @@ DECLARE
   v_target_supplier text := NULLIF(p_input->>'targetSupplierId', '');
   v_created_by text := NULLIF(p_input->>'createdByUid', '');
   v_ocr text := COALESCE(p_input->>'ocrText', '');
+  -- nguồn phiếu: 'ocr' (mặc định) | 'manual'. Phiếu manual bỏ qua chống trùng billHash.
+  v_source text := COALESCE(NULLIF(p_input->>'source', ''), 'ocr');
 
   v_supplier_name_raw text := NULLIF(v_struct->>'supplierName', '');
   v_supplier_id text;
@@ -310,15 +312,20 @@ BEGIN
   v_supplier_key := COALESCE(v_supplier_key, '');
 
   -- ── computeBillHash + chống trùng ────────────────────────────────────────
+  -- Vẫn tính & lưu bill_hash cho mọi phiếu (truy vết), nhưng CHỈ chặn trùng với
+  -- phiếu OCR. Phiếu manual (ocrText rỗng) dễ ra hash trùng oan khi cùng
+  -- NCC + ngày + tổng tiền — thực tế là 2 phiếu hợp lệ khác nhau.
   v_bill_hash := sr_bill_hash(
     v_supplier_key,
     v_receipt_date,
     CASE WHEN (v_struct->>'totalAmount') IS NULL THEN '' ELSE (v_struct->>'totalAmount') END,
     v_ocr
   );
-  SELECT id INTO v_dup_id FROM stock_receipts WHERE bill_hash = v_bill_hash LIMIT 1;
-  IF v_dup_id IS NOT NULL THEN
-    RAISE EXCEPTION 'DUPLICATE_BILL:%', v_dup_id;
+  IF v_source = 'ocr' THEN
+    SELECT id INTO v_dup_id FROM stock_receipts WHERE bill_hash = v_bill_hash LIMIT 1;
+    IF v_dup_id IS NOT NULL THEN
+      RAISE EXCEPTION 'DUPLICATE_BILL:%', v_dup_id;
+    END IF;
   END IF;
 
   -- contact (chỉ phone/address có cột trong suppliers)
@@ -375,7 +382,7 @@ BEGIN
     validation_is_likely_receipt, validation_confidence, validation_reason_vi,
     validation_heuristic_score, validation_heuristic_note_vi,
     amount_check_sum_lines, amount_check_delta_pct, amount_check_warn,
-    bill_hash, status, created_by_uid, created_at, updated_at
+    bill_hash, status, source, created_by_uid, created_at, updated_at
   ) VALUES (
     v_header_id,
     v_supplier_id,
@@ -408,6 +415,7 @@ BEGIN
     v_warn,
     v_bill_hash,
     'committed',
+    v_source,
     v_created_by,
     v_now,
     v_now
