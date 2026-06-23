@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { TransactionProc, TransactionRow } from './transactions.proc';
+import {
+  TransactionProc,
+  TransactionRow,
+  ReconcilePreviewResult,
+} from './transactions.proc';
 import { Transaction } from './transactions.types';
+import { ReconcilePair } from './dto/reconcile-apply.dto';
 
 const toIso = (val: string | Date | null): string => {
   if (!val) return new Date().toISOString();
@@ -60,5 +65,27 @@ export class TransactionsService {
     const rows = await this.proc.createFromSepay(body);
     const result = rows[0].result;
     return { duplicate: result.duplicate, transaction: mapRow(result.transaction) };
+  }
+
+  /** Đối soát: preview (dry-run) các cặp GD↔đơn sẽ khớp tự động — KHÔNG ghi. */
+  async reconcilePreview(): Promise<ReconcilePreviewResult> {
+    const rows = await this.proc.reconcilePreview();
+    const r = rows[0].result;
+    return {
+      ...r,
+      matched: (r.matched ?? []).map((m) => ({
+        ...m,
+        sepayId: Number(m.sepayId) || 0,
+        amount: Number(m.amount) || 0,
+      })),
+    };
+  }
+
+  /** Đối soát: ghi map cho danh sách cặp đã user confirm (atomic, idempotent). */
+  async reconcileApply(
+    pairs: ReconcilePair[],
+  ): Promise<{ applied: number; skipped: number }> {
+    const rows = await this.proc.reconcileApply(pairs ?? []);
+    return rows[0].result;
   }
 }

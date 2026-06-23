@@ -53,4 +53,36 @@ export class TransactionProc {
     return this.db.sql<{ result: { duplicate: boolean; transaction: TransactionRow } }[]>`
       SELECT transaction_create_from_sepay(${this.db.json(body ?? {})}::jsonb) AS result`;
   }
+
+  /** Đối soát: preview (dry-run) các cặp GD↔đơn sẽ khớp tự động. */
+  reconcilePreview(): Promise<{ result: ReconcilePreviewResult }[]> {
+    return this.db.sql<{ result: ReconcilePreviewResult }[]>`
+      SELECT transaction_reconcile_preview() AS result`;
+  }
+
+  /** Đối soát: ghi map cho danh sách cặp đã confirm (atomic, idempotent). */
+  reconcileApply(
+    pairs: unknown,
+  ): Promise<{ result: { applied: number; skipped: number } }[]> {
+    return this.db.sql<{ result: { applied: number; skipped: number } }[]>`
+      SELECT transaction_reconcile_apply(${this.db.json(pairs ?? [])}::jsonb) AS result`;
+  }
 }
+
+/** 1 cặp GD↔đơn khớp tự động (từ preview). */
+export type ReconcileMatch = {
+  transactionId: string;
+  sepayId: number | string | null;
+  orderId: string;
+  orderNumber: string;
+  amount: number | string;
+  transactionDate: string;
+  orderCreatedAt: string;
+};
+
+export type ReconcilePreviewResult = {
+  matched: ReconcileMatch[];
+  skippedAmbiguous: number;
+  skippedNoMatch: number;
+  totalUnmatched: number;
+};
