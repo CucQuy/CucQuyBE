@@ -76,6 +76,22 @@ export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
   overLabel: '> 6 km',
 };
 
+export interface PaymentConfiguration {
+  bankCode: string;
+  accountNumber: string;
+  accountHolder: string;
+  qrTemplate: string;
+  updatedAt?: string;
+}
+
+/** Fallback khi DB chưa có row payment. */
+export const DEFAULT_PAYMENT_CONFIG: PaymentConfiguration = {
+  bankCode: 'BIDV',
+  accountNumber: '96247HTTH1308',
+  accountHolder: 'TON THAT ANH MINH',
+  qrTemplate: 'compact',
+};
+
 /** Payload PUT zalo-groups (groups + main settings tùy chọn). */
 export interface SaveZaloGroupsPayload {
   groups: ZaloGroupConfig[];

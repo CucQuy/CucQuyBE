@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigurationProc } from './configurations.proc';
 import {
+  DEFAULT_PAYMENT_CONFIG,
   DEFAULT_SHIPPING_CONFIG,
+  PaymentConfiguration,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ShippingConfiguration,
@@ -65,5 +67,20 @@ export class ConfigurationsService {
   ): Promise<ShippingConfiguration> {
     const [row] = await this.proc.shippingConfigSave(config);
     return row.data ?? DEFAULT_SHIPPING_CONFIG;
+  }
+
+  // ==================== PAYMENT ====================
+
+  async fetchPaymentConfiguration(): Promise<PaymentConfiguration> {
+    const [row] = await this.proc.paymentConfigGet();
+    return row.data ?? DEFAULT_PAYMENT_CONFIG;
+  }
+
+  async savePaymentConfiguration(
+    config: PaymentConfiguration,
+    _updatedBy?: string | null,
+  ): Promise<PaymentConfiguration> {
+    const [row] = await this.proc.paymentConfigSave(config);
+    return row.data ?? DEFAULT_PAYMENT_CONFIG;
   }
 }

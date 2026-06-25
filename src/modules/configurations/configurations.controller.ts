@@ -5,7 +5,9 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { ResponseMessage } from '../../common/response-message.decorator';
 import { ConfigurationsService } from './configurations.service';
+import { SavePaymentDto } from './dto/save-payment.dto';
 import {
+  PaymentConfiguration,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ScreenVisibilityMap,
@@ -78,6 +80,25 @@ export class ConfigurationsController {
   ): Promise<ShippingConfiguration> {
     return this.service.saveShippingConfiguration(
       body,
+      user.displayName || user.email || user.uid,
+    );
+  }
+
+  // ==================== PAYMENT ====================
+
+  @Get('payment')
+  getPayment(): Promise<PaymentConfiguration> {
+    return this.service.fetchPaymentConfiguration();
+  }
+
+  @Put('payment')
+  @ResponseMessage('Đã lưu cấu hình thanh toán')
+  savePayment(
+    @Body() body: SavePaymentDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<PaymentConfiguration> {
+    return this.service.savePaymentConfiguration(
+      body as PaymentConfiguration,
       user.displayName || user.email || user.uid,
     );
   }

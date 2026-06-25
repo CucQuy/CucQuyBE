@@ -121,6 +121,56 @@ BEGIN
 END;
 $$;
 
+-- ==================== PAYMENT ====================
+
+-- Trả {bankCode, accountNumber, accountHolder, qrTemplate, updatedAt}. Không có row → 'null'
+-- để service áp fallback (mirror hành vi shipping_config_get).
+CREATE OR REPLACE FUNCTION payment_config_get()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM payment_config WHERE id = 'payment') THEN 'null'::jsonb
+    ELSE (
+      SELECT jsonb_build_object(
+        'bankCode', COALESCE(pc.bank_code, ''),
+        'accountNumber', COALESCE(pc.account_number, ''),
+        'accountHolder', COALESCE(pc.account_holder, ''),
+        'qrTemplate', COALESCE(pc.qr_template, 'compact'),
+        'updatedAt', pc.updated_at
+      )
+      FROM payment_config pc WHERE pc.id = 'payment'
+    )
+  END;
+$$;
+
+-- Lưu payment config từ jsonb {bankCode, accountNumber, accountHolder, qrTemplate}.
+-- Upsert single row id='payment', set updated_at = now(). qrTemplate rỗng/thiếu → 'compact'.
+CREATE OR REPLACE FUNCTION payment_config_save(p_data jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  p_data := COALESCE(p_data, '{}'::jsonb);
+
+  INSERT INTO payment_config (id, bank_code, account_number, account_holder, qr_template, updated_at)
+  VALUES (
+    'payment',
+    NULLIF(p_data->>'bankCode',''),
+    NULLIF(p_data->>'accountNumber',''),
+    NULLIF(p_data->>'accountHolder',''),
+    COALESCE(NULLIF(p_data->>'qrTemplate',''), 'compact'),
+    now()
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    bank_code = EXCLUDED.bank_code,
+    account_number = EXCLUDED.account_number,
+    account_holder = EXCLUDED.account_holder,
+    qr_template = EXCLUDED.qr_template,
+    updated_at = EXCLUDED.updated_at;
+
+  RETURN payment_config_get();
+END;
+$$;
+
 -- ==================== ZALO GROUPS ====================
 
 -- Trả {groups[{id,name,zaloGroupId,memberUids[],notifyOn*,updateFieldWhitelist[]}], mainGroupId, mainNotifyOn*, mainUpdateFieldWhitelist}.

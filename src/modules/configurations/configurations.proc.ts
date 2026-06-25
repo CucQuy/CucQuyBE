@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
 import {
+  PaymentConfiguration,
   ScreenConfiguration,
   ShippingConfiguration,
   ZaloGroupsConfiguration,
@@ -62,5 +63,19 @@ export class ConfigurationProc {
   ): Promise<{ data: ShippingConfiguration | null }[]> {
     return this.db.sql<{ data: ShippingConfiguration | null }[]>`
       SELECT shipping_config_save(${this.db.json(config ?? {})}::jsonb) AS data`;
+  }
+
+  // ==================== PAYMENT ====================
+
+  paymentConfigGet(): Promise<{ data: PaymentConfiguration | null }[]> {
+    return this.db.sql<{ data: PaymentConfiguration | null }[]>`
+      SELECT payment_config_get() AS data`;
+  }
+
+  paymentConfigSave(
+    config: unknown,
+  ): Promise<{ data: PaymentConfiguration | null }[]> {
+    return this.db.sql<{ data: PaymentConfiguration | null }[]>`
+      SELECT payment_config_save(${this.db.json(config ?? {})}::jsonb) AS data`;
   }
 }
