@@ -30,6 +30,7 @@ const mapRow = (r: TransactionRow): Transaction => ({
   transferType: r.transfer_type ?? 'in',
   transferAmount: Number(r.transfer_amount) || 0,
   isExternal: r.is_external === true,
+  settledOut: r.settled_out === true,
 });
 
 /** Service chỉ orchestration + map; mọi call DB qua TransactionProc. */
@@ -53,6 +54,11 @@ export class TransactionsService {
   /** Đánh dấu giao dịch là không liên quan đến hệ thống (hoặc bỏ đánh dấu). */
   async markTransactionExternal(id: string, isExternal: boolean): Promise<void> {
     await this.proc.markExternal(id, isExternal);
+  }
+
+  /** Đánh dấu giao dịch tiền RA đã kết toán (chuyển về TK chính) hoặc bỏ. */
+  async markTransactionSettled(id: string, settled: boolean): Promise<void> {
+    await this.proc.markSettled(id, settled);
   }
 
   /** Liên kết giao dịch với 1 đơn (ghi orderNumber); chuỗi rỗng = gỡ liên kết. */
