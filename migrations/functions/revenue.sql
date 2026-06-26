@@ -184,7 +184,9 @@ DECLARE
   v_profit          numeric := 0;
   v_margin          numeric := 0;
   v_bank_in         numeric := 0;
-  v_bank_out        numeric := 0;  -- tiền ra: transactions transfer_type='out' trong kỳ
+  v_bank_out        numeric := 0;  -- tiền ra: transactions transfer_type='out' trong kỳ (tổng)
+  v_settled_out     numeric := 0;  -- tiền ra đã KẾT TOÁN (về TK chính) — trung tính, KHÔNG trừ doanh thu
+  v_unclassified_out numeric := 0; -- tiền ra CHƯA phân loại (chưa hoàn, chưa kết toán) — cảnh báo
   v_total_refunded  numeric := 0;  -- tiền đã hoàn: order_refunds.amount theo created_at trong kỳ
   v_net_revenue     numeric := 0;  -- doanh thu thuần = doanh thu - tiền hoàn
   v_series          jsonb;
@@ -239,8 +241,16 @@ BEGIN
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
   -- ── bankOut: transactions transfer_type='out' theo transaction_date (đối xứng bankIn) ──
-  SELECT coalesce(SUM(t.transfer_amount),0)
-    INTO v_bank_out
+  -- Tách theo bản chất: đã kết toán (settled_out) vs chưa phân loại (chưa kết toán + chưa gắn phiếu hoàn).
+  -- Tiền ra gắn phiếu hoàn không tính vào 2 nhóm này (đã phản ánh qua totalRefunded).
+  SELECT
+    coalesce(SUM(t.transfer_amount),0),
+    coalesce(SUM(t.transfer_amount) FILTER (WHERE coalesce(t.settled_out,false)),0),
+    coalesce(SUM(t.transfer_amount) FILTER (
+      WHERE coalesce(t.settled_out,false) = false
+        AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+    ),0)
+    INTO v_bank_out, v_settled_out, v_unclassified_out
   FROM transactions t
   WHERE t.transfer_type = 'out'
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
@@ -252,6 +262,7 @@ BEGIN
   WHERE orf.created_at BETWEEN v_from AND v_to;
 
   -- ── netRevenue: doanh thu thuần = doanh thu (gross) − tiền hoàn ──
+  -- LƯU Ý: tiền KẾT TOÁN (chuyển về TK chính) KHÔNG trừ — chỉ là chuyển nội bộ, không mất doanh thu.
   v_net_revenue := v_total_revenue - v_total_refunded;
 
   -- ── series (port buildSeries): revenue[] theo delivery_date, cost[] theo
@@ -326,6 +337,8 @@ BEGIN
     'bankIn', v_bank_in,
     'bankInDelta', v_bank_in - v_total_revenue,
     'bankOut', v_bank_out,
+    'settledOut', v_settled_out,
+    'unclassifiedOut', v_unclassified_out,
     'totalRefunded', v_total_refunded,
     'netRevenue', v_net_revenue,
     'series', coalesce(v_series, '[]'::jsonb),
