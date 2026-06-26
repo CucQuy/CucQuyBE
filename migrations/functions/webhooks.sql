@@ -18,7 +18,11 @@ BEGIN
   END IF;
 
   v_order_number := v_res->'transaction'->>'order_number';
-  IF v_order_number IS NOT NULL THEN
+  -- ⚠️ CHỈ auto-PAID khi giao dịch là tiền VÀO (transfer_type='in'). Giao dịch tiền RA
+  -- (hoàn tiền/chuyển khoản đi) có thể trích trúng mã ORDxxx trong description → KHÔNG
+  -- được đánh dấu đơn là đã thanh toán. (vá latent bug — gate transfer_type)
+  IF v_order_number IS NOT NULL
+     AND COALESCE(v_res->'transaction'->>'transfer_type', 'in') = 'in' THEN
     UPDATE orders
        SET payment_status = 'PAID',
            sepay_id = p_body->>'id',

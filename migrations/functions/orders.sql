@@ -829,7 +829,12 @@ BEGIN
                             THEN v_editor ELSE updated_by END
   WHERE id = p_id;
 
-  PERFORM order_write_items(p_id, v_items);
+  -- CHỈ ghi lại items khi payload CÓ gửi mảng `items`. Nếu KHÔNG gửi (PATCH partial:
+  -- đổi status / paymentStatus / note…) thì GIỮ NGUYÊN order_items cũ — tránh
+  -- order_write_items DELETE sạch rồi INSERT [] → xoá mất sản phẩm của đơn.
+  IF v_sent_items THEN
+    PERFORM order_write_items(p_id, v_items);
+  END IF;
   PERFORM order_write_decorations(p_id, v_decos);
   PERFORM order_write_applied(p_id, v_applied);
 
