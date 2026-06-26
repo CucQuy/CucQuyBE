@@ -7,6 +7,17 @@ import {
 
 // ── Rows trả về từ * (snake_case khớp cột bảng) ─────────────────────────
 
+/** 1 phiếu nhập + field đối soát (camelCase từ jsonb fn). */
+export type ReconcileReceiptItem = {
+  receiptId: string;
+  supplierName: string | null;
+  totalAmount: number | null;
+  receiptDate: string | null;
+  invoiceNumber: string | null;
+  transactionId: string | null;
+  reconciled: boolean;
+};
+
 export type SupplierRow = {
   id: string;
   name: string | null;
@@ -99,6 +110,31 @@ export class StockReceiptProc {
 
   list(): Promise<ReceiptRow[]> {
     return this.db.sql<ReceiptRow[]>`SELECT * FROM stock_receipt_list()`;
+  }
+
+  // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────
+  async listForReconcile(): Promise<ReconcileReceiptItem[]> {
+    const [row] = await this.db.sql<{ list: ReconcileReceiptItem[] }[]>`
+      SELECT stock_receipt_list_for_reconcile() AS list`;
+    return row?.list ?? [];
+  }
+
+  async reconcile(
+    receiptId: string,
+    transactionId: string,
+    userJson: Record<string, unknown>,
+  ): Promise<{ ok: boolean }> {
+    const [row] = await this.db.sql<{ result: { ok: boolean } }[]>`
+      SELECT stock_receipt_reconcile(
+        ${receiptId}, ${transactionId}, ${this.db.json(userJson)}::jsonb
+      ) AS result`;
+    return row.result;
+  }
+
+  async unreconcile(receiptId: string): Promise<{ ok: boolean }> {
+    const [row] = await this.db.sql<{ result: { ok: boolean } }[]>`
+      SELECT stock_receipt_unreconcile(${receiptId}) AS result`;
+    return row.result;
   }
 
   get(
