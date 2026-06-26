@@ -24,6 +24,12 @@ export class TransactionsController {
     return this.service.fetchTransactionsByOrderNumber(orderNumber ?? '');
   }
 
+  /** Giao dịch tiền RA chưa gắn phiếu hoàn — cho FE chọn khi đối soát hoàn tiền. */
+  @Get('out-unlinked')
+  fetchOutUnlinked() {
+    return this.service.fetchOutUnlinked();
+  }
+
   /** Đánh dấu / bỏ đánh dấu giao dịch ngoài hệ thống. */
   @Patch(':id/external')
   async markExternal(@Param('id') id: string, @Body() dto: MarkExternalDto) {
