@@ -525,6 +525,8 @@ DECLARE
   v_refund_amount numeric;        -- số tiền hoàn lần này (input.refund.amount hoặc delta)
   v_refund_in   jsonb := p_input->'refund';  -- {amount, reason} từ client (tuỳ chọn)
   v_refund_reason text;
+  v_has_refund_in boolean;         -- payload CÓ gửi refund tường minh (modal đã xác nhận)
+  v_sent_items  boolean := (p_input ? 'items'); -- payload CÓ gửi mảng items (để so sánh SL)
 BEGIN
   SELECT * INTO v_existing FROM orders WHERE id = p_id;
   IF NOT FOUND THEN
@@ -553,57 +555,50 @@ BEGIN
   v_was_paid  := COALESCE(v_existing.payment_status,'') = 'PAID';
   v_old_total := COALESCE(v_existing.total, 0);
 
-  WITH old_q AS (
-    SELECT 'name:'||lower(COALESCE(oi.product_name,'')) AS k,
-           COALESCE(oi.product_name,'') AS pname,
-           COALESCE(oi.unit_price, 0)   AS price,
-           SUM(COALESCE(oi.quantity, 0)) AS qty
-    FROM order_items oi WHERE oi.order_id = p_id
-    GROUP BY 1, 2, 3
-  ),
-  new_q AS (
-    SELECT 'name:'||lower(COALESCE(it->>'name','')) AS k,
-           SUM(COALESCE(NULLIF(it->>'quantity','')::numeric, 0)) AS qty
-    FROM jsonb_array_elements(v_items) AS it
-    GROUP BY 1
-  ),
-  diff AS (
-    SELECT o.pname, o.price,
-           o.qty AS old_qty,
-           COALESCE(n.qty, 0) AS new_qty
-    FROM old_q o LEFT JOIN new_q n ON n.k = o.k
-  )
-  SELECT
-    bool_or(d.new_qty < d.old_qty),
-    COALESCE(jsonb_agg(jsonb_build_object(
-       'productName', d.pname,
-       'qtyRefunded', d.old_qty - d.new_qty,
-       'unitPrice',   d.price,
-       'amount',      (d.old_qty - d.new_qty) * d.price
-     ) ORDER BY d.pname) FILTER (WHERE d.new_qty < d.old_qty), '[]'::jsonb)
-  INTO v_has_decrease, v_refund_items
-  FROM diff d;
+  -- Chỉ so sánh SL khi payload CÓ gửi mảng items. Nếu KHÔNG gửi items
+  -- (re-save chỉ đổi note/customer…) thì coi như không đổi SL → không giảm, không tăng,
+  -- không hoàn. Tránh items='[]' bị hiểu nhầm là "giảm hết về 0".
+  IF v_sent_items THEN
+    WITH old_q AS (
+      SELECT 'name:'||lower(COALESCE(oi.product_name,'')) AS k,
+             COALESCE(oi.product_name,'') AS pname,
+             COALESCE(oi.unit_price, 0)   AS price,
+             SUM(COALESCE(oi.quantity, 0)) AS qty
+      FROM order_items oi WHERE oi.order_id = p_id
+      GROUP BY 1, 2, 3
+    ),
+    new_q AS (
+      SELECT 'name:'||lower(COALESCE(it->>'name','')) AS k,
+             SUM(COALESCE(NULLIF(it->>'quantity','')::numeric, 0)) AS qty
+      FROM jsonb_array_elements(v_items) AS it
+      GROUP BY 1
+    ),
+    -- FULL JOIN: bắt cả (a) name cũ giảm, (b) name cũ tăng, (c) name mới hoàn toàn.
+    diff AS (
+      SELECT COALESCE(o.pname, '') AS pname,
+             COALESCE(o.price, 0)  AS price,
+             COALESCE(o.qty, 0)    AS old_qty,
+             COALESCE(n.qty, 0)    AS new_qty
+      FROM old_q o FULL OUTER JOIN new_q n ON n.k = o.k
+    )
+    SELECT
+      bool_or(d.new_qty < d.old_qty),
+      bool_or(d.new_qty > d.old_qty),
+      COALESCE(jsonb_agg(jsonb_build_object(
+         'productName', d.pname,
+         'qtyRefunded', d.old_qty - d.new_qty,
+         'unitPrice',   d.price,
+         'amount',      (d.old_qty - d.new_qty) * d.price
+       ) ORDER BY d.pname) FILTER (WHERE d.new_qty < d.old_qty), '[]'::jsonb)
+    INTO v_has_decrease, v_has_increase, v_refund_items
+    FROM diff d;
+  END IF;
 
   v_has_decrease := COALESCE(v_has_decrease, false);
-
-  -- Tăng SL: dòng mới có nhiều hơn cũ HOẶC product mới hoàn toàn (old không có).
-  SELECT bool_or(true) INTO v_has_increase
-  FROM (
-    SELECT 'name:'||lower(COALESCE(it->>'name','')) AS k,
-           SUM(COALESCE(NULLIF(it->>'quantity','')::numeric, 0)) AS qty
-    FROM jsonb_array_elements(v_items) AS it
-    GROUP BY 1
-  ) n
-  LEFT JOIN (
-    SELECT 'name:'||lower(COALESCE(oi.product_name,'')) AS k,
-           SUM(COALESCE(oi.quantity, 0)) AS qty
-    FROM order_items oi WHERE oi.order_id = p_id
-    GROUP BY 1
-  ) o ON o.k = n.k
-  WHERE n.qty > COALESCE(o.qty, 0);
   v_has_increase := COALESCE(v_has_increase, false);
 
   -- Đơn ĐÃ THANH TOÁN chỉ được GIẢM số lượng, không được tăng / thêm item.
+  -- Mọi path tăng (qty payload > qty DB cho bất kỳ name, hoặc item mới) đều raise.
   IF v_was_paid AND v_has_increase THEN
     -- Message = chữ ký lỗi (BE map sang 4xx). Đơn đã thanh toán chỉ được giảm số lượng.
     RAISE EXCEPTION 'ORDER_PAID_NO_INCREASE' USING ERRCODE = 'check_violation';
@@ -708,35 +703,45 @@ BEGIN
     PERFORM order_add_history(p_id, v_editor, v_uid, p_changes);
   END IF;
 
-  -- ── Hoàn tiền khi giảm SL trên đơn ĐÃ THANH TOÁN (issue #179) ──
-  -- Điều kiện: đơn (CŨ) PAID + có ≥1 dòng giảm SL + chênh total dương.
-  -- Tiền hoàn = input.refund.amount nếu client gửi, NGƯỢC LẠI = total_cũ − total_mới.
+  -- ── Hoàn tiền khi giảm SL trên đơn ĐÃ THANH TOÁN (issue #179, dedup #185) ──
+  -- IDEMPOTENT: CHỈ ghi phiếu hoàn khi payload CÓ `refund` tường minh (modal FE đã xác nhận).
+  -- BỎ nhánh fallback theo delta → re-save / sửa field khác (không gửi refund) KHÔNG tạo phiếu.
+  -- Vẫn validate: chỉ chấp nhận khi đơn (CŨ) PAID + thực sự có dòng giảm SL + 0 < amount ≤ total_cũ.
+  v_has_refund_in := (p_input ? 'refund')
+                     AND NULLIF(v_refund_in->>'amount','') IS NOT NULL
+                     AND (v_refund_in->>'amount')::numeric > 0;
   v_refund_delta := v_old_total - COALESCE(v_total, 0);
-  IF v_was_paid AND v_has_decrease AND v_refund_delta > 0 THEN
-    v_refund_amount := COALESCE(NULLIF(v_refund_in->>'amount','')::numeric, v_refund_delta);
-    -- Validate: 0 < amount ≤ total_cũ.
-    IF v_refund_amount <= 0 OR v_refund_amount > v_old_total THEN
-      -- 0 < amount ≤ tổng cũ. Message = chữ ký lỗi (BE map sang 4xx).
-      RAISE EXCEPTION 'ORDER_REFUND_AMOUNT_INVALID' USING ERRCODE = 'check_violation';
+
+  IF v_has_refund_in THEN
+    -- Gửi refund nhưng đơn không đủ điều kiện hoàn (không PAID hoặc không giảm SL) → bỏ qua, KHÔNG ghi sai.
+    IF v_was_paid AND v_has_decrease THEN
+      v_refund_amount := (v_refund_in->>'amount')::numeric;
+      -- Validate: 0 < amount ≤ total_cũ.
+      IF v_refund_amount <= 0 OR v_refund_amount > v_old_total THEN
+        -- Message = chữ ký lỗi (BE map sang 4xx).
+        RAISE EXCEPTION 'ORDER_REFUND_AMOUNT_INVALID' USING ERRCODE = 'check_violation';
+      END IF;
+      v_refund_reason := NULLIF(v_refund_in->>'reason','');
+
+      INSERT INTO order_refunds (order_id, amount, reason, items, created_by)
+      VALUES (p_id, v_refund_amount, v_refund_reason, v_refund_items, v_editor);
+
+      -- SELF-HEAL: refunded_amount = TỔNG mọi phiếu (không cộng dồn) → luôn khớp, không phình.
+      UPDATE orders SET
+        refunded_amount = COALESCE(
+          (SELECT SUM(amount) FROM order_refunds WHERE order_id = p_id), 0),
+        refunded_at     = now(),
+        refund_reason   = COALESCE(v_refund_reason, refund_reason),
+        refunded_by     = v_editor
+      WHERE id = p_id;
+
+      -- Ghi 1 history entry loại refund (field refunded_amount).
+      PERFORM order_add_history(p_id, v_editor, v_uid, jsonb_build_array(
+        jsonb_build_object(
+          'field', 'refunded_amount', 'label', 'Hoàn tiền',
+          'oldValue', '—',
+          'newValue', '+' || v_refund_amount::text)));
     END IF;
-    v_refund_reason := NULLIF(v_refund_in->>'reason','');
-
-    INSERT INTO order_refunds (order_id, amount, reason, items, created_by)
-    VALUES (p_id, v_refund_amount, v_refund_reason, v_refund_items, v_editor);
-
-    UPDATE orders SET
-      refunded_amount = COALESCE(refunded_amount, 0) + v_refund_amount,
-      refunded_at     = now(),
-      refund_reason   = COALESCE(v_refund_reason, refund_reason),
-      refunded_by     = v_editor
-    WHERE id = p_id;
-
-    -- Ghi 1 history entry loại refund (field refunded_amount).
-    PERFORM order_add_history(p_id, v_editor, v_uid, jsonb_build_array(
-      jsonb_build_object(
-        'field', 'refunded_amount', 'label', 'Hoàn tiền',
-        'oldValue', '—',
-        'newValue', '+' || v_refund_amount::text)));
   END IF;
 
   -- Điều chỉnh lượt dùng KM: hoàn lượt bộ cũ, trừ lượt bộ mới (chỉ khi hasItems).
