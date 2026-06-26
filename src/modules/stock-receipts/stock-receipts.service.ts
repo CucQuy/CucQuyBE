@@ -3,9 +3,11 @@ import {
   LineRow,
   MaterialRow,
   ReceiptRow,
+  ReconcileReceiptItem,
   StockReceiptProc,
   SupplierRow,
 } from './stock-receipts.proc';
+import { AuthUser } from '../../auth/user.types';
 import {
   BillLineItem,
   ImportedMaterialSummary,
@@ -189,5 +191,26 @@ export class StockReceiptsService {
 
   async mergeMaterials(rootId: string, duplicateIds: string[]): Promise<void> {
     await this.proc.mergeMaterials(rootId, duplicateIds);
+  }
+
+  // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────
+  async listReceiptsForReconcile(): Promise<ReconcileReceiptItem[]> {
+    return this.proc.listForReconcile();
+  }
+
+  async reconcileReceipt(
+    receiptId: string,
+    transactionId: string,
+    currentUser: AuthUser,
+  ): Promise<{ ok: boolean }> {
+    return this.proc.reconcile(receiptId, transactionId, {
+      uid: currentUser?.uid ?? '',
+      displayName: currentUser?.displayName ?? '',
+      email: currentUser?.email ?? '',
+    });
+  }
+
+  async unreconcileReceipt(receiptId: string): Promise<{ ok: boolean }> {
+    return this.proc.unreconcile(receiptId);
   }
 }

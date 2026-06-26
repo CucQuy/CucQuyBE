@@ -576,3 +576,100 @@ BEGIN
   DELETE FROM materials WHERE id = ANY(v_dups);
 END;
 $$;
+
+-- ============================================================
+-- Đối soát phiếu nhập kho ↔ giao dịch SePay tiền ra (009).
+-- ============================================================
+
+-- Danh sách phiếu nhập + field đối soát — phục vụ tab "Tiền ra" (FE) gắn 1 GD
+-- out ↔ 1 phiếu nhập. transactionId != NULL => đã gắn GD đó.
+CREATE OR REPLACE FUNCTION stock_receipt_list_for_reconcile()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'receiptId',      sr.id,
+    'supplierName',   COALESCE(NULLIF(sr.supplier_name_canonical,''), NULLIF(sr.supplier_name_raw,'')),
+    'totalAmount',    sr.total_amount,
+    'receiptDate',    sr.receipt_date,
+    'invoiceNumber',  sr.invoice_number,
+    'transactionId',  sr.transaction_id,
+    'reconciled',     COALESCE(sr.reconciled, false)
+  ) ORDER BY sr.created_at DESC NULLS LAST), '[]'::jsonb)
+  FROM stock_receipts sr;
+$$;
+
+-- Gắn 1 GD tiền ra cho 1 phiếu nhập. Trả { ok, receiptId, transactionId }.
+CREATE OR REPLACE FUNCTION stock_receipt_reconcile(
+  p_receipt_id     text,
+  p_transaction_id text,
+  p_user           jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_tx_type   text;
+  v_tx_amount numeric;
+  v_total     numeric;
+  v_used      text;
+  v_actor     text := refund_actor_name(p_user);  -- tái dùng helper (orders.sql)
+BEGIN
+  SELECT total_amount INTO v_total FROM stock_receipts WHERE id = p_receipt_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RECEIPT_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  SELECT transfer_type, transfer_amount INTO v_tx_type, v_tx_amount
+  FROM transactions WHERE id = p_transaction_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+  IF COALESCE(v_tx_type,'') <> 'out' THEN
+    RAISE EXCEPTION 'TRANSACTION_NOT_OUTGOING' USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- GD đã gắn cho phiếu nhập KHÁC?
+  SELECT id INTO v_used FROM stock_receipts
+  WHERE transaction_id = p_transaction_id AND id <> p_receipt_id LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_ALREADY_LINKED' USING ERRCODE = 'unique_violation';
+  END IF;
+  -- GD đã gắn cho 1 phiếu HOÀN TIỀN? (không cho dùng chéo)
+  SELECT id INTO v_used FROM order_refunds WHERE transaction_id = p_transaction_id LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_ALREADY_LINKED' USING ERRCODE = 'unique_violation';
+  END IF;
+
+  IF v_tx_amount IS NOT NULL AND COALESCE(v_total,0) <> v_tx_amount THEN
+    RAISE WARNING 'Tổng phiếu nhập (%) lệch số tiền giao dịch (%) — vẫn cho đối soát',
+      v_total, v_tx_amount;
+  END IF;
+
+  UPDATE stock_receipts SET
+    transaction_id = p_transaction_id,
+    reconciled     = true,
+    reconciled_at  = now(),
+    reconciled_by  = v_actor
+  WHERE id = p_receipt_id;
+
+  RETURN jsonb_build_object('ok', true, 'receiptId', p_receipt_id, 'transactionId', p_transaction_id);
+END;
+$$;
+
+-- Gỡ đối soát phiếu nhập (về chưa đối soát).
+CREATE OR REPLACE FUNCTION stock_receipt_unreconcile(p_receipt_id text)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM stock_receipts WHERE id = p_receipt_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RECEIPT_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+  UPDATE stock_receipts SET
+    transaction_id = NULL,
+    reconciled     = false,
+    reconciled_at  = NULL,
+    reconciled_by  = NULL
+  WHERE id = p_receipt_id;
+  RETURN jsonb_build_object('ok', true, 'receiptId', p_receipt_id);
+END;
+$$;
