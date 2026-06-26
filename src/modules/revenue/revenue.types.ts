@@ -23,6 +23,10 @@ export interface RevenueReport {
   bankInDelta: number;
   /** Tiền ra: tổng transactions transfer_type='out' trong kỳ (VND) */
   bankOut: number;
+  /** Tiền ra đã KẾT TOÁN (về TK chính) — trung tính, KHÔNG trừ doanh thu (VND) */
+  settledOut: number;
+  /** Tiền ra CHƯA phân loại (chưa hoàn, chưa kết toán) — cần xử lý (VND) */
+  unclassifiedOut: number;
   /** Tiền đã hoàn: tổng order_refunds.amount theo created_at trong kỳ (VND) */
   totalRefunded: number;
   /** Doanh thu thuần = totalRevenue - totalRefunded (VND) */
