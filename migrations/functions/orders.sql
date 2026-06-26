@@ -546,13 +546,15 @@ BEGIN
   v_old_applied := order_applied_promotions_json(p_id);
 
   -- ── Phát hiện giảm/tăng SL theo product (issue #179) ──────────
-  -- Khớp dòng cũ↔mới theo product_id (nếu có) hoặc tên sản phẩm (lower).
+  -- Khớp dòng cũ↔mới THUẦN THEO TÊN sản phẩm (lower). KHÔNG dùng product_id/id:
+  -- data cũ có order_items.product_id RỖNG trong khi payload FE gửi items[].id (row-id)
+  -- → khoá lệch → tưởng xoá+thêm mới → raise nhầm ORDER_PAID_NO_INCREASE (500). (hotfix #179)
   -- old: order_items hiện tại. new: items trong payload. qtyRefunded = oldQty − newQty (>0).
   v_was_paid  := COALESCE(v_existing.payment_status,'') = 'PAID';
   v_old_total := COALESCE(v_existing.total, 0);
 
   WITH old_q AS (
-    SELECT COALESCE(NULLIF(oi.product_id,''), 'name:'||lower(COALESCE(oi.product_name,''))) AS k,
+    SELECT 'name:'||lower(COALESCE(oi.product_name,'')) AS k,
            COALESCE(oi.product_name,'') AS pname,
            COALESCE(oi.unit_price, 0)   AS price,
            SUM(COALESCE(oi.quantity, 0)) AS qty
@@ -560,8 +562,7 @@ BEGIN
     GROUP BY 1, 2, 3
   ),
   new_q AS (
-    SELECT COALESCE(NULLIF(COALESCE(it->>'productId', it->>'id'),''),
-                    'name:'||lower(COALESCE(it->>'name',''))) AS k,
+    SELECT 'name:'||lower(COALESCE(it->>'name','')) AS k,
            SUM(COALESCE(NULLIF(it->>'quantity','')::numeric, 0)) AS qty
     FROM jsonb_array_elements(v_items) AS it
     GROUP BY 1
@@ -588,14 +589,13 @@ BEGIN
   -- Tăng SL: dòng mới có nhiều hơn cũ HOẶC product mới hoàn toàn (old không có).
   SELECT bool_or(true) INTO v_has_increase
   FROM (
-    SELECT COALESCE(NULLIF(COALESCE(it->>'productId', it->>'id'),''),
-                    'name:'||lower(COALESCE(it->>'name',''))) AS k,
+    SELECT 'name:'||lower(COALESCE(it->>'name','')) AS k,
            SUM(COALESCE(NULLIF(it->>'quantity','')::numeric, 0)) AS qty
     FROM jsonb_array_elements(v_items) AS it
     GROUP BY 1
   ) n
   LEFT JOIN (
-    SELECT COALESCE(NULLIF(oi.product_id,''), 'name:'||lower(COALESCE(oi.product_name,''))) AS k,
+    SELECT 'name:'||lower(COALESCE(oi.product_name,'')) AS k,
            SUM(COALESCE(oi.quantity, 0)) AS qty
     FROM order_items oi WHERE oi.order_id = p_id
     GROUP BY 1
