@@ -55,6 +55,13 @@ LANGUAGE sql AS $$
   UPDATE transactions SET is_external = p_is_external WHERE id = p_id RETURNING *;
 $$;
 
+-- Đánh dấu / bỏ đánh dấu giao dịch tiền RA đã "kết toán" (chuyển về TK chính) — 010.
+CREATE OR REPLACE FUNCTION transaction_mark_settled(p_id text, p_settled boolean)
+RETURNS SETOF transactions
+LANGUAGE sql AS $$
+  UPDATE transactions SET settled_out = p_settled WHERE id = p_id RETURNING *;
+$$;
+
 -- Liên kết / gỡ liên kết giao dịch với 1 đơn (order_number rỗng = gỡ -> NULL).
 -- Trả về dòng đã cập nhật.
 CREATE OR REPLACE FUNCTION transaction_link_order(p_id text, p_order_number text)

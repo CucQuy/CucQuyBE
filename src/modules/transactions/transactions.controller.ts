@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
 import { TransactionsService } from './transactions.service';
 import { MarkExternalDto } from './dto/mark-external.dto';
+import { MarkSettledDto } from './dto/mark-settled.dto';
 import { LinkOrderDto } from './dto/link-order.dto';
 import { ReconcileApplyDto } from './dto/reconcile-apply.dto';
 
@@ -34,6 +35,13 @@ export class TransactionsController {
   @Patch(':id/external')
   async markExternal(@Param('id') id: string, @Body() dto: MarkExternalDto) {
     await this.service.markTransactionExternal(id, dto.isExternal);
+    return { ok: true };
+  }
+
+  /** Đánh dấu / bỏ: tiền RA đã kết toán (chuyển về TK chính). */
+  @Patch(':id/settled')
+  async markSettled(@Param('id') id: string, @Body() dto: MarkSettledDto) {
+    await this.service.markTransactionSettled(id, dto.settled);
     return { ok: true };
   }
 
