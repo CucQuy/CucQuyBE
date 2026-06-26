@@ -18,6 +18,7 @@ export type TransactionRow = {
   description: string | null;
   order_number: string | null;
   is_external: boolean | null;
+  settled_out: boolean | null;
   received_at: string | Date | null;
   created_at: string | Date | null;
 };
@@ -47,6 +48,10 @@ export class TransactionProc {
 
   markExternal(id: string, isExternal: boolean): Promise<unknown> {
     return this.db.sql`SELECT * FROM transaction_mark_external(${id}, ${isExternal})`;
+  }
+
+  markSettled(id: string, settled: boolean): Promise<unknown> {
+    return this.db.sql`SELECT * FROM transaction_mark_settled(${id}, ${settled})`;
   }
 
   linkOrder(id: string, orderNumber: string): Promise<unknown> {
