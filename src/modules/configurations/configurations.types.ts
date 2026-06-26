@@ -76,6 +76,25 @@ export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
   overLabel: '> 6 km',
 };
 
+/** 1 tài khoản nhận tiền (multi-account; tối đa 1 isActive=true). */
+export interface PaymentAccount {
+  id: string;
+  bankCode: string;
+  accountNumber: string;
+  accountHolder: string;
+  qrTemplate: string;
+  isActive: boolean;
+  createdAt: string; // ISO
+}
+
+/** Payload tạo tài khoản (qrTemplate optional, mặc định 'compact'). */
+export interface CreatePaymentAccountPayload {
+  bankCode: string;
+  accountNumber: string;
+  accountHolder: string;
+  qrTemplate?: string;
+}
+
 /** Payload PUT zalo-groups (groups + main settings tùy chọn). */
 export interface SaveZaloGroupsPayload {
   groups: ZaloGroupConfig[];
