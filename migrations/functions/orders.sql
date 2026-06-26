@@ -142,12 +142,18 @@ RETURNS jsonb
 LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
     jsonb_agg(jsonb_build_object(
-      'id',        r.id,
-      'amount',    COALESCE(r.amount, 0),
-      'reason',    COALESCE(r.reason, ''),
-      'items',     COALESCE(r.items, '[]'::jsonb),
-      'createdAt', r.created_at,
-      'createdBy', COALESCE(r.created_by, '')
+      'id',             r.id,
+      'amount',         COALESCE(r.amount, 0),
+      'reason',         COALESCE(r.reason, ''),
+      'items',          COALESCE(r.items, '[]'::jsonb),
+      'createdAt',      r.created_at,
+      'createdBy',      COALESCE(r.created_by, ''),
+      -- đối soát (008/#186): gắn 1 giao dịch SePay 'out' hoặc đánh dấu tiền mặt
+      'transactionId',  r.transaction_id,
+      'reconciled',     COALESCE(r.reconciled, false),
+      'reconcileMethod', r.reconcile_method,
+      'reconciledAt',   r.reconciled_at,
+      'reconciledBy',   r.reconciled_by
     ) ORDER BY r.created_at DESC, r.id DESC),
     '[]'::jsonb)
   FROM order_refunds r WHERE r.order_id = p_order_id;
@@ -249,6 +255,135 @@ CREATE OR REPLACE FUNCTION order_get(p_id text)
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
   SELECT order_to_json(o) FROM orders o WHERE o.id = p_id;
+$$;
+
+-- ─────────────── Đối soát phiếu hoàn (008/#186) ───────────────
+-- Helper: tên người thao tác từ p_user jsonb (giống order_update_status).
+CREATE OR REPLACE FUNCTION refund_actor_name(p_user jsonb)
+RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT COALESCE(
+    NULLIF(p_user->>'displayName',''),
+    NULLIF(p_user->>'email',''),
+    CASE WHEN NULLIF(p_user->>'uid','') IS NOT NULL
+         THEN 'User-' || left(p_user->>'uid', 6) END,
+    'Unknown');
+$$;
+
+-- Gắn 1 phiếu hoàn ↔ 1 giao dịch SePay tiền RA (transfer_type='out'), đối soát.
+-- Validate: phiếu tồn tại; giao dịch tồn tại + là 'out'; giao dịch chưa gắn phiếu
+-- KHÁC. KHÔNG bắt khớp tuyệt đối transfer_amount = amount (có thể lệch do phí CK)
+-- — nhưng RAISE WARNING khi lệch để dễ truy vết. Trả order_to_json(order_id).
+CREATE OR REPLACE FUNCTION order_refund_reconcile(
+  p_refund_id     text,
+  p_transaction_id text,
+  p_user          jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_order_id text;
+  v_amount   numeric;
+  v_tx_type  text;
+  v_tx_amount numeric;
+  v_used_by  text;
+  v_actor    text := refund_actor_name(p_user);
+BEGIN
+  -- phiếu hoàn tồn tại?
+  SELECT order_id, amount INTO v_order_id, v_amount
+  FROM order_refunds WHERE id = p_refund_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'REFUND_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  -- giao dịch tồn tại + là tiền RA?
+  SELECT transfer_type, transfer_amount INTO v_tx_type, v_tx_amount
+  FROM transactions WHERE id = p_transaction_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+  IF COALESCE(v_tx_type,'') <> 'out' THEN
+    RAISE EXCEPTION 'TRANSACTION_NOT_OUTGOING' USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- giao dịch đã gắn cho phiếu KHÁC?
+  SELECT id INTO v_used_by FROM order_refunds
+  WHERE transaction_id = p_transaction_id AND id <> p_refund_id
+  LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_ALREADY_LINKED' USING ERRCODE = 'unique_violation';
+  END IF;
+
+  IF v_tx_amount IS NOT NULL AND COALESCE(v_amount,0) <> v_tx_amount THEN
+    RAISE WARNING 'Số tiền phiếu hoàn (%) lệch số tiền giao dịch (%) — vẫn cho đối soát',
+      v_amount, v_tx_amount;
+  END IF;
+
+  UPDATE order_refunds SET
+    transaction_id   = p_transaction_id,
+    reconciled       = true,
+    reconcile_method = 'sepay',
+    reconciled_at    = now(),
+    reconciled_by    = v_actor
+  WHERE id = p_refund_id;
+
+  RETURN order_get(v_order_id);
+END;
+$$;
+
+-- Đánh dấu phiếu hoàn đã trả bằng TIỀN MẶT (không gắn giao dịch SePay).
+CREATE OR REPLACE FUNCTION order_refund_mark_cash(
+  p_refund_id text,
+  p_user      jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_order_id text;
+  v_actor    text := refund_actor_name(p_user);
+BEGIN
+  SELECT order_id INTO v_order_id FROM order_refunds WHERE id = p_refund_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'REFUND_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  UPDATE order_refunds SET
+    transaction_id   = NULL,
+    reconciled       = true,
+    reconcile_method = 'cash',
+    reconciled_at    = now(),
+    reconciled_by    = v_actor
+  WHERE id = p_refund_id;
+
+  RETURN order_get(v_order_id);
+END;
+$$;
+
+-- Gỡ đối soát: trả phiếu về trạng thái CHƯA đối soát (gỡ giao dịch + method).
+CREATE OR REPLACE FUNCTION order_refund_unreconcile(
+  p_refund_id text,
+  p_user      jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_order_id text;
+BEGIN
+  SELECT order_id INTO v_order_id FROM order_refunds WHERE id = p_refund_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'REFUND_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  UPDATE order_refunds SET
+    transaction_id   = NULL,
+    reconciled       = false,
+    reconcile_method = NULL,
+    reconciled_at    = NULL,
+    reconciled_by    = NULL
+  WHERE id = p_refund_id;
+
+  RETURN order_get(v_order_id);
+END;
 $$;
 
 -- ─────────────────── Ghi bảng con (nội bộ) ───────────────────

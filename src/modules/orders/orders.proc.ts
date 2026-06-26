@@ -67,4 +67,45 @@ export class OrderProc {
       SELECT order_delete(${id}) AS result`;
     return row.result;
   }
+
+  // ── Đối soát phiếu hoàn ↔ giao dịch SePay 'out' — trả order đầy đủ ──
+  async reconcileRefund(
+    refundId: string,
+    transactionId: string,
+    userJson: Record<string, any>,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_refund_reconcile(
+        ${refundId},
+        ${transactionId},
+        ${this.db.json(userJson)}::jsonb
+      ) AS "order"`;
+    return row.order;
+  }
+
+  // ── Đánh dấu phiếu hoàn trả tiền mặt (gỡ giao dịch) — trả order ──
+  async markRefundCash(
+    refundId: string,
+    userJson: Record<string, any>,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_refund_mark_cash(
+        ${refundId},
+        ${this.db.json(userJson)}::jsonb
+      ) AS "order"`;
+    return row.order;
+  }
+
+  // ── Gỡ đối soát phiếu hoàn (về chưa đối soát) — trả order ──
+  async unreconcileRefund(
+    refundId: string,
+    userJson: Record<string, any>,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_refund_unreconcile(
+        ${refundId},
+        ${this.db.json(userJson)}::jsonb
+      ) AS "order"`;
+    return row.order;
+  }
 }
