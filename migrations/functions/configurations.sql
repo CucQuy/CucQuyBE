@@ -121,55 +121,127 @@ BEGIN
 END;
 $$;
 
--- ==================== PAYMENT ====================
+-- ==================== PAYMENT ACCOUNTS (multi-account) ====================
+-- Mô hình: nhiều tài khoản nhận tiền, tối đa 1 active. QR đơn dùng tài khoản active.
+-- Bỏ payment_config_get/save cũ (single-row).
 
--- Trả {bankCode, accountNumber, accountHolder, qrTemplate, updatedAt}. Không có row → 'null'
--- để service áp fallback (mirror hành vi shipping_config_get).
-CREATE OR REPLACE FUNCTION payment_config_get()
+-- Liệt kê tất cả tài khoản → jsonb array. Sắp active trước rồi created_at desc.
+-- Mỗi item {id, bankCode, accountNumber, accountHolder, qrTemplate, isActive, createdAt}.
+CREATE OR REPLACE FUNCTION payment_accounts_list()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
-  SELECT CASE
-    WHEN NOT EXISTS (SELECT 1 FROM payment_config WHERE id = 'payment') THEN 'null'::jsonb
-    ELSE (
-      SELECT jsonb_build_object(
-        'bankCode', COALESCE(pc.bank_code, ''),
-        'accountNumber', COALESCE(pc.account_number, ''),
-        'accountHolder', COALESCE(pc.account_holder, ''),
-        'qrTemplate', COALESCE(pc.qr_template, 'compact'),
-        'updatedAt', pc.updated_at
-      )
-      FROM payment_config pc WHERE pc.id = 'payment'
-    )
-  END;
+  SELECT COALESCE(
+    (SELECT jsonb_agg(jsonb_build_object(
+              'id', a.id,
+              'bankCode', a.bank_code,
+              'accountNumber', a.account_number,
+              'accountHolder', a.account_holder,
+              'qrTemplate', a.qr_template,
+              'isActive', a.is_active,
+              'createdAt', a.created_at
+            ) ORDER BY a.is_active DESC, a.created_at DESC)
+     FROM payment_accounts a),
+    '[]'::jsonb
+  );
 $$;
 
--- Lưu payment config từ jsonb {bankCode, accountNumber, accountHolder, qrTemplate}.
--- Upsert single row id='payment', set updated_at = now(). qrTemplate rỗng/thiếu → 'compact'.
-CREATE OR REPLACE FUNCTION payment_config_save(p_data jsonb)
+-- Tài khoản đang active (jsonb) hoặc null — tiện cho chỗ sinh QR đơn.
+CREATE OR REPLACE FUNCTION payment_account_active()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    (SELECT jsonb_build_object(
+              'id', a.id,
+              'bankCode', a.bank_code,
+              'accountNumber', a.account_number,
+              'accountHolder', a.account_holder,
+              'qrTemplate', a.qr_template,
+              'isActive', a.is_active,
+              'createdAt', a.created_at
+            )
+     FROM payment_accounts a WHERE a.is_active LIMIT 1),
+    'null'::jsonb
+  );
+$$;
+
+-- Tạo tài khoản mới từ jsonb {bankCode, accountNumber, accountHolder, qrTemplate}.
+-- Nếu là tài khoản ĐẦU TIÊN (bảng đang rỗng) → set is_active=true. Trả payment_accounts_list().
+CREATE OR REPLACE FUNCTION payment_account_create(p_data jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
+DECLARE
+  v_first boolean;
 BEGIN
   p_data := COALESCE(p_data, '{}'::jsonb);
 
-  INSERT INTO payment_config (id, bank_code, account_number, account_holder, qr_template, updated_at)
-  VALUES (
-    'payment',
-    NULLIF(p_data->>'bankCode',''),
-    NULLIF(p_data->>'accountNumber',''),
-    NULLIF(p_data->>'accountHolder',''),
-    COALESCE(NULLIF(p_data->>'qrTemplate',''), 'compact'),
-    now()
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    bank_code = EXCLUDED.bank_code,
-    account_number = EXCLUDED.account_number,
-    account_holder = EXCLUDED.account_holder,
-    qr_template = EXCLUDED.qr_template,
-    updated_at = EXCLUDED.updated_at;
+  IF COALESCE(p_data->>'bankCode','') = ''
+     OR COALESCE(p_data->>'accountNumber','') = ''
+     OR COALESCE(p_data->>'accountHolder','') = '' THEN
+    RAISE EXCEPTION 'bankCode, accountNumber, accountHolder are required';
+  END IF;
 
-  RETURN payment_config_get();
+  v_first := NOT EXISTS (SELECT 1 FROM payment_accounts);
+
+  INSERT INTO payment_accounts (bank_code, account_number, account_holder, qr_template, is_active)
+  VALUES (
+    p_data->>'bankCode',
+    p_data->>'accountNumber',
+    p_data->>'accountHolder',
+    COALESCE(NULLIF(p_data->>'qrTemplate',''), 'compact'),
+    v_first
+  );
+
+  RETURN payment_accounts_list();
 END;
 $$;
+
+-- Set tài khoản p_id làm active, các tài khoản khác false (atomic). Trả payment_accounts_list().
+CREATE OR REPLACE FUNCTION payment_account_set_active(p_id text)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM payment_accounts WHERE id = p_id) THEN
+    RAISE EXCEPTION 'payment account % not found', p_id;
+  END IF;
+
+  -- tắt active trước (tránh đụng partial unique index), rồi bật cái cần.
+  UPDATE payment_accounts SET is_active = false WHERE is_active AND id <> p_id;
+  UPDATE payment_accounts SET is_active = true WHERE id = p_id;
+
+  RETURN payment_accounts_list();
+END;
+$$;
+
+-- Xoá tài khoản p_id. Nếu nó đang active và còn tài khoản khác → set cái mới nhất làm active.
+-- Trả payment_accounts_list().
+CREATE OR REPLACE FUNCTION payment_account_delete(p_id text)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_was_active boolean;
+  v_next_id text;
+BEGIN
+  SELECT is_active INTO v_was_active FROM payment_accounts WHERE id = p_id;
+  IF NOT FOUND THEN
+    RETURN payment_accounts_list();
+  END IF;
+
+  DELETE FROM payment_accounts WHERE id = p_id;
+
+  IF v_was_active THEN
+    SELECT id INTO v_next_id FROM payment_accounts ORDER BY created_at DESC LIMIT 1;
+    IF v_next_id IS NOT NULL THEN
+      UPDATE payment_accounts SET is_active = true WHERE id = v_next_id;
+    END IF;
+  END IF;
+
+  RETURN payment_accounts_list();
+END;
+$$;
+
+-- Dọn function single-row cũ (đổi mô hình).
+DROP FUNCTION IF EXISTS payment_config_get();
+DROP FUNCTION IF EXISTS payment_config_save(jsonb);
 
 -- ==================== ZALO GROUPS ====================
 

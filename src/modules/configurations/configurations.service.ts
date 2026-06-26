@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigurationProc } from './configurations.proc';
 import {
-  DEFAULT_PAYMENT_CONFIG,
+  CreatePaymentAccountPayload,
   DEFAULT_SHIPPING_CONFIG,
-  PaymentConfiguration,
+  PaymentAccount,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ShippingConfiguration,
@@ -69,18 +69,27 @@ export class ConfigurationsService {
     return row.data ?? DEFAULT_SHIPPING_CONFIG;
   }
 
-  // ==================== PAYMENT ====================
+  // ==================== PAYMENT ACCOUNTS (multi-account) ====================
 
-  async fetchPaymentConfiguration(): Promise<PaymentConfiguration> {
-    const [row] = await this.proc.paymentConfigGet();
-    return row.data ?? DEFAULT_PAYMENT_CONFIG;
+  async listPaymentAccounts(): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountsList();
+    return row.data ?? [];
   }
 
-  async savePaymentConfiguration(
-    config: PaymentConfiguration,
-    _updatedBy?: string | null,
-  ): Promise<PaymentConfiguration> {
-    const [row] = await this.proc.paymentConfigSave(config);
-    return row.data ?? DEFAULT_PAYMENT_CONFIG;
+  async createPaymentAccount(
+    payload: CreatePaymentAccountPayload,
+  ): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountCreate(payload);
+    return row.data ?? [];
+  }
+
+  async setActivePaymentAccount(id: string): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountSetActive(id);
+    return row.data ?? [];
+  }
+
+  async deletePaymentAccount(id: string): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountDelete(id);
+    return row.data ?? [];
   }
 }

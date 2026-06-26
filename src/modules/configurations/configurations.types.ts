@@ -76,21 +76,24 @@ export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
   overLabel: '> 6 km',
 };
 
-export interface PaymentConfiguration {
+/** 1 tài khoản nhận tiền (multi-account; tối đa 1 isActive=true). */
+export interface PaymentAccount {
+  id: string;
   bankCode: string;
   accountNumber: string;
   accountHolder: string;
   qrTemplate: string;
-  updatedAt?: string;
+  isActive: boolean;
+  createdAt: string; // ISO
 }
 
-/** Fallback khi DB chưa có row payment. */
-export const DEFAULT_PAYMENT_CONFIG: PaymentConfiguration = {
-  bankCode: 'BIDV',
-  accountNumber: '96247HTTH1308',
-  accountHolder: 'TON THAT ANH MINH',
-  qrTemplate: 'compact',
-};
+/** Payload tạo tài khoản (qrTemplate optional, mặc định 'compact'). */
+export interface CreatePaymentAccountPayload {
+  bankCode: string;
+  accountNumber: string;
+  accountHolder: string;
+  qrTemplate?: string;
+}
 
 /** Payload PUT zalo-groups (groups + main settings tùy chọn). */
 export interface SaveZaloGroupsPayload {
