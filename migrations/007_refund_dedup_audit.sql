@@ -1,0 +1,53 @@
+-- ============================================================
+-- 007 — Rà & vá hoàn tiền ghi TRÙNG khi giảm SL đơn PAID (issue #185).
+--
+-- Bối cảnh: order_update (006/#179) AUTO INSERT order_refunds mỗi lần chạy nếu
+-- đơn PAID + có dòng giảm SL + delta>0, KỂ CẢ khi client KHÔNG gửi `refund`
+-- (fallback amount = delta). → mỗi save (re-save, sửa note…) đều ghi phiếu →
+-- TRÙNG (vd ORD-000366: 2 phiếu cho 1 lần giảm). Kèm path tăng SL bị lọt →
+-- qty bounce → giảm lại ghi thêm phiếu.
+--
+-- Fix logic đã nằm trong migrations/functions/orders.sql (order_update):
+--   1) CHỈ INSERT order_refunds khi payload CÓ `refund` tường minh (bỏ fallback delta).
+--   2) Chặn tăng SL chắc chắn (FULL JOIN old↔new theo name) — mọi path tăng raise ORDER_PAID_NO_INCREASE.
+--   3) refunded_amount SELF-HEAL = SUM(order_refunds) thay vì cộng dồn.
+--
+-- ⚠️ File NÀY chỉ chứa QUERY RÀ SOÁT (chẩn đoán) + 1 query vá self-heal (đã comment).
+--    KHÔNG tự chạy trên prod. Người vận hành rà thủ công rồi mới quyết áp.
+-- ============================================================
+
+-- ── (A) RÀ: liệt kê đơn có refunded_amount LỆCH tổng phiếu order_refunds ──
+-- (gồm cả đơn bị ghi trùng → refunded_amount > SUM, hoặc lệch do cộng dồn cũ).
+-- Chạy READ-ONLY để xem trước khi vá.
+--
+-- SELECT o.id, o.order_number, o.payment_status,
+--        o.refunded_amount                                   AS refunded_amount_orders,
+--        COALESCE(r.sum_amount, 0)                           AS sum_order_refunds,
+--        COALESCE(r.cnt, 0)                                  AS refund_rows,
+--        o.refunded_amount - COALESCE(r.sum_amount, 0)       AS diff
+-- FROM orders o
+-- LEFT JOIN (
+--   SELECT order_id, SUM(amount) AS sum_amount, COUNT(*) AS cnt
+--   FROM order_refunds GROUP BY order_id
+-- ) r ON r.order_id = o.id
+-- WHERE o.refunded_amount <> COALESCE(r.sum_amount, 0)
+-- ORDER BY ABS(o.refunded_amount - COALESCE(r.sum_amount, 0)) DESC;
+
+-- ── (B) RÀ: phiếu order_refunds NGHI TRÙNG (cùng order_id + amount + items trong
+-- khoảng thời gian sát nhau → nhiều bản ghi cho 1 lần giảm thực tế). Xem để xoá tay. ──
+--
+-- SELECT order_id, amount, items, COUNT(*) AS dup_count,
+--        MIN(created_at) AS first_at, MAX(created_at) AS last_at,
+--        array_agg(id) AS refund_ids
+-- FROM order_refunds
+-- GROUP BY order_id, amount, items
+-- HAVING COUNT(*) > 1
+-- ORDER BY dup_count DESC, last_at DESC;
+
+-- ── (C) VÁ (CHỈ chạy SAU khi đã xoá tay các phiếu trùng ở (B) nếu cần):
+-- đồng bộ refunded_amount = SUM phiếu còn lại (self-heal toàn bảng). ──
+--
+-- UPDATE orders o SET refunded_amount = COALESCE(
+--   (SELECT SUM(amount) FROM order_refunds r WHERE r.order_id = o.id), 0)
+-- WHERE o.refunded_amount <> COALESCE(
+--   (SELECT SUM(amount) FROM order_refunds r WHERE r.order_id = o.id), 0);
