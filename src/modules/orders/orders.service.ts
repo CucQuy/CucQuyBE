@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuthUser, UserRole } from '../../auth/user.types';
 import { diffOrders } from './order-history-diff';
 import { OrderProc } from './orders.proc';
@@ -106,4 +112,69 @@ export class OrdersService {
   async deleteOrder(id: string): Promise<OrderDeleteResult> {
     return this.proc.delete(id);
   }
+
+  /** Đối soát 1 phiếu hoàn với 1 giao dịch SePay 'out'. Trả order đầy đủ. */
+  async reconcileRefund(
+    refundId: string,
+    transactionId: string,
+    currentUser: AuthUser,
+  ): Promise<Order> {
+    try {
+      return await this.proc.reconcileRefund(
+        refundId,
+        transactionId,
+        userJson(currentUser),
+      );
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+
+  /** Đánh dấu phiếu hoàn đã trả bằng tiền mặt (gỡ giao dịch). Trả order. */
+  async markRefundCash(refundId: string, currentUser: AuthUser): Promise<Order> {
+    try {
+      return await this.proc.markRefundCash(refundId, userJson(currentUser));
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+
+  /** Gỡ đối soát phiếu hoàn (về chưa đối soát). Trả order. */
+  async unreconcileRefund(
+    refundId: string,
+    currentUser: AuthUser,
+  ): Promise<Order> {
+    try {
+      return await this.proc.unreconcileRefund(refundId, userJson(currentUser));
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+}
+
+/** Chuẩn hoá AuthUser -> jsonb p_user cho stored function. */
+function userJson(u: AuthUser): Record<string, any> {
+  return {
+    uid: u?.uid ?? '',
+    role: u?.role ?? '',
+    displayName: u?.displayName ?? '',
+    email: u?.email ?? '',
+  };
+}
+
+/** Map exception raw từ Postgres (đối soát) sang HTTP status có nghĩa cho FE. */
+function mapRefundError(e: unknown): Error {
+  const msg = (e as { message?: string })?.message ?? '';
+  if (msg.includes('REFUND_NOT_FOUND') || msg.includes('TRANSACTION_NOT_FOUND')) {
+    return new NotFoundException(
+      msg.includes('TRANSACTION') ? 'TRANSACTION_NOT_FOUND' : 'REFUND_NOT_FOUND',
+    );
+  }
+  if (msg.includes('TRANSACTION_ALREADY_LINKED')) {
+    return new ConflictException('TRANSACTION_ALREADY_LINKED');
+  }
+  if (msg.includes('TRANSACTION_NOT_OUTGOING')) {
+    return new BadRequestException('TRANSACTION_NOT_OUTGOING');
+  }
+  return e as Error;
 }

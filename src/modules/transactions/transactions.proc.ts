@@ -39,6 +39,12 @@ export class TransactionProc {
       .sql<TransactionRow[]>`SELECT * FROM transaction_list_by_order(${orderNumber})`;
   }
 
+  /** Giao dịch tiền RA chưa gắn phiếu hoàn nào (cho FE chọn khi đối soát). */
+  listOutUnlinked(): Promise<TransactionRow[]> {
+    return this.db
+      .sql<TransactionRow[]>`SELECT * FROM transaction_list_out_unlinked()`;
+  }
+
   markExternal(id: string, isExternal: boolean): Promise<unknown> {
     return this.db.sql`SELECT * FROM transaction_mark_external(${id}, ${isExternal})`;
   }

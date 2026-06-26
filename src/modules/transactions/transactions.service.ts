@@ -45,6 +45,11 @@ export class TransactionsService {
     return (await this.proc.listByOrder(orderNumber)).map(mapRow);
   }
 
+  /** Giao dịch tiền RA chưa gắn phiếu hoàn nào — cho FE chọn khi đối soát hoàn. */
+  async fetchOutUnlinked(): Promise<Transaction[]> {
+    return (await this.proc.listOutUnlinked()).map(mapRow);
+  }
+
   /** Đánh dấu giao dịch là không liên quan đến hệ thống (hoặc bỏ đánh dấu). */
   async markTransactionExternal(id: string, isExternal: boolean): Promise<void> {
     await this.proc.markExternal(id, isExternal);

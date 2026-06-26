@@ -39,6 +39,12 @@ export interface OrderRefund {
   items: OrderRefundItem[];
   createdAt?: unknown; // ISO timestamptz
   createdBy?: string;
+  // Đối soát (008/#186): gắn giao dịch SePay 'out' hoặc đánh dấu tiền mặt.
+  transactionId?: string | null;
+  reconciled?: boolean;
+  reconcileMethod?: 'sepay' | 'cash' | null;
+  reconciledAt?: unknown; // ISO timestamptz
+  reconciledBy?: string | null;
 }
 
 /** Payload tuỳ chọn khi cập nhật đơn để ghi nhận hoàn tiền. */

@@ -34,6 +34,20 @@ LANGUAGE sql STABLE AS $$
   ORDER BY transaction_date DESC NULLS LAST, created_at DESC NULLS LAST;
 $$;
 
+-- Giao dịch tiền RA (transfer_type='out') CHƯA gắn phiếu hoàn nào (008/#186).
+-- Dùng cho FE chọn giao dịch khi đối soát phiếu hoàn. Loại GD đã đánh dấu external.
+CREATE OR REPLACE FUNCTION transaction_list_out_unlinked()
+RETURNS SETOF transactions
+LANGUAGE sql STABLE AS $$
+  SELECT t.* FROM transactions t
+  WHERE t.transfer_type = 'out'
+    AND COALESCE(t.is_external, false) = false
+    AND NOT EXISTS (
+      SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id
+    )
+  ORDER BY t.transaction_date DESC NULLS LAST, t.created_at DESC NULLS LAST;
+$$;
+
 -- Đánh dấu / bỏ đánh dấu giao dịch ngoài hệ thống. Trả về dòng đã cập nhật.
 CREATE OR REPLACE FUNCTION transaction_mark_external(p_id text, p_is_external boolean)
 RETURNS SETOF transactions
