@@ -33,6 +33,12 @@ export class OrdersController {
     return { orderNumber: await this.service.getNextOrderNumber() };
   }
 
+  /** Toàn bộ phiếu hoàn (mọi đơn) — đối soát từ phía giao dịch tiền ra. */
+  @Get('refunds')
+  listRefunds() {
+    return this.service.listRefunds();
+  }
+
   /** Tạo đơn — trả order đã tạo (gồm id + orderNumber) để FE gửi Zalo. */
   @Post()
   addOrder(

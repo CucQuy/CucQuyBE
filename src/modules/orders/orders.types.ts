@@ -47,6 +47,19 @@ export interface OrderRefund {
   reconciledBy?: string | null;
 }
 
+/** 1 phiếu hoàn (mọi đơn) kèm ngữ cảnh đơn — dùng đối soát từ phía GD tiền ra. */
+export interface RefundListItem {
+  refundId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  amount: number; // VND
+  reason?: string | null;
+  createdAt?: unknown; // ISO timestamptz
+  transactionId?: string | null;
+  reconciled: boolean;
+  reconcileMethod?: 'sepay' | 'cash' | null;
+}
+
 /** Payload tuỳ chọn khi cập nhật đơn để ghi nhận hoàn tiền. */
 export interface OrderRefundInput {
   amount?: number; // nếu bỏ trống → BE tính = total_cũ − total_mới
