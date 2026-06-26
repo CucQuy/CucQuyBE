@@ -1,11 +1,22 @@
-import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { ResponseMessage } from '../../common/response-message.decorator';
 import { ConfigurationsService } from './configurations.service';
+import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import {
+  PaymentAccount,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ScreenVisibilityMap,
@@ -80,5 +91,38 @@ export class ConfigurationsController {
       body,
       user.displayName || user.email || user.uid,
     );
+  }
+
+  // ==================== PAYMENT ACCOUNTS (multi-account) ====================
+
+  /** Danh sách tài khoản nhận tiền (active trước, mới nhất sau). */
+  @Get('payment-accounts')
+  listPaymentAccounts(): Promise<PaymentAccount[]> {
+    return this.service.listPaymentAccounts();
+  }
+
+  /** Thêm tài khoản nhận tiền; tài khoản đầu tiên tự thành active. Trả danh sách mới. */
+  @Post('payment-accounts')
+  @ResponseMessage('Đã thêm tài khoản nhận tiền')
+  createPaymentAccount(
+    @Body() body: CreatePaymentAccountDto,
+  ): Promise<PaymentAccount[]> {
+    return this.service.createPaymentAccount(body);
+  }
+
+  /** Chọn tài khoản active (các tài khoản khác tự bỏ active). Trả danh sách mới. */
+  @Put('payment-accounts/:id/active')
+  @ResponseMessage('Đã chọn tài khoản nhận tiền')
+  setActivePaymentAccount(
+    @Param('id') id: string,
+  ): Promise<PaymentAccount[]> {
+    return this.service.setActivePaymentAccount(id);
+  }
+
+  /** Xoá tài khoản; nếu xoá cái active thì cái mới nhất còn lại thành active. Trả danh sách mới. */
+  @Delete('payment-accounts/:id')
+  @ResponseMessage('Đã xoá tài khoản nhận tiền')
+  deletePaymentAccount(@Param('id') id: string): Promise<PaymentAccount[]> {
+    return this.service.deletePaymentAccount(id);
   }
 }

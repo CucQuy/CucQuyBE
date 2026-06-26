@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigurationProc } from './configurations.proc';
 import {
+  CreatePaymentAccountPayload,
   DEFAULT_SHIPPING_CONFIG,
+  PaymentAccount,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ShippingConfiguration,
@@ -65,5 +67,29 @@ export class ConfigurationsService {
   ): Promise<ShippingConfiguration> {
     const [row] = await this.proc.shippingConfigSave(config);
     return row.data ?? DEFAULT_SHIPPING_CONFIG;
+  }
+
+  // ==================== PAYMENT ACCOUNTS (multi-account) ====================
+
+  async listPaymentAccounts(): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountsList();
+    return row.data ?? [];
+  }
+
+  async createPaymentAccount(
+    payload: CreatePaymentAccountPayload,
+  ): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountCreate(payload);
+    return row.data ?? [];
+  }
+
+  async setActivePaymentAccount(id: string): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountSetActive(id);
+    return row.data ?? [];
+  }
+
+  async deletePaymentAccount(id: string): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountDelete(id);
+    return row.data ?? [];
   }
 }
