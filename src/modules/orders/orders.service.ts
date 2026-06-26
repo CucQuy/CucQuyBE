@@ -13,6 +13,7 @@ import {
   OrderDeleteResult,
   OrderFieldChange,
   OrderUpdateResult,
+  RefundListItem,
 } from './orders.types';
 
 /** Ném khi CTV cố cập nhật đơn không phải do họ tạo. Giữ trùng giá trị FE. */
@@ -111,6 +112,11 @@ export class OrdersService {
   /** Xoá đơn — proc trả snapshot đã xoá + hoàn lượt KM. */
   async deleteOrder(id: string): Promise<OrderDeleteResult> {
     return this.proc.delete(id);
+  }
+
+  /** Danh sách toàn bộ phiếu hoàn (mọi đơn) — đối soát từ phía GD tiền ra. */
+  async listRefunds(): Promise<RefundListItem[]> {
+    return this.proc.refundList();
   }
 
   /** Đối soát 1 phiếu hoàn với 1 giao dịch SePay 'out'. Trả order đầy đủ. */

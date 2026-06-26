@@ -5,6 +5,7 @@ import {
   OrderDeleteResult,
   OrderFieldChange,
   OrderUpdateResult,
+  RefundListItem,
 } from './orders.types';
 
 /**
@@ -66,6 +67,13 @@ export class OrderProc {
     const [row] = await this.db.sql<{ result: OrderDeleteResult }[]>`
       SELECT order_delete(${id}) AS result`;
     return row.result;
+  }
+
+  // ── Đọc: TOÀN BỘ phiếu hoàn (mọi đơn) + ngữ cảnh đơn — đối soát từ phía GD tiền ra ──
+  async refundList(): Promise<RefundListItem[]> {
+    const [row] = await this.db.sql<{ list: RefundListItem[] }[]>`
+      SELECT refund_list_all() AS list`;
+    return row?.list ?? [];
   }
 
   // ── Đối soát phiếu hoàn ↔ giao dịch SePay 'out' — trả order đầy đủ ──
