@@ -184,6 +184,9 @@ DECLARE
   v_profit          numeric := 0;
   v_margin          numeric := 0;
   v_bank_in         numeric := 0;
+  v_bank_out        numeric := 0;  -- tiền ra: transactions transfer_type='out' trong kỳ
+  v_total_refunded  numeric := 0;  -- tiền đã hoàn: order_refunds.amount theo created_at trong kỳ
+  v_net_revenue     numeric := 0;  -- doanh thu thuần = doanh thu - tiền hoàn
   v_series          jsonb;
 BEGIN
   -- periodBounds: from @ 00:00:00, to @ 23:59:59.999
@@ -234,6 +237,22 @@ BEGIN
   FROM transactions t
   WHERE t.transfer_type = 'in'
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
+
+  -- ── bankOut: transactions transfer_type='out' theo transaction_date (đối xứng bankIn) ──
+  SELECT coalesce(SUM(t.transfer_amount),0)
+    INTO v_bank_out
+  FROM transactions t
+  WHERE t.transfer_type = 'out'
+    AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
+
+  -- ── totalRefunded: tiền hoàn ghi nhận trong kỳ (order_refunds.amount theo created_at) ──
+  SELECT coalesce(SUM(orf.amount),0)
+    INTO v_total_refunded
+  FROM order_refunds orf
+  WHERE orf.created_at BETWEEN v_from AND v_to;
+
+  -- ── netRevenue: doanh thu thuần = doanh thu (gross) − tiền hoàn ──
+  v_net_revenue := v_total_revenue - v_total_refunded;
 
   -- ── series (port buildSeries): revenue[] theo delivery_date, cost[] theo
   --    commission + stock_in + expenses; idx = floor((d - from)/bucketDays). ──
@@ -306,6 +325,9 @@ BEGIN
     'margin', v_margin,
     'bankIn', v_bank_in,
     'bankInDelta', v_bank_in - v_total_revenue,
+    'bankOut', v_bank_out,
+    'totalRefunded', v_total_refunded,
+    'netRevenue', v_net_revenue,
     'series', coalesce(v_series, '[]'::jsonb),
     'costBreakdown', jsonb_build_object(
       'stockIn', v_total_stock_in,
