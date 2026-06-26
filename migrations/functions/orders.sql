@@ -386,6 +386,27 @@ BEGIN
 END;
 $$;
 
+-- Danh sách TOÀN BỘ phiếu hoàn (mọi đơn) kèm ngữ cảnh đơn — phục vụ đối soát
+-- TỪ PHÍA giao dịch tiền ra (tab "Tiền ra"): map 1 GD out ↔ 1 phiếu hoàn.
+-- transactionId != NULL => phiếu đã gắn GD đó; reconciled/method cho biết trạng thái.
+CREATE OR REPLACE FUNCTION refund_list_all()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'refundId',        r.id,
+    'orderId',         r.order_id,
+    'orderNumber',     o.order_number,
+    'amount',          r.amount,
+    'reason',          r.reason,
+    'createdAt',       r.created_at,
+    'transactionId',   r.transaction_id,
+    'reconciled',      COALESCE(r.reconciled, false),
+    'reconcileMethod', r.reconcile_method
+  ) ORDER BY r.created_at DESC NULLS LAST), '[]'::jsonb)
+  FROM order_refunds r
+  LEFT JOIN orders o ON o.id = r.order_id;
+$$;
+
 -- ─────────────────── Ghi bảng con (nội bộ) ───────────────────
 -- Xoá rồi chèn lại toàn bộ bảng con cho 1 đơn (đồng bộ từ payload jsonb).
 
