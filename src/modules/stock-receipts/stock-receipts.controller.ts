@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -17,6 +18,7 @@ import { StockReceiptsService } from './stock-receipts.service';
 import { BillPipelineService } from './bill-pipeline.service';
 import { ProcessBillDto } from './dto/process-bill.dto';
 import {
+  MaterialUpdatePatch,
   SaveStockReceiptDraftInput,
   SupplierContactInfo,
 } from './stock-receipts.types';
@@ -46,6 +48,13 @@ export class StockReceiptsController {
   @Get('materials')
   fetchImportedMaterials() {
     return this.service.fetchImportedMaterials();
+  }
+
+  /** Gợi ý các cặp nguyên liệu nghi trùng (Phase 1). threshold optional (mặc định 0.4). */
+  @Get('materials/merge-suggestions')
+  getMaterialMergeSuggestions(@Query('threshold') threshold?: string) {
+    const t = threshold !== undefined ? Number(threshold) : undefined;
+    return this.service.getMaterialMergeSuggestions(t);
   }
 
   /** Nguyên liệu kèm đơn giá nhập TB (dropdown OrderForm). */
@@ -80,6 +89,17 @@ export class StockReceiptsController {
     @Body() body: Partial<SupplierContactInfo> & { name?: string },
   ) {
     await this.service.updateSupplier(id, body);
+    return { id };
+  }
+
+  /** Sửa nguyên liệu (NVL): name / canonicalUnit. */
+  @Patch('materials/:id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async updateMaterial(
+    @Param('id') id: string,
+    @Body() body: MaterialUpdatePatch,
+  ) {
+    await this.service.updateMaterial(id, body);
     return { id };
   }
 
