@@ -45,6 +45,11 @@ const mapSupplier = (r: SupplierRow): ImportedSupplierSummary => ({
   lastReceiptDate: r.last_receipt_date ?? undefined,
   phone: r.phone,
   address: r.address,
+  contactPerson: r.contact_person,
+  email: r.email,
+  taxCode: r.tax_code,
+  category: r.category,
+  notes: r.notes,
 });
 
 const mapMaterial = (r: MaterialRow): ImportedMaterialSummary => ({
@@ -54,6 +59,8 @@ const mapMaterial = (r: MaterialRow): ImportedMaterialSummary => ({
   importCount: r.import_count ?? 0,
   totalQty: numOr0(r.total_qty),
   totalAmount: numOr0(r.total_amount),
+  canonicalUnit: r.canonical_unit ?? undefined,
+  lastUnitPrice: r.last_unit_price != null ? numOr0(r.last_unit_price) : undefined,
   lastSupplierName: r.last_supplier_name ?? undefined,
   lastReceiptDate: r.last_receipt_date ?? undefined,
 });
