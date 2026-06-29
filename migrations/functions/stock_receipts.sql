@@ -657,6 +657,82 @@ BEGIN
 END;
 $$;
 
+-- ── GỢI Ý GỘP nguyên liệu trùng (Phase 1) ────────────────────────────────────
+-- So sánh từng cặp material (a.id < b.id) bằng similarity của phần BASE
+-- (split_part(normalized_name,'|',1) — bỏ phần pack "|<num><unit>") dùng pg_trgm.
+-- Chỉ giữ cặp similarity >= p_threshold. Trả jsonb ARRAY camelCase (FE dùng thẳng),
+-- sắp xếp similarity DESC.
+-- ⚠️ Chỉ chạy được SAU khi migration 013 (CREATE EXTENSION pg_trgm) đã apply.
+CREATE OR REPLACE FUNCTION stock_receipt_material_merge_suggestions(
+  p_threshold real DEFAULT 0.4
+)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH base AS (
+    SELECT
+      id, name, import_count, total_qty, canonical_unit,
+      split_part(COALESCE(normalized_name, ''), '|', 1) AS base_name
+    FROM materials
+    WHERE COALESCE(split_part(COALESCE(normalized_name, ''), '|', 1), '') <> ''
+  ),
+  pairs AS (
+    SELECT
+      similarity(a.base_name, b.base_name) AS sim,
+      a.id AS a_id, a.name AS a_name, a.import_count AS a_import,
+      a.total_qty AS a_qty, a.canonical_unit AS a_unit,
+      b.id AS b_id, b.name AS b_name, b.import_count AS b_import,
+      b.total_qty AS b_qty, b.canonical_unit AS b_unit
+    FROM base a
+    JOIN base b ON a.id < b.id
+    WHERE similarity(a.base_name, b.base_name) >= p_threshold
+  )
+  SELECT COALESCE(jsonb_agg(
+    jsonb_build_object(
+      'similarity', sim,
+      'a', jsonb_build_object(
+        'id', a_id, 'name', a_name, 'importCount', COALESCE(a_import, 0),
+        'totalQty', COALESCE(a_qty, 0), 'canonicalUnit', a_unit
+      ),
+      'b', jsonb_build_object(
+        'id', b_id, 'name', b_name, 'importCount', COALESCE(b_import, 0),
+        'totalQty', COALESCE(b_qty, 0), 'canonicalUnit', b_unit
+      )
+    ) ORDER BY sim DESC
+  ), '[]'::jsonb)
+  FROM pairs;
+$$;
+
+-- ── Sửa NVL (vá gap "NVL không sửa được") ────────────────────────────────────
+-- Partial update qua jsonb patch (style stock_receipt_supplier_update).
+-- Cho phép set name / canonicalUnit. Đổi name -> cập nhật normalized_name =
+-- sr_material_key(name). Chỉ update key có trong patch. Luôn set updated_at.
+CREATE OR REPLACE FUNCTION stock_receipt_material_update(p_id text, p_patch jsonb)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_name text;
+BEGIN
+  -- name: chỉ set khi gửi lên & không rỗng (đồng thời cập nhật normalized_name)
+  IF p_patch ? 'name' THEN
+    v_name := trim(COALESCE(p_patch->>'name', ''));
+    IF v_name <> '' THEN
+      UPDATE materials
+      SET name = v_name,
+          normalized_name = sr_material_key(v_name)
+      WHERE id = p_id;
+    END IF;
+  END IF;
+
+  IF p_patch ? 'canonicalUnit' THEN
+    UPDATE materials
+    SET canonical_unit = NULLIF(trim(COALESCE(p_patch->>'canonicalUnit', '')), '')
+    WHERE id = p_id;
+  END IF;
+
+  UPDATE materials SET updated_at = now() WHERE id = p_id;
+END;
+$$;
+
 -- ============================================================
 -- Đối soát phiếu nhập kho ↔ giao dịch SePay tiền ra (009).
 -- ============================================================

@@ -12,13 +12,18 @@ import {
   BillLineItem,
   ImportedMaterialSummary,
   ImportedSupplierSummary,
+  MaterialMergeSuggestion,
   MaterialPriceOption,
+  MaterialUpdatePatch,
   SavedStockReceiptDetail,
   SavedStockReceiptSummary,
   SaveStockReceiptDraftInput,
   StockReceiptValidationSnapshot,
   SupplierContactInfo,
 } from './stock-receipts.types';
+
+/** Ngưỡng similarity mặc định cho gợi ý gộp nguyên liệu. */
+const DEFAULT_MERGE_THRESHOLD = 0.4;
 
 // ── Helpers map ─────────────────────────────────────────────────────────────
 
@@ -198,6 +203,25 @@ export class StockReceiptsService {
 
   async mergeMaterials(rootId: string, duplicateIds: string[]): Promise<void> {
     await this.proc.mergeMaterials(rootId, duplicateIds);
+  }
+
+  /**
+   * Gợi ý các cặp nguyên liệu nghi trùng (Phase 1). Passthrough jsonb từ DB.
+   * threshold không hợp lệ -> dùng mặc định 0.4.
+   */
+  async getMaterialMergeSuggestions(
+    threshold?: number,
+  ): Promise<MaterialMergeSuggestion[]> {
+    const t =
+      typeof threshold === 'number' && Number.isFinite(threshold)
+        ? threshold
+        : DEFAULT_MERGE_THRESHOLD;
+    return this.proc.materialMergeSuggestions(t);
+  }
+
+  /** Sửa nguyên liệu (NVL): name / canonicalUnit. */
+  async updateMaterial(id: string, patch: MaterialUpdatePatch): Promise<void> {
+    await this.proc.materialUpdate(id, patch);
   }
 
   // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────

@@ -104,6 +104,28 @@ export interface MaterialPriceOption {
   unitPrice: number;
 }
 
+/** Patch sửa nguyên liệu (NVL) — partial update qua jsonb. */
+export interface MaterialUpdatePatch {
+  name?: string;
+  canonicalUnit?: string | null;
+}
+
+/** 1 nguyên liệu trong cặp gợi ý gộp (camelCase từ jsonb fn). */
+export interface MaterialMergeCandidate {
+  id: string;
+  name: string;
+  importCount: number;
+  totalQty: number;
+  canonicalUnit: string | null;
+}
+
+/** 1 cặp nguyên liệu nghi trùng + độ tương đồng (0..1). */
+export interface MaterialMergeSuggestion {
+  similarity: number;
+  a: MaterialMergeCandidate;
+  b: MaterialMergeCandidate;
+}
+
 /** Nguồn tạo phiếu nhập: OCR ảnh bill hoặc nhập thủ công qua form. */
 export type StockReceiptSource = 'ocr' | 'manual';
 
