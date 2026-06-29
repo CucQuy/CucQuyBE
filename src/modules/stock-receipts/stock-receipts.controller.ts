@@ -9,8 +9,10 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { AuthUser } from '../../auth/user.types';
+import { AuthUser, UserRole } from '../../auth/user.types';
 import { StockReceiptsService } from './stock-receipts.service';
 import { BillPipelineService } from './bill-pipeline.service';
 import { ProcessBillDto } from './dto/process-bill.dto';
@@ -21,7 +23,7 @@ import {
 
 @ApiTags('Nhập kho')
 @Controller('stock-receipts')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(FirebaseAuthGuard, RolesGuard)
 export class StockReceiptsController {
   constructor(
     private readonly service: StockReceiptsService,
@@ -72,6 +74,7 @@ export class StockReceiptsController {
 
   /** Cập nhật thông tin NCC. */
   @Patch('suppliers/:id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async updateSupplier(
     @Param('id') id: string,
     @Body() body: Partial<SupplierContactInfo> & { name?: string },
@@ -82,6 +85,7 @@ export class StockReceiptsController {
 
   /** Lưu phiếu nhập (tạo receipt + lines + upsert supplier/materials). */
   @Post('draft')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   saveStockReceiptDraft(
     @Body() body: SaveStockReceiptDraftInput,
     @CurrentUser() user: AuthUser,
@@ -94,6 +98,7 @@ export class StockReceiptsController {
 
   /** Gộp nhiều NCC trùng vào 1 root. */
   @Post('suppliers/merge')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async mergeSuppliers(
     @Body() body: { rootId: string; duplicateIds: string[] },
   ) {
@@ -103,6 +108,7 @@ export class StockReceiptsController {
 
   /** Gộp nhiều nguyên liệu trùng vào 1 root. */
   @Post('materials/merge')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async mergeMaterials(
     @Body() body: { rootId: string; duplicateIds: string[] },
   ) {
@@ -112,6 +118,7 @@ export class StockReceiptsController {
 
   /** Gắn 1 giao dịch SePay tiền ra cho 1 phiếu nhập (đối soát thanh toán tổng kho). */
   @Post(':id/reconcile')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   reconcileReceipt(
     @Param('id') id: string,
     @Body() body: { transactionId: string },
@@ -122,6 +129,7 @@ export class StockReceiptsController {
 
   /** Gỡ đối soát phiếu nhập. */
   @Post(':id/unreconcile')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   unreconcileReceipt(@Param('id') id: string) {
     return this.service.unreconcileReceipt(id);
   }

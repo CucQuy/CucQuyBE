@@ -159,10 +159,32 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- Danh sách phiếu nhập (summary) — mới tạo trước.
+-- TICKET 5: KHÔNG trả receipt_image_base64 trong list (ảnh nặng) — chỉ trả ở
+-- detail (stock_receipt_get). FE list summary không dùng ảnh.
+-- Trả TABLE để loại cột ảnh nhưng vẫn đủ field cho mapSummary.
 CREATE OR REPLACE FUNCTION stock_receipt_list()
-RETURNS SETOF stock_receipts
+RETURNS TABLE (
+  id text,
+  supplier_id text,
+  supplier_name_raw text,
+  supplier_name_canonical text,
+  store_or_branch text,
+  invoice_number text,
+  receipt_date text,
+  total_amount numeric,
+  currency text,
+  product_line_count int,
+  status text,
+  created_at timestamptz,
+  updated_at timestamptz
+)
 LANGUAGE sql STABLE AS $$
-  SELECT * FROM stock_receipts ORDER BY created_at DESC NULLS LAST;
+  SELECT
+    id, supplier_id, supplier_name_raw, supplier_name_canonical,
+    store_or_branch, invoice_number, receipt_date, total_amount, currency,
+    product_line_count, status, created_at, updated_at
+  FROM stock_receipts
+  ORDER BY created_at DESC NULLS LAST;
 $$;
 
 -- Chi tiết 1 phiếu nhập kèm lines -> jsonb (NULL nếu không tồn tại).
@@ -195,8 +217,9 @@ $$;
 
 -- ── WRITE đơn giản ───────────────────────────────────────────────────────────
 
--- Cập nhật thông tin NCC (chỉ field có trong p_patch & tồn tại cột: name/phone/address).
--- p_patch: jsonb camelCase {name,phone,address,...}. Field rỗng -> NULL.
+-- Cập nhật thông tin NCC. Field có trong p_patch mới được set (partial update):
+-- name/phone/address/contactPerson/email/taxCode/category/notes.
+-- p_patch: jsonb camelCase. Chuỗi rỗng -> NULL (trừ name: rỗng thì BỎ QUA, giữ tên cũ).
 CREATE OR REPLACE FUNCTION stock_receipt_supplier_update(p_id text, p_patch jsonb)
 RETURNS SETOF suppliers
 LANGUAGE plpgsql AS $$
@@ -219,6 +242,21 @@ BEGIN
   END IF;
   IF p_patch ? 'address' THEN
     UPDATE suppliers SET address = NULLIF(trim(COALESCE(p_patch->>'address','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'contactPerson' THEN
+    UPDATE suppliers SET contact_person = NULLIF(trim(COALESCE(p_patch->>'contactPerson','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'email' THEN
+    UPDATE suppliers SET email = NULLIF(trim(COALESCE(p_patch->>'email','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'taxCode' THEN
+    UPDATE suppliers SET tax_code = NULLIF(trim(COALESCE(p_patch->>'taxCode','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'category' THEN
+    UPDATE suppliers SET category = NULLIF(trim(COALESCE(p_patch->>'category','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'notes' THEN
+    UPDATE suppliers SET notes = NULLIF(trim(COALESCE(p_patch->>'notes','')), '') WHERE id = p_id;
   END IF;
 
   UPDATE suppliers SET updated_at = now() WHERE id = p_id;
@@ -255,12 +293,20 @@ DECLARE
   v_supplier_key text;
   v_supplier_is_new boolean := false;
 
-  v_total numeric := COALESCE(NULLIF(v_struct->>'totalAmount','')::numeric, 0);
+  -- Tổng phiếu (cho thống kê supplier.total_amount). Nếu FE gửi totalAmount đã
+  -- chốt -> GIỮ NGUYÊN; null -> fallback = tổng line (gán sau khi tính v_sum_lines).
+  v_total_input numeric := NULLIF(v_struct->>'totalAmount','')::numeric;
+  v_total numeric := COALESCE(v_total_input, 0);
   v_bill_hash text;
   v_dup_id text;
 
   v_contact_phone text;
   v_contact_address text;
+  v_contact_person text;
+  v_contact_email text;
+  v_contact_tax_code text;
+  v_contact_category text;
+  v_contact_notes text;
 
   v_receipt_date text := NULLIF(v_struct->>'receiptDate', '');
   v_now timestamptz := now();
@@ -328,19 +374,36 @@ BEGIN
     END IF;
   END IF;
 
-  -- contact (chỉ phone/address có cột trong suppliers)
-  v_contact_phone := NULLIF(trim(COALESCE(v_contact->>'phone','')), '');
-  v_contact_address := NULLIF(trim(COALESCE(v_contact->>'address','')), '');
+  -- contact (đầy đủ field — bảng suppliers đã có cột từ migration 011)
+  v_contact_phone    := NULLIF(trim(COALESCE(v_contact->>'phone','')), '');
+  v_contact_address  := NULLIF(trim(COALESCE(v_contact->>'address','')), '');
+  v_contact_person   := NULLIF(trim(COALESCE(v_contact->>'contactPerson','')), '');
+  v_contact_email    := NULLIF(trim(COALESCE(v_contact->>'email','')), '');
+  v_contact_tax_code := NULLIF(trim(COALESCE(v_contact->>'taxCode','')), '');
+  v_contact_category := NULLIF(trim(COALESCE(v_contact->>'category','')), '');
+  v_contact_notes    := NULLIF(trim(COALESCE(v_contact->>'notes','')), '');
+
+  -- tổng các dòng (dùng cho amountCheck + fallback total khi FE không gửi total)
+  SELECT COALESCE(SUM(COALESCE(NULLIF(li->>'lineTotal','')::numeric, 0)), 0)
+    INTO v_sum_lines
+  FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
+  WHERE trim(COALESCE(li->>'name','')) <> '';
+
+  -- TICKET 4: tổng phiếu đã chốt -> giữ nguyên; null -> fallback tổng line.
+  -- (KHÔNG ép tính lại khi FE đã gửi total.)
+  v_total := COALESCE(v_total_input, v_sum_lines);
 
   -- ── upsert supplier + thống kê ───────────────────────────────────────────
   IF v_supplier_id IS NOT NULL AND v_supplier_name IS NOT NULL THEN
     IF v_supplier_is_new THEN
       INSERT INTO suppliers (
         id, name, normalized_name, receipt_count, total_amount, last_receipt_date,
-        phone, address, created_at, updated_at
+        phone, address, contact_person, email, tax_code, category, notes,
+        created_at, updated_at
       ) VALUES (
         v_supplier_id, v_supplier_name, v_supplier_key, 1, v_total, v_now,
-        v_contact_phone, v_contact_address, v_now, v_now
+        v_contact_phone, v_contact_address, v_contact_person, v_contact_email,
+        v_contact_tax_code, v_contact_category, v_contact_notes, v_now, v_now
       );
     ELSE
       UPDATE suppliers SET
@@ -349,6 +412,11 @@ BEGIN
         last_receipt_date = v_now,
         phone = COALESCE(v_contact_phone, phone),
         address = COALESCE(v_contact_address, address),
+        contact_person = COALESCE(v_contact_person, contact_person),
+        email = COALESCE(v_contact_email, email),
+        tax_code = COALESCE(v_contact_tax_code, tax_code),
+        category = COALESCE(v_contact_category, category),
+        notes = COALESCE(v_contact_notes, notes),
         updated_at = v_now
       WHERE id = v_supplier_id;
     END IF;
@@ -357,12 +425,8 @@ BEGIN
   END IF;
 
   -- ── amountCheck (computeAmountCheck) ─────────────────────────────────────
-  SELECT COALESCE(SUM(COALESCE(NULLIF(li->>'lineTotal','')::numeric, 0)), 0)
-    INTO v_sum_lines
-  FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
-  WHERE trim(COALESCE(li->>'name','')) <> '';
-  IF (v_struct->>'totalAmount') IS NOT NULL AND v_total > 0 THEN
-    v_delta_pct := abs(v_sum_lines - v_total) / v_total;
+  IF v_total_input IS NOT NULL AND v_total_input > 0 THEN
+    v_delta_pct := abs(v_sum_lines - v_total_input) / v_total_input;
   ELSE
     v_delta_pct := 0;
   END IF;
@@ -525,11 +589,27 @@ BEGIN
   SET last_supplier_id = p_root_id, last_supplier_name = v_root_name, updated_at = now()
   WHERE last_supplier_id = ANY(v_dups);
 
-  UPDATE suppliers
-  SET receipt_count = COALESCE(receipt_count,0) + v_count_sum,
-      total_amount = COALESCE(total_amount,0) + v_amount_sum,
+  -- Cộng dồn thống kê vào root + giữ field liên hệ của root; chỉ lấp từ dup
+  -- (theo updated_at mới nhất) khi field root đang NULL — tránh mất data khi gộp.
+  UPDATE suppliers r
+  SET receipt_count = COALESCE(r.receipt_count,0) + v_count_sum,
+      total_amount = COALESCE(r.total_amount,0) + v_amount_sum,
+      phone          = COALESCE(r.phone,          d.phone),
+      address        = COALESCE(r.address,        d.address),
+      contact_person = COALESCE(r.contact_person, d.contact_person),
+      email          = COALESCE(r.email,          d.email),
+      tax_code       = COALESCE(r.tax_code,       d.tax_code),
+      category       = COALESCE(r.category,       d.category),
+      notes          = COALESCE(r.notes,          d.notes),
       updated_at = now()
-  WHERE id = p_root_id;
+  FROM (
+    SELECT DISTINCT ON (1) true AS k,
+           phone, address, contact_person, email, tax_code, category, notes
+    FROM suppliers
+    WHERE id = ANY(v_dups)
+    ORDER BY 1, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+  ) d
+  WHERE r.id = p_root_id;
 
   DELETE FROM suppliers WHERE id = ANY(v_dups);
 END;
