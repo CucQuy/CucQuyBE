@@ -27,6 +27,11 @@ export type SupplierRow = {
   last_receipt_date: string | null;
   phone: string | null;
   address: string | null;
+  contact_person: string | null;
+  email: string | null;
+  tax_code: string | null;
+  category: string | null;
+  notes: string | null;
 };
 
 export type MaterialRow = {

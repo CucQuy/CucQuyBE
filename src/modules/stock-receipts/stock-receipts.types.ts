@@ -36,9 +36,10 @@ export interface StockReceiptValidationSnapshot {
 }
 
 /**
- * Thông tin liên hệ NCC. Bảng `suppliers` chỉ có cột phone/address nên các field
- * còn lại (contactPerson/email/taxCode/category/notes) hiện KHÔNG được lưu —
- * proc app.* sẽ bỏ qua. Giữ optional để API/FE cũ không vỡ.
+ * Thông tin liên hệ NCC — lưu đầy đủ vào bảng `suppliers`
+ * (phone/address/contact_person/email/tax_code/category/notes; migration 011).
+ * `category` lưu dạng text tự do (FE dùng union ingredient|packaging|equipment|
+ * other) — BE không enforce. Giữ optional để API/FE cũ không vỡ.
  */
 export interface SupplierContactInfo {
   phone?: string | null;
@@ -91,6 +92,8 @@ export interface ImportedMaterialSummary {
   importCount: number;
   totalQty: number;
   totalAmount: number;
+  canonicalUnit?: string;
+  lastUnitPrice?: number;
   lastSupplierName?: string;
   lastReceiptDate?: string;
 }
