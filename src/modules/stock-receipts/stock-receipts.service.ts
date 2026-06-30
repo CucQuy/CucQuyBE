@@ -54,6 +54,7 @@ const mapSupplier = (r: SupplierRow): ImportedSupplierSummary => ({
   email: r.email,
   taxCode: r.tax_code,
   category: r.category,
+  channel: r.channel ?? undefined,
   notes: r.notes,
 });
 

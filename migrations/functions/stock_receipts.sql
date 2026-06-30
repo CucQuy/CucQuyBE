@@ -226,7 +226,7 @@ $$;
 -- ── WRITE đơn giản ───────────────────────────────────────────────────────────
 
 -- Cập nhật thông tin NCC. Field có trong p_patch mới được set (partial update):
--- name/phone/address/contactPerson/email/taxCode/category/notes.
+-- name/phone/address/contactPerson/email/taxCode/category/channel/notes.
 -- p_patch: jsonb camelCase. Chuỗi rỗng -> NULL (trừ name: rỗng thì BỎ QUA, giữ tên cũ).
 CREATE OR REPLACE FUNCTION stock_receipt_supplier_update(p_id text, p_patch jsonb)
 RETURNS SETOF suppliers
@@ -262,6 +262,9 @@ BEGIN
   END IF;
   IF p_patch ? 'category' THEN
     UPDATE suppliers SET category = NULLIF(trim(COALESCE(p_patch->>'category','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'channel' THEN
+    UPDATE suppliers SET channel = NULLIF(trim(COALESCE(p_patch->>'channel','')), '') WHERE id = p_id;
   END IF;
   IF p_patch ? 'notes' THEN
     UPDATE suppliers SET notes = NULLIF(trim(COALESCE(p_patch->>'notes','')), '') WHERE id = p_id;
@@ -314,6 +317,7 @@ DECLARE
   v_contact_email text;
   v_contact_tax_code text;
   v_contact_category text;
+  v_contact_channel text;
   v_contact_notes text;
 
   v_receipt_date text := NULLIF(v_struct->>'receiptDate', '');
@@ -389,6 +393,7 @@ BEGIN
   v_contact_email    := NULLIF(trim(COALESCE(v_contact->>'email','')), '');
   v_contact_tax_code := NULLIF(trim(COALESCE(v_contact->>'taxCode','')), '');
   v_contact_category := NULLIF(trim(COALESCE(v_contact->>'category','')), '');
+  v_contact_channel  := NULLIF(trim(COALESCE(v_contact->>'channel','')), '');
   v_contact_notes    := NULLIF(trim(COALESCE(v_contact->>'notes','')), '');
 
   -- tổng các dòng (dùng cho amountCheck + fallback total khi FE không gửi total)
@@ -406,12 +411,12 @@ BEGIN
     IF v_supplier_is_new THEN
       INSERT INTO suppliers (
         id, name, normalized_name, receipt_count, total_amount, last_receipt_date,
-        phone, address, contact_person, email, tax_code, category, notes,
+        phone, address, contact_person, email, tax_code, category, channel, notes,
         created_at, updated_at
       ) VALUES (
         v_supplier_id, v_supplier_name, v_supplier_key, 1, v_total, v_now,
         v_contact_phone, v_contact_address, v_contact_person, v_contact_email,
-        v_contact_tax_code, v_contact_category, v_contact_notes, v_now, v_now
+        v_contact_tax_code, v_contact_category, v_contact_channel, v_contact_notes, v_now, v_now
       );
     ELSE
       UPDATE suppliers SET
@@ -424,6 +429,7 @@ BEGIN
         email = COALESCE(v_contact_email, email),
         tax_code = COALESCE(v_contact_tax_code, tax_code),
         category = COALESCE(v_contact_category, category),
+        channel = COALESCE(v_contact_channel, channel),
         notes = COALESCE(v_contact_notes, notes),
         updated_at = v_now
       WHERE id = v_supplier_id;
@@ -608,11 +614,12 @@ BEGIN
       email          = COALESCE(r.email,          d.email),
       tax_code       = COALESCE(r.tax_code,       d.tax_code),
       category       = COALESCE(r.category,       d.category),
+      channel        = COALESCE(r.channel,        d.channel),
       notes          = COALESCE(r.notes,          d.notes),
       updated_at = now()
   FROM (
     SELECT DISTINCT ON (1) true AS k,
-           phone, address, contact_person, email, tax_code, category, notes
+           phone, address, contact_person, email, tax_code, category, channel, notes
     FROM suppliers
     WHERE id = ANY(v_dups)
     ORDER BY 1, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
