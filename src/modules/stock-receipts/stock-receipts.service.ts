@@ -80,6 +80,7 @@ const mapSummary = (r: ReceiptRow): SavedStockReceiptSummary => ({
   totalAmount: num(r.total_amount),
   currency: r.currency || 'VND',
   productLineCount: r.product_line_count ?? 0,
+  source: r.source ?? undefined,
   reconciled: Boolean(r.reconciled),
   transactionId: r.transaction_id ?? undefined,
   createdAt: toIso(r.created_at),
