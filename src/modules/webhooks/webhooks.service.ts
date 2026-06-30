@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { WebhookProc } from './webhooks.proc';
 import { EventsGateway } from '../events/events.gateway';
+import { ZaloService } from '../zalo/zalo.service';
 
 /** Service chỉ orchestration + dựng payload HTTP; mọi DB qua WebhookProc. */
 @Injectable()
@@ -8,6 +9,7 @@ export class WebhooksService {
   constructor(
     private readonly proc: WebhookProc,
     private readonly events: EventsGateway,
+    private readonly zalo: ZaloService,
   ) {}
 
   /** SePay: lưu transaction + (nếu khớp orderNumber) set order = PAID. */
@@ -38,10 +40,16 @@ export class WebhooksService {
     // toast cho Owner/Admin đang online. transaction = to_jsonb(transactions) (snake_case).
     const tx = (res.transaction ?? {}) as Record<string, any>;
     if (res.orderNumber) {
-      this.events.emitOrderPaid({
-        orderNumber: res.orderNumber,
-        amount: Number(tx.transfer_amount) || 0,
-      });
+      const amount = Number(tx.transfer_amount) || 0;
+      this.events.emitOrderPaid({ orderNumber: res.orderNumber, amount });
+      // Bắn Zalo nhóm (không await — không chặn response webhook). Lỗi Zalo bỏ qua.
+      this.zalo
+        .send({
+          message: `💰 Đơn hàng ${res.orderNumber} đã thanh toán ${amount.toLocaleString(
+            'vi-VN',
+          )} VND`,
+        })
+        .catch(() => undefined);
     }
 
     return {
