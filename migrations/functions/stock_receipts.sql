@@ -179,6 +179,7 @@ RETURNS TABLE (
   currency text,
   product_line_count int,
   status text,
+  source text,
   reconciled boolean,
   transaction_id text,
   created_at timestamptz,
@@ -188,7 +189,7 @@ LANGUAGE sql STABLE AS $$
   SELECT
     id, supplier_id, supplier_name_raw, supplier_name_canonical,
     store_or_branch, invoice_number, receipt_date, total_amount, currency,
-    product_line_count, status,
+    product_line_count, status, source,
     COALESCE(reconciled, false) AS reconciled, transaction_id,
     created_at, updated_at
   FROM stock_receipts
