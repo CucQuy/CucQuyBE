@@ -48,6 +48,7 @@ export interface SupplierContactInfo {
   email?: string | null;
   taxCode?: string | null;
   category?: string | null;
+  channel?: string | null;
   notes?: string | null;
 }
 
