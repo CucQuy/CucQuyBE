@@ -162,6 +162,10 @@ $$;
 -- TICKET 5: KHÔNG trả receipt_image_base64 trong list (ảnh nặng) — chỉ trả ở
 -- detail (stock_receipt_get). FE list summary không dùng ảnh.
 -- Trả TABLE để loại cột ảnh nhưng vẫn đủ field cho mapSummary.
+-- ⚠️ RETURNS TABLE đổi (thêm reconciled, transaction_id) -> đổi return type,
+-- CREATE OR REPLACE sẽ lỗi "cannot change return type". Auto-migrate re-apply file
+-- này lúc deploy nên phải DROP trước.
+DROP FUNCTION IF EXISTS stock_receipt_list();
 CREATE OR REPLACE FUNCTION stock_receipt_list()
 RETURNS TABLE (
   id text,
@@ -175,6 +179,8 @@ RETURNS TABLE (
   currency text,
   product_line_count int,
   status text,
+  reconciled boolean,
+  transaction_id text,
   created_at timestamptz,
   updated_at timestamptz
 )
@@ -182,7 +188,9 @@ LANGUAGE sql STABLE AS $$
   SELECT
     id, supplier_id, supplier_name_raw, supplier_name_canonical,
     store_or_branch, invoice_number, receipt_date, total_amount, currency,
-    product_line_count, status, created_at, updated_at
+    product_line_count, status,
+    COALESCE(reconciled, false) AS reconciled, transaction_id,
+    created_at, updated_at
   FROM stock_receipts
   ORDER BY created_at DESC NULLS LAST;
 $$;
