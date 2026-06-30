@@ -11,10 +11,13 @@ const stringifyValue = (v: any): string => {
   return JSON.stringify(v);
 };
 
+// Chữ ký so sánh items: dùng name+qty+price (ổn định giữa DB & payload FE).
+// KHÔNG dùng it.id vì FE rebuild id tạm (`item-<ts>-<idx>`) mỗi lần sửa →
+// id luôn khác id row DB → diff báo "đổi sản phẩm" giả dù nội dung y hệt.
 const itemsSignature = (items?: OrderItem[]): string => {
   if (!items || items.length === 0) return '';
   return items
-    .map((it) => (it.id || it.name) + ':' + (it.quantity || 0) + ':' + (it.price || 0))
+    .map((it) => (it.name || '') + ':' + (it.quantity || 0) + ':' + (it.price || 0))
     .sort()
     .join('|');
 };
@@ -68,11 +71,16 @@ export const diffOrders = (prev: any, next: any): OrderFieldChange[] => {
     if (aBlank && bBlank) continue;
 
     const fmt = cfg.format ?? stringifyValue;
+    const oldValue = aBlank ? '—' : fmt(a);
+    const newValue = bBlank ? '—' : fmt(b);
+    // Chốt chặn: nếu giá trị hiển thị y hệt thì coi như không đổi, không log
+    // (tránh entry nhiễu "X → X" mà người dùng nhìn không thấy khác gì).
+    if (oldValue === newValue) continue;
     changes.push({
       field: cfg.key,
       label: cfg.label,
-      oldValue: aBlank ? '—' : fmt(a),
-      newValue: bBlank ? '—' : fmt(b),
+      oldValue,
+      newValue,
     });
   }
   return changes;
