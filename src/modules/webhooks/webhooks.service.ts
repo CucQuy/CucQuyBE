@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { WebhookProc } from './webhooks.proc';
+import { EventsGateway } from '../events/events.gateway';
 
 /** Service chỉ orchestration + dựng payload HTTP; mọi DB qua WebhookProc. */
 @Injectable()
 export class WebhooksService {
-  constructor(private readonly proc: WebhookProc) {}
+  constructor(
+    private readonly proc: WebhookProc,
+    private readonly events: EventsGateway,
+  ) {}
 
   /** SePay: lưu transaction + (nếu khớp orderNumber) set order = PAID. */
   async handleSepay(body: any): Promise<{ status: number; payload: Record<string, unknown> }> {
@@ -30,6 +34,16 @@ export class WebhooksService {
         },
       };
     }
+    // Đơn vừa được auto-PAID (giao dịch tiền vào khớp mã đơn) → bắn realtime
+    // toast cho Owner/Admin đang online. transaction = to_jsonb(transactions) (snake_case).
+    const tx = (res.transaction ?? {}) as Record<string, any>;
+    if (res.orderNumber) {
+      this.events.emitOrderPaid({
+        orderNumber: res.orderNumber,
+        amount: Number(tx.transfer_amount) || 0,
+      });
+    }
+
     return {
       status: 200,
       payload: { success: true, message: 'Webhook received', transactionId: body.id },
