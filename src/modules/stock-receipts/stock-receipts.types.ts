@@ -60,6 +60,8 @@ export interface SavedStockReceiptSummary {
   totalAmount: number | null;
   currency: string;
   productLineCount: number;
+  reconciled?: boolean;
+  transactionId?: string;
   createdAt?: string;
 }
 

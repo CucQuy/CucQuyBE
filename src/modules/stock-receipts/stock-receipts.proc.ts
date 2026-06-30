@@ -82,6 +82,8 @@ export type ReceiptRow = {
   amount_check_warn: boolean | null;
   bill_hash: string | null;
   status: string | null;
+  reconciled: boolean | null;
+  transaction_id: string | null;
   created_by_uid: string | null;
   created_at: string | Date | null;
   updated_at: string | Date | null;
