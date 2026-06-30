@@ -9,5 +9,6 @@ import { QUEUE_NOTIFICATIONS } from '../../queue/queue.constants';
   imports: [BullModule.registerQueue({ name: QUEUE_NOTIFICATIONS })],
   controllers: [ZaloController],
   providers: [ZaloService, NotificationsProcessor],
+  exports: [ZaloService],
 })
 export class ZaloModule {}
