@@ -10,16 +10,13 @@ import { DbService } from '../../db/db.service';
 import { RedisService } from '../../redis/redis.service';
 import { UserRole } from '../../auth/user.types';
 import { userCacheKey } from '../../auth/firebase-auth.guard';
+import { SOCKET_EVENTS, type OrderPaidEvent } from './events.constants';
+
+export type { OrderPaidEvent };
 
 /** Room nhận noti thanh toán — chỉ Owner (super_admin) + Admin được join. */
 const PAYMENTS_ROOM = 'payments';
 const NOTIFY_ROLES = new Set<UserRole>([UserRole.SUPER_ADMIN, UserRole.ADMIN]);
-
-/** Payload sự kiện đơn được thanh toán (qua webhook SePay tiền vào). */
-export interface OrderPaidEvent {
-  orderNumber: string;
-  amount: number; // VND
-}
 
 /** Chuẩn hoá role thô về UserRole (giống guard/FE). */
 function normalizeRole(raw: unknown): UserRole | undefined {
@@ -92,7 +89,7 @@ export class EventsGateway implements OnGatewayConnection {
   /** Bắn noti "đơn đã thanh toán" tới Owner/Admin đang online. */
   emitOrderPaid(event: OrderPaidEvent): void {
     if (!this.server) return;
-    this.server.to(PAYMENTS_ROOM).emit('order:paid', event);
+    this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.ORDER_PAID, event);
     this.logger.log(`order:paid → ${event.orderNumber} (${event.amount}đ)`);
   }
 }
