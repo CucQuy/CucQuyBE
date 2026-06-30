@@ -33,6 +33,7 @@ export type SupplierRow = {
   email: string | null;
   tax_code: string | null;
   category: string | null;
+  channel: string | null;
   notes: string | null;
 };
 
