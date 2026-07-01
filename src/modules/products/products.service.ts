@@ -24,6 +24,7 @@ const mapRow = (r: ProductRow): Product => ({
   gallery: r.gallery ?? undefined,
   recipeId: r.recipe_id ?? undefined,
   cakesPerProduct: num(r.cakes_per_product),
+  flavors: r.flavors ?? undefined,
   createdAt: iso(r.created_at),
 });
 
