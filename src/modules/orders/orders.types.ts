@@ -11,6 +11,8 @@ export interface OrderItem {
   quantity: number;
   price: number;
   image: string;
+  /** Vị đã chọn khi bán (nếu sản phẩm có vị) */
+  flavor?: string;
 }
 
 export interface OrderDecoration {
