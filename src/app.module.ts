@@ -11,6 +11,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { CategoriesModule } from './modules/categories/categories.module';
+import { FlavorsModule } from './modules/flavors/flavors.module';
 import { BadgesModule } from './modules/badges/badges.module';
 import { CommissionGroupsModule } from './modules/commission-groups/commission-groups.module';
 import { ConfigurationsModule } from './modules/configurations/configurations.module';
@@ -50,6 +51,7 @@ import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.mod
     CustomersModule,
     TransactionsModule,
     CategoriesModule,
+    FlavorsModule,
     BadgesModule,
     CommissionGroupsModule,
     ConfigurationsModule,
