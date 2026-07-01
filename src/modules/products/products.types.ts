@@ -20,6 +20,8 @@ export interface Product {
   gallery?: string[];
   recipeId?: string;
   cakesPerProduct?: number;
+  /** Vị (multi-select) — không ảnh hưởng giá */
+  flavors?: string[];
   createdAt?: string; // ISO
 }
 
