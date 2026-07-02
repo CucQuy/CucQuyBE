@@ -22,7 +22,15 @@ export interface Product {
   cakesPerProduct?: number;
   /** Vị (multi-select) — không ảnh hưởng giá */
   flavors?: string[];
+  /** Size (biến thể giá) — giá dòng đơn lấy theo size chọn */
+  sizes?: ProductSize[];
   createdAt?: string; // ISO
+}
+
+/** 1 size của sản phẩm: tên + giá. */
+export interface ProductSize {
+  name: string;
+  price: number;
 }
 
 /**
