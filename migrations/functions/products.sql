@@ -68,7 +68,7 @@ BEGIN
   INSERT INTO products (
     id, name, price, cost_price, description, status,
     category_id, category, tags, image, gallery, recipe_id,
-    cakes_per_product, flavors, sizes, created_at
+    cakes_per_product, flavors, sizes, flavor_variants, created_at
   ) VALUES (
     v_id,
     COALESCE(p->>'name', ''),
@@ -88,6 +88,7 @@ BEGIN
     CASE WHEN p ? 'flavors' AND jsonb_typeof(p->'flavors') = 'array'
          THEN ARRAY(SELECT jsonb_array_elements_text(p->'flavors')) ELSE NULL END,
     CASE WHEN jsonb_typeof(p->'sizes') = 'array' THEN p->'sizes' ELSE NULL END,
+    CASE WHEN jsonb_typeof(p->'flavorVariants') = 'array' THEN p->'flavorVariants' ELSE NULL END,
     now()
   )
   RETURNING *;
@@ -139,6 +140,9 @@ BEGIN
   IF p ? 'sizes' THEN
     v_after.sizes := CASE WHEN jsonb_typeof(p->'sizes') = 'array' THEN p->'sizes' ELSE NULL END;
   END IF;
+  IF p ? 'flavorVariants' THEN
+    v_after.flavor_variants := CASE WHEN jsonb_typeof(p->'flavorVariants') = 'array' THEN p->'flavorVariants' ELSE NULL END;
+  END IF;
 
   -- category / categoryId: nếu category đổi thì resolve lại category_id (trừ khi client gửi categoryId).
   IF p ? 'category' THEN
@@ -166,7 +170,8 @@ BEGIN
     recipe_id = v_after.recipe_id,
     cakes_per_product = v_after.cakes_per_product,
     flavors = v_after.flavors,
-    sizes = v_after.sizes
+    sizes = v_after.sizes,
+    flavor_variants = v_after.flavor_variants
   WHERE id = p_id;
 
   -- Tạo bản version + diff từng field thay đổi.
@@ -192,7 +197,8 @@ BEGIN
       ('recipeId',        v_before.recipe_id,                         v_after.recipe_id),
       ('cakesPerProduct', v_before.cakes_per_product::text,           v_after.cakes_per_product::text),
       ('flavors',         array_to_string(v_before.flavors, ','),     array_to_string(v_after.flavors, ',')),
-      ('sizes',           v_before.sizes::text,                       v_after.sizes::text)
+      ('sizes',           v_before.sizes::text,                       v_after.sizes::text),
+      ('flavorVariants',  v_before.flavor_variants::text,             v_after.flavor_variants::text)
   ) AS d(field, before_value, after_value)
   WHERE d.before_value IS DISTINCT FROM d.after_value;
 
