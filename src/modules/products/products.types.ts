@@ -29,10 +29,11 @@ export interface Product {
   createdAt?: string; // ISO
 }
 
-/** 1 size của sản phẩm: tên + giá. */
+/** 1 size của sản phẩm: tên + giá + ảnh (tùy chọn). */
 export interface ProductSize {
   name: string;
   price: number;
+  image?: string;
 }
 
 /** 1 biến thể vị: tên + ảnh riêng + giá riêng (tùy chọn). */
