@@ -65,7 +65,8 @@ LANGUAGE sql STABLE AS $$
       'price',     COALESCE(i.unit_price, 0),
       'image',     COALESCE(i.image, ''),
       'flavors',   COALESCE(to_jsonb(i.flavors), '[]'::jsonb),
-      'size',      i.size
+      'size',      i.size,
+      'sizeCounts', i.size_counts
     ) ORDER BY i.id),
     '[]'::jsonb)
   FROM order_items i WHERE i.order_id = p_order_id;
@@ -418,7 +419,7 @@ RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
   DELETE FROM order_items WHERE order_id = p_order_id;
-  INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, image, flavors, size)
+  INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, image, flavors, size, size_counts)
   SELECT
     p_order_id,
     -- chỉ gán product_id nếu product còn tồn tại (tránh FK vỡ với product đã xoá/legacy); NULL nếu không
@@ -429,7 +430,8 @@ BEGIN
     NULLIF(it->>'image', ''),
     CASE WHEN jsonb_typeof(it->'flavors') = 'array'
          THEN ARRAY(SELECT jsonb_array_elements_text(it->'flavors')) ELSE NULL END,
-    NULLIF(it->>'size', '')
+    NULLIF(it->>'size', ''),
+    CASE WHEN jsonb_typeof(it->'sizeCounts') = 'array' THEN it->'sizeCounts' ELSE NULL END
   FROM jsonb_array_elements(COALESCE(p_items, '[]'::jsonb)) AS it;
 END;
 $$;

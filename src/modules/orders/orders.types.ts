@@ -15,6 +15,8 @@ export interface OrderItem {
   flavors?: string[];
   /** Size đã chọn (nếu sản phẩm có size) */
   size?: string;
+  /** Nhiều size + số lượng trong 1 dòng (vd 2 Gia Đình + 1 Lẻ) */
+  sizeCounts?: { name: string; qty: number }[];
 }
 
 export interface OrderDecoration {
