@@ -19,10 +19,11 @@ export type ProductRow = {
   cakes_per_product: string | number | null;
   flavors: string[] | null;
   sizes: unknown | null;
+  flavor_variants: unknown | null;
   created_at: Date | string | null;
 };
 
-const COLS = `id, name, price, cost_price, description, status, category_id, category, tags, image, gallery, recipe_id, cakes_per_product, flavors, sizes, created_at`;
+const COLS = `id, name, price, cost_price, description, status, category_id, category, tags, image, gallery, recipe_id, cakes_per_product, flavors, sizes, flavor_variants, created_at`;
 
 /**
  * Tầng quản lý stored procedure của domain products.
