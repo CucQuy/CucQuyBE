@@ -24,6 +24,8 @@ export interface Product {
   flavors?: string[];
   /** Size (biến thể giá) — giá dòng đơn lấy theo size chọn */
   sizes?: ProductSize[];
+  /** Biến thể vị: mỗi vị có ảnh + giá riêng (giá dòng = tổng vị chọn) */
+  flavorVariants?: ProductFlavorVariant[];
   createdAt?: string; // ISO
 }
 
@@ -31,6 +33,13 @@ export interface Product {
 export interface ProductSize {
   name: string;
   price: number;
+}
+
+/** 1 biến thể vị: tên + ảnh riêng + giá riêng (tùy chọn). */
+export interface ProductFlavorVariant {
+  name: string;
+  image?: string;
+  price?: number;
 }
 
 /**
