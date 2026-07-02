@@ -13,6 +13,8 @@ export interface OrderItem {
   image: string;
   /** Các vị đã chọn khi bán (nếu sản phẩm có vị) */
   flavors?: string[];
+  /** Size đã chọn (nếu sản phẩm có size) */
+  size?: string;
 }
 
 export interface OrderDecoration {
