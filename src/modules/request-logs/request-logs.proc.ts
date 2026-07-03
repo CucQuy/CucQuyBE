@@ -93,6 +93,19 @@ export class RequestLogProc {
       ) AS series`;
   }
 
+  errorGroups(
+    from: string | null,
+    to: string | null,
+    limit: number,
+  ): Promise<Array<{ groups: unknown }>> {
+    return this.db.sql<Array<{ groups: unknown }>>`
+      SELECT request_log_error_groups(
+        ${from},
+        ${to},
+        ${limit}
+      ) AS groups`;
+  }
+
   purgeExpired(): Promise<Array<{ count: string | number }>> {
     return this.db.sql<Array<{ count: string | number }>>`
       SELECT request_log_purge_expired() AS count`;

@@ -33,17 +33,35 @@ export interface RequestLogEntry {
   body: string | null; // payload đã redact + cắt bớt (chỉ method có body)
 }
 
+/** Phân bố {name, count} (thiết bị/trình duyệt/OS). */
+export interface NameCount {
+  name: string;
+  count: number;
+}
+
 /** Thống kê lưu lượng (khớp output request_log_stats). */
 export interface RequestLogStats {
   scanned: number;
   total: number;
   errorCount: number;
   uniqueIps: number;
+  uniqueUsers: number;
+  bandwidth: number; // tổng bytes response
   avgDuration: number; // ms
+  p50: number;
+  p90: number;
+  p95: number;
+  p99: number;
   statusBuckets: { s2xx: number; s3xx: number; s4xx: number; s5xx: number };
   methodBuckets: Array<{ method: string; count: number }>;
+  deviceBuckets: NameCount[];
+  browserBuckets: NameCount[];
+  osBuckets: NameCount[];
   topCountries: Array<{ country: string; count: number }>;
+  topReferers: Array<{ referer: string; count: number }>;
+  topUsers: Array<{ user: string; count: number }>;
   topPaths: Array<{ path: string; count: number }>;
+  slowestPaths: Array<{ path: string; p95: number; count: number }>;
   topIps: Array<{ ip: string; country?: string; count: number }>;
 }
 
@@ -53,6 +71,16 @@ export interface RequestLogTimePoint {
   requests: number;
   errors: number;
   uniqueIps: number;
+}
+
+/** 1 nhóm lỗi (gom theo method+path+status). */
+export interface RequestLogErrorGroup {
+  method: string;
+  path: string;
+  status: number;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
 }
 
 export interface QueryLogsParams {
@@ -157,13 +185,37 @@ export class RequestLogsService {
       total: s.total ?? 0,
       errorCount: s.errorCount ?? 0,
       uniqueIps: s.uniqueIps ?? 0,
+      uniqueUsers: s.uniqueUsers ?? 0,
+      bandwidth: s.bandwidth ?? 0,
       avgDuration: s.avgDuration ?? 0,
+      p50: s.p50 ?? 0,
+      p90: s.p90 ?? 0,
+      p95: s.p95 ?? 0,
+      p99: s.p99 ?? 0,
       statusBuckets: s.statusBuckets ?? { s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 },
       methodBuckets: s.methodBuckets ?? [],
+      deviceBuckets: s.deviceBuckets ?? [],
+      browserBuckets: s.browserBuckets ?? [],
+      osBuckets: s.osBuckets ?? [],
       topCountries: s.topCountries ?? [],
+      topReferers: s.topReferers ?? [],
+      topUsers: s.topUsers ?? [],
       topPaths: s.topPaths ?? [],
+      slowestPaths: s.slowestPaths ?? [],
       topIps: s.topIps ?? [],
     };
+  }
+
+  /** Gom lỗi theo (method,path,status) — kiểu Sentry. */
+  async errorGroups(
+    params: Pick<QueryLogsParams, 'from' | 'to'> & { limit?: number },
+  ): Promise<RequestLogErrorGroup[]> {
+    const [row] = await this.proc.errorGroups(
+      params.from ?? null,
+      params.to ?? null,
+      Math.min(200, Math.max(1, params.limit ?? 50)),
+    );
+    return (row?.groups ?? []) as RequestLogErrorGroup[];
   }
 
   /** Chuỗi thời gian lưu lượng (gom theo giờ/ngày). errorsOnly → chỉ request lỗi. */
