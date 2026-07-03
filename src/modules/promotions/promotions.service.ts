@@ -40,6 +40,11 @@ export class PromotionsService {
     await this.proc.delete(id);
   }
 
+  /** Mở lại chạy đợt mới: cất đợt hiện tại vào lịch sử, reset lượt, đặt kỳ mới. */
+  async reopen(id: string, input: { startAt?: string; endAt?: string }): Promise<void> {
+    await this.proc.reopen(id, input);
+  }
+
   // ─────────────────── Engine tính giảm giá ───────────────────
 
   /** Tính giảm giá thẩm quyền cho 1 giỏ hàng (dùng cho /preview và lúc tạo đơn). */

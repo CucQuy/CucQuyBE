@@ -10,6 +10,14 @@ export type DiscountType = 'PERCENT' | 'FIXED' | 'FREE_SHIP' | 'BUY_X_GET_Y';
 export type PromotionScope = 'ALL' | 'PRODUCTS' | 'CATEGORIES';
 export type PromotionStatus = 'active' | 'inactive';
 
+/** 1 đợt chạy đã đóng của khuyến mãi (lưu trong runs khi mở lại). */
+export interface PromotionRun {
+  startAt?: string | null; // ISO — kỳ của đợt
+  endAt?: string | null; // ISO
+  usedCount: number; // lượt dùng trong đợt
+  closedAt?: string | null; // ISO — thời điểm đóng đợt (bấm mở lại)
+}
+
 export interface Promotion {
   id: string;
   name: string;
@@ -42,6 +50,10 @@ export interface Promotion {
 
   status: PromotionStatus;
   priority?: number; // khi nhiều AUTO cùng thoả
+
+  // Lịch sử các đợt chạy đã đóng (mỗi lần "mở lại" cất đợt hiện tại vào đây).
+  runs?: PromotionRun[];
+  runCount?: number; // = runs.length + 1 (đợt đang chạy), do BE tính
 
   createdAt?: string;
   updatedAt?: string;
