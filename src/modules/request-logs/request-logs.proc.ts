@@ -67,13 +67,30 @@ export class RequestLogProc {
     from: string | null,
     to: string | null,
     scanCap: number,
+    errorsOnly: boolean,
   ): Promise<Array<{ stats: unknown }>> {
     return this.db.sql<Array<{ stats: unknown }>>`
       SELECT request_log_stats(
         ${from},
         ${to},
-        ${scanCap}
+        ${scanCap},
+        ${errorsOnly}
       ) AS stats`;
+  }
+
+  timeseries(
+    from: string | null,
+    to: string | null,
+    bucket: 'hour' | 'day',
+    errorsOnly: boolean,
+  ): Promise<Array<{ series: unknown }>> {
+    return this.db.sql<Array<{ series: unknown }>>`
+      SELECT request_log_timeseries(
+        ${from},
+        ${to},
+        ${bucket},
+        ${errorsOnly}
+      ) AS series`;
   }
 
   purgeExpired(): Promise<Array<{ count: string | number }>> {
