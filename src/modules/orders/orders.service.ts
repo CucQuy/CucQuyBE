@@ -8,6 +8,7 @@ import {
 import { AuthUser, UserRole } from '../../auth/user.types';
 import { diffOrders } from './order-history-diff';
 import { OrderProc } from './orders.proc';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   Order,
   OrderDeleteResult,
@@ -34,7 +35,15 @@ export const ORDER_EDIT_DENIED = 'ORDER_EDIT_DENIED';
  */
 @Injectable()
 export class OrdersService {
-  constructor(private readonly proc: OrderProc) {}
+  constructor(
+    private readonly proc: OrderProc,
+    private readonly notif: NotificationsService,
+  ) {}
+
+  /** Tên hiển thị người thao tác cho nội dung thông báo. */
+  private who(u?: AuthUser): string {
+    return u?.displayName || u?.email || 'ai đó';
+  }
 
   // ── Đọc: danh sách đơn (đã enrich createdBy = tên hiển thị, sort number desc) ──
   async fetchOrders(): Promise<Order[]> {
@@ -51,7 +60,16 @@ export class OrdersService {
     orderData: Record<string, any>,
     _currentUser: AuthUser,
   ): Promise<Order> {
-    return this.proc.create(orderData);
+    const order = await this.proc.create(orderData);
+    void this.notif.log({
+      kind: 'inapp',
+      category: 'order_new',
+      title: `Đơn mới ${order.orderNumber ?? order.id}`,
+      body: `${order.customerName || order.customer?.name || ''} · ${(order.total ?? 0).toLocaleString('vi-VN')}đ`.trim(),
+      target: 'admins',
+      triggeredBy: _currentUser?.uid,
+    });
+    return order;
   }
 
   // ── Cập nhật đơn (check quyền CTV + ghi history qua diff) ────
@@ -106,12 +124,40 @@ export class OrdersService {
       changes: OrderFieldChange[];
       prevOrder: Order;
     };
+
+    // Thông báo in-app: phân loại thanh toán / đổi trạng thái / sửa thường.
+    const chg = r.changes ?? [];
+    const pay = chg.find((x) => x.field === 'paymentStatus');
+    const st = chg.find((x) => x.field === 'status');
+    const num = r.order.orderNumber ?? orderId;
+    let body: string;
+    let category: string;
+    if (pay) { category = 'order_payment'; body = `Thanh toán → ${pay.newValue}`; }
+    else if (st) { category = 'order_status'; body = `Trạng thái → ${st.newValue}`; }
+    else { category = 'order_update'; body = chg.length ? `Đã sửa ${chg.length} mục` : 'Cập nhật đơn'; }
+    void this.notif.log({
+      kind: 'inapp',
+      category,
+      title: `Cập nhật đơn ${num} · ${this.who(currentUser)}`,
+      body,
+      target: 'admins',
+      triggeredBy: currentUser?.uid,
+    });
+
     return { ...r.order, changes: r.changes, prevOrder: r.prevOrder };
   }
 
   /** Xoá đơn — proc trả snapshot đã xoá + hoàn lượt KM. */
   async deleteOrder(id: string): Promise<OrderDeleteResult> {
-    return this.proc.delete(id);
+    const res = await this.proc.delete(id);
+    void this.notif.log({
+      kind: 'inapp',
+      category: 'order_delete',
+      title: `Xoá đơn ${res.prevOrder?.orderNumber ?? id}`,
+      body: res.prevOrder?.customerName || res.prevOrder?.customer?.name || undefined,
+      target: 'admins',
+    });
+    return res;
   }
 
   /** Danh sách toàn bộ phiếu hoàn (mọi đơn) — đối soát từ phía GD tiền ra. */
