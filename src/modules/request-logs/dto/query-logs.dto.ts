@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsInt, IsISO8601, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, Min } from 'class-validator';
 
 /** Query params lọc + phân trang cho GET /request-logs. */
 export class QueryLogsDto {
@@ -67,4 +67,34 @@ export class StatsLogsDto {
   @IsOptional()
   @IsISO8601()
   to?: string;
+
+  @ApiPropertyOptional({ description: 'Chỉ tính request lỗi (status ≥ 400)' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  errorsOnly?: boolean;
+}
+
+/** Query params cho GET /request-logs/timeseries. */
+export class TimeseriesLogsDto {
+  @ApiPropertyOptional({ description: 'Từ thời điểm (ISO 8601)' })
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @ApiPropertyOptional({ description: 'Đến thời điểm (ISO 8601)' })
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
+
+  @ApiPropertyOptional({ description: "Gom theo 'hour' hoặc 'day'", default: 'day' })
+  @IsOptional()
+  @IsIn(['hour', 'day'])
+  bucket?: 'hour' | 'day';
+
+  @ApiPropertyOptional({ description: 'Chỉ tính request lỗi (status ≥ 400)' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  errorsOnly?: boolean;
 }

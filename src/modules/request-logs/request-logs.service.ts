@@ -33,6 +33,28 @@ export interface RequestLogEntry {
   body: string | null; // payload đã redact + cắt bớt (chỉ method có body)
 }
 
+/** Thống kê lưu lượng (khớp output request_log_stats). */
+export interface RequestLogStats {
+  scanned: number;
+  total: number;
+  errorCount: number;
+  uniqueIps: number;
+  avgDuration: number; // ms
+  statusBuckets: { s2xx: number; s3xx: number; s4xx: number; s5xx: number };
+  methodBuckets: Array<{ method: string; count: number }>;
+  topCountries: Array<{ country: string; count: number }>;
+  topPaths: Array<{ path: string; count: number }>;
+  topIps: Array<{ ip: string; country?: string; count: number }>;
+}
+
+/** 1 điểm trên chuỗi thời gian lưu lượng. */
+export interface RequestLogTimePoint {
+  ts: string; // ISO (đầu bucket)
+  requests: number;
+  errors: number;
+  uniqueIps: number;
+}
+
 export interface QueryLogsParams {
   from?: string; // ISO date
   to?: string; // ISO date
@@ -116,38 +138,48 @@ export class RequestLogsService {
   /**
    * Thống kê nhanh trên cửa sổ gần nhất (tối đa STATS_SCAN_CAP dòng trong khoảng
    * thời gian lọc). Trả kèm `scanned` để minh bạch số dòng đã quét.
+   * errorsOnly = true → chỉ tính trên request lỗi (status >= 400).
    */
-  async stats(params: Pick<QueryLogsParams, 'from' | 'to'>): Promise<{
-    scanned: number;
-    total: number;
-    errorCount: number;
-    uniqueIps: number;
-    topPaths: Array<{ path: string; count: number }>;
-    topIps: Array<{ ip: string; country?: string; count: number }>;
-  }> {
+  async stats(
+    params: Pick<QueryLogsParams, 'from' | 'to'> & { errorsOnly?: boolean },
+  ): Promise<RequestLogStats> {
     const [row] = await this.proc.stats(
       params.from ?? null,
       params.to ?? null,
       STATS_SCAN_CAP,
+      params.errorsOnly ?? false,
     );
 
-    const s = (row?.stats ?? {}) as {
-      scanned?: number;
-      total?: number;
-      errorCount?: number;
-      uniqueIps?: number;
-      topPaths?: Array<{ path: string; count: number }>;
-      topIps?: Array<{ ip: string; country?: string; count: number }>;
-    };
+    const s = (row?.stats ?? {}) as Partial<RequestLogStats>;
 
     return {
       scanned: s.scanned ?? 0,
       total: s.total ?? 0,
       errorCount: s.errorCount ?? 0,
       uniqueIps: s.uniqueIps ?? 0,
+      avgDuration: s.avgDuration ?? 0,
+      statusBuckets: s.statusBuckets ?? { s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 },
+      methodBuckets: s.methodBuckets ?? [],
+      topCountries: s.topCountries ?? [],
       topPaths: s.topPaths ?? [],
       topIps: s.topIps ?? [],
     };
+  }
+
+  /** Chuỗi thời gian lưu lượng (gom theo giờ/ngày). errorsOnly → chỉ request lỗi. */
+  async timeseries(
+    params: Pick<QueryLogsParams, 'from' | 'to'> & {
+      bucket?: 'hour' | 'day';
+      errorsOnly?: boolean;
+    },
+  ): Promise<RequestLogTimePoint[]> {
+    const [row] = await this.proc.timeseries(
+      params.from ?? null,
+      params.to ?? null,
+      params.bucket === 'hour' ? 'hour' : 'day',
+      params.errorsOnly ?? false,
+    );
+    return (row?.series ?? []) as RequestLogTimePoint[];
   }
 
   /** Xoá log đã hết hạn (TTL thủ công). Trả số dòng đã xoá. */
