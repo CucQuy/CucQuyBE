@@ -109,9 +109,24 @@ export class LoggingMiddleware implements NestMiddleware {
     next();
   }
 
-  /** IP thật sau nginx (cần app.set('trust proxy', 1)). Bỏ tiền tố IPv6-mapped. */
+  /**
+   * IP thật của khách. Sau Cloudflare Tunnel + k3s, req.ip/socket chỉ là IP proxy
+   * nội bộ (vd 10.42.0.x). Cloudflare luôn set `CF-Connecting-IP` = IP client thật;
+   * fallback X-Forwarded-For (phần tử đầu) → X-Real-IP → req.ip. Bỏ tiền tố IPv6-mapped.
+   */
   private extractIp(req: Request): string {
-    const raw = req.ip || req.socket?.remoteAddress || '';
+    const header = (name: string): string => {
+      const v = req.headers[name];
+      const s = Array.isArray(v) ? v[0] : v;
+      return (s ?? '').split(',')[0].trim();
+    };
+    const raw =
+      header('cf-connecting-ip') ||
+      header('x-forwarded-for') ||
+      header('x-real-ip') ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      '';
     return raw.replace(/^::ffff:/, '');
   }
 
