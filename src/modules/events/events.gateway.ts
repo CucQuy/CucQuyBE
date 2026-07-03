@@ -11,6 +11,7 @@ import { RedisService } from '../../redis/redis.service';
 import { UserRole } from '../../auth/user.types';
 import { userCacheKey } from '../../auth/firebase-auth.guard';
 import { SOCKET_EVENTS, type OrderPaidEvent } from './events.constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type { OrderPaidEvent };
 
@@ -49,6 +50,7 @@ export class EventsGateway implements OnGatewayConnection {
     private readonly firestore: FirestoreService,
     private readonly db: DbService,
     private readonly redis: RedisService,
+    private readonly notif: NotificationsService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -86,10 +88,21 @@ export class EventsGateway implements OnGatewayConnection {
     }
   }
 
-  /** Bắn noti "đơn đã thanh toán" tới Owner/Admin đang online. */
+  /** Bắn noti "đơn đã thanh toán" tới Owner/Admin đang online + lưu vào hộp thư in-app. */
   emitOrderPaid(event: OrderPaidEvent): void {
-    if (!this.server) return;
-    this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.ORDER_PAID, event);
-    this.logger.log(`order:paid → ${event.orderNumber} (${event.amount}đ)`);
+    if (this.server) {
+      this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.ORDER_PAID, event);
+      this.logger.log(`order:paid → ${event.orderNumber} (${event.amount}đ)`);
+    }
+    // Lưu vào hộp thư in-app (fire-and-forget, không chặn emit).
+    void this.notif.log({
+      kind: 'inapp',
+      category: 'order_paid',
+      title: `Đơn ${event.orderNumber} đã thanh toán`,
+      body: `Đơn ${event.orderNumber} vừa thanh toán ${(event.amount ?? 0).toLocaleString('vi-VN')}đ.`,
+      target: 'admins',
+      status: 'sent',
+      triggeredBy: 'system',
+    });
   }
 }

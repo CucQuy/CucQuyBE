@@ -29,6 +29,7 @@ import { RequestLogsModule } from './modules/request-logs/request-logs.module';
 import { LoggingMiddleware } from './modules/request-logs/logging.middleware';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.mod
     RequestLogsModule,
     PromotionsModule,
     SurchargeTagsModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
 })
