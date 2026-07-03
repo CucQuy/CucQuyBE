@@ -117,6 +117,26 @@ LANGUAGE sql STABLE AS $$
   SELECT payload FROM notifications WHERE id = p_id;
 $$;
 
+-- Ghi thông báo đăng nhập (dedup: bỏ qua nếu user đã có log login trong 2 giờ).
+CREATE OR REPLACE FUNCTION notification_log_login(p_uid text, p_name text)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_id text;
+BEGIN
+  IF p_uid IS NULL OR p_uid = '' THEN RETURN jsonb_build_object('skipped', true); END IF;
+  IF EXISTS (
+    SELECT 1 FROM notifications
+    WHERE kind = 'inapp' AND category = 'login' AND triggered_by = p_uid
+      AND created_at > now() - interval '2 hours'
+  ) THEN
+    RETURN jsonb_build_object('skipped', true);
+  END IF;
+  INSERT INTO notifications (kind, category, title, target, status, triggered_by)
+  VALUES ('inapp', 'login', 'Đăng nhập: ' || COALESCE(NULLIF(p_name, ''), p_uid), 'admins', 'sent', p_uid)
+  RETURNING id INTO v_id;
+  RETURN jsonb_build_object('id', v_id);
+END;
+$$;
+
 -- Cập nhật trạng thái (sau khi gửi lại).
 CREATE OR REPLACE FUNCTION notification_set_status(p_id text, p_status text, p_error text DEFAULT NULL)
 RETURNS void

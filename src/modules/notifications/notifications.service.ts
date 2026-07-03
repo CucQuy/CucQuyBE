@@ -28,6 +28,15 @@ export class NotificationsService {
     }
   }
 
+  /** Ghi thông báo đăng nhập (dedup 2h ở DB). Không throw. */
+  async logLogin(uid: string, name: string): Promise<void> {
+    try {
+      await this.proc.logLogin(uid, name);
+    } catch (err) {
+      this.logger.error(`Ghi notification login thất bại: ${String(err)}`);
+    }
+  }
+
   async list(params: {
     kind?: string;
     status?: string;
