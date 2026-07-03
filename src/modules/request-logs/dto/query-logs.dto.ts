@@ -98,3 +98,24 @@ export class TimeseriesLogsDto {
   @IsBoolean()
   errorsOnly?: boolean;
 }
+
+/** Query params cho GET /request-logs/error-groups. */
+export class ErrorGroupsDto {
+  @ApiPropertyOptional({ description: 'Từ thời điểm (ISO 8601)' })
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @ApiPropertyOptional({ description: 'Đến thời điểm (ISO 8601)' })
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
+
+  @ApiPropertyOptional({ description: 'Số nhóm tối đa', default: 50 })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? value : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
