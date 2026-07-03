@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../../redis/redis.service';
 import { userCacheKey } from '../../auth/firebase-auth.guard';
 import { UserProc, UserRow } from './users.proc';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   UserData,
   UserRole,
@@ -48,6 +49,7 @@ export class UsersService {
   constructor(
     private readonly proc: UserProc,
     private readonly redis: RedisService,
+    private readonly notif: NotificationsService,
   ) {}
 
   // ── Đọc ─────────────────────────────────────────────────────
@@ -91,7 +93,10 @@ export class UsersService {
       photoURL: typeof body.photoURL === 'string' ? body.photoURL : null,
     };
     const rows = await this.proc.save(payload);
-    return mapRow(rows[0]);
+    const saved = mapRow(rows[0]);
+    // Thông báo đăng nhập (dedup 2h ở DB) — fire-and-forget.
+    void this.notif.logLogin(auth.uid, saved.displayName || auth.email || '');
+    return saved;
   }
 
   async updateUserStatus(uid: string, status: UserStatus): Promise<void> {

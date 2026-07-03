@@ -12,6 +12,10 @@ export class NotificationProc {
       SELECT notification_log(${this.db.json(input)}::jsonb) AS result`;
   }
 
+  logLogin(uid: string, name: string): Promise<unknown> {
+    return this.db.sql`SELECT notification_log_login(${uid}, ${name})`;
+  }
+
   list(p: {
     kind: string | null;
     status: string | null;
