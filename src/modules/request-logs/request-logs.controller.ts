@@ -5,7 +5,7 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { UserRole } from '../../auth/user.types';
 import { RequestLogsService } from './request-logs.service';
-import { QueryLogsDto, StatsLogsDto, TimeseriesLogsDto } from './dto/query-logs.dto';
+import { QueryLogsDto, StatsLogsDto, TimeseriesLogsDto, ErrorGroupsDto } from './dto/query-logs.dto';
 
 /** Nhật ký request — chỉ admin xem được. */
 @ApiTags('Nhật ký Request')
@@ -31,5 +31,11 @@ export class RequestLogsController {
   @Get('timeseries')
   timeseries(@Query() query: TimeseriesLogsDto) {
     return this.service.timeseries(query);
+  }
+
+  /** Gom lỗi theo (method,path,status) — kiểu Sentry. */
+  @Get('error-groups')
+  errorGroups(@Query() query: ErrorGroupsDto) {
+    return this.service.errorGroups(query);
   }
 }
