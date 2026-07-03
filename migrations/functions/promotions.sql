@@ -44,6 +44,8 @@ LANGUAGE sql STABLE AS $$
     'usedCount',       COALESCE(p.used_count, 0),
     'status',          CASE WHEN p.status = 'inactive' THEN 'inactive' ELSE 'active' END,
     'priority',        COALESCE(p.priority, 0),
+    'runs',            COALESCE(p.runs, '[]'::jsonb),
+    'runCount',        jsonb_array_length(COALESCE(p.runs, '[]'::jsonb)) + 1,
     'createdAt',       p.created_at,
     'updatedAt',       p.updated_at,
     'createdBy',       p.created_by
@@ -196,6 +198,35 @@ RETURNS jsonb
 LANGUAGE plpgsql AS $$
 BEGIN
   DELETE FROM promotions WHERE id = p_id;
+  RETURN jsonb_build_object('id', p_id);
+END;
+$$;
+
+-- Mở lại (chạy đợt mới): cất đợt hiện tại (kỳ + lượt) vào lịch sử runs, reset lượt = 0,
+-- đặt kỳ mới từ p_input {startAt, endAt}, bật active. Trả {id}.
+CREATE OR REPLACE FUNCTION promotion_reopen(p_id text, p_input jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  p promotions%ROWTYPE;
+BEGIN
+  SELECT * INTO p FROM promotions WHERE id = p_id;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  UPDATE promotions SET
+    runs = COALESCE(runs, '[]'::jsonb) || jsonb_build_object(
+             'startAt',   p.start_at,
+             'endAt',     p.end_at,
+             'usedCount', COALESCE(p.used_count, 0),
+             'closedAt',  now()
+           ),
+    start_at   = NULLIF(p_input->>'startAt','')::timestamptz,
+    end_at     = NULLIF(p_input->>'endAt','')::timestamptz,
+    used_count = 0,
+    status     = 'active',
+    updated_at = now()
+  WHERE id = p_id;
+
   RETURN jsonb_build_object('id', p_id);
 END;
 $$;
