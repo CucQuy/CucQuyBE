@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { QUEUE_NOTIFICATIONS } from '../../queue/queue.constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ZALO_ENDPOINT = {
   sendImageToGroup: '/zalo/sendImageToGroupZalo/2',
@@ -31,6 +32,7 @@ export class ZaloService {
 
   constructor(
     @InjectQueue(QUEUE_NOTIFICATIONS) private readonly queue: Queue,
+    private readonly notif: NotificationsService,
   ) {}
 
   /**
@@ -48,8 +50,71 @@ export class ZaloService {
     }
   }
 
-  /** Gửi thật tới Zalo. Lỗi → throw để BullMQ retry. */
-  async deliver(payload: ZaloSendPayload): Promise<void> {
+  /** Nhãn ngắn cho nhật ký (dòng đầu message). */
+  private summarize(msg: string): string {
+    const first = (msg ?? '').split('\n').find((l) => l.trim()) ?? '';
+    return first.slice(0, 120);
+  }
+
+  /**
+   * Gửi thật tới Zalo. Lỗi → throw để BullMQ retry.
+   * Mặc định ghi nhật ký (sent/failed) kèm payload để gửi lại; opts.log=false khi
+   * đang gửi lại (tránh nhân đôi dòng log).
+   */
+  async deliver(
+    payload: ZaloSendPayload,
+    opts: { log?: boolean; triggeredBy?: string } = {},
+  ): Promise<void> {
+    const shouldLog = opts.log !== false;
+    try {
+      await this.deliverRaw(payload);
+      if (shouldLog) {
+        await this.notif.log({
+          kind: 'zalo',
+          category: 'zalo_send',
+          title: this.summarize(payload?.message ?? ''),
+          body: payload?.message ?? '',
+          target: (payload?.groupIds ?? []).join(', ') || 'nhóm chính',
+          status: 'sent',
+          payload,
+          triggeredBy: opts.triggeredBy,
+        });
+      }
+    } catch (err) {
+      if (shouldLog) {
+        await this.notif.log({
+          kind: 'zalo',
+          category: 'zalo_send',
+          title: this.summarize(payload?.message ?? ''),
+          body: payload?.message ?? '',
+          target: (payload?.groupIds ?? []).join(', ') || 'nhóm chính',
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+          payload,
+          triggeredBy: opts.triggeredBy,
+        });
+      }
+      throw err;
+    }
+  }
+
+  /** Gửi lại 1 thông báo Zalo failed theo payload đã lưu; cập nhật trạng thái dòng gốc. */
+  async resend(id: string): Promise<void> {
+    const payload = (await this.notif.getPayload(id)) as ZaloSendPayload | null;
+    if (!payload || !payload.message) {
+      throw new BadRequestException('Không tìm thấy nội dung để gửi lại');
+    }
+    try {
+      await this.deliver(payload, { log: false });
+      await this.notif.setStatus(id, 'sent', null);
+    } catch (err) {
+      await this.notif.setStatus(id, 'failed', err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /** Gửi thật (không log) — tách để deliver bọc nhật ký. */
+  private async deliverRaw(payload: ZaloSendPayload): Promise<void> {
     // Gắn nhãn môi trường vào noti để biết bắn từ đâu. production → để sạch (không tag);
     // staging/local → prefix [STAGING]/[LOCAL] tránh nhầm tin test với đơn thật.
     const envLabel = String(process.env.APP_ENV ?? '').trim();
