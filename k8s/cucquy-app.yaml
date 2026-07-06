@@ -1,0 +1,152 @@
+# ---------- Redis ----------
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis, namespace: cucquy }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: redis:alpine
+          ports: [{ containerPort: 6379 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: cucquy }
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+# ---------- Backend (api.cucquy.site) ----------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: cucquy
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata: { labels: { app: backend } }
+    spec:
+      imagePullSecrets: [{ name: ghcr }]
+      containers:
+        - name: backend
+          image: ghcr.io/cucquy/cucquy-backend:latest
+          ports: [{ containerPort: 3000 }]
+          envFrom: [{ secretRef: { name: cucquy-backend-env } }]
+          volumeMounts:
+            - { name: sa, mountPath: /app/service_account.json, subPath: service_account.json, readOnly: true }
+      volumes:
+        - name: sa
+          secret: { secretName: cucquy-sa, optional: true }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: cucquy
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+
+spec:
+  selector: { app: backend }
+  ports: [{ port: 3000, targetPort: 3000 }]
+# ---------- Frontend (admin.cucquy.site) ----------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: cucquy
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: frontend } }
+  template:
+    metadata: { labels: { app: frontend } }
+    spec:
+      imagePullSecrets: [{ name: ghcr }]
+      containers:
+        - name: frontend
+          image: ghcr.io/cucquy/cucquy-frontend:latest
+          ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: cucquy
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+
+spec:
+  selector: { app: frontend }
+  ports: [{ port: 80, targetPort: 80 }]
+# ---------- Landing (cucquy.site) ----------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: landing
+  namespace: cucquy
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: landing } }
+  template:
+    metadata: { labels: { app: landing } }
+    spec:
+      imagePullSecrets: [{ name: ghcr }]
+      containers:
+        - name: landing
+          image: ghcr.io/cucquy/cucquy-landing:latest
+          ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: landing
+  namespace: cucquy
+  annotations:
+    keel.sh/policy: force
+    keel.sh/trigger: poll
+    keel.sh/pollSchedule: "@every 1m"
+
+spec:
+  selector: { app: landing }
+  ports: [{ port: 80, targetPort: 80 }]
+# ---------- Ingress (3 domain) ----------
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: cucquy, namespace: cucquy }
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.cucquy.site
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: backend, port: { number: 3000 } } } }] }
+    - host: admin.cucquy.site
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: frontend, port: { number: 80 } } } }] }
+    - host: cucquy.site
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: landing, port: { number: 80 } } } }] }
