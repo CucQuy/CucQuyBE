@@ -8,10 +8,17 @@ export type SepayResult = {
   transaction?: unknown;
 };
 export type FacebookResult = { duplicate: boolean; id: string };
+export type OrderPaidItem = {
+  name: string;
+  quantity: number;
+  size?: string | null;
+  sizeCounts?: { name: string; qty: number }[] | null;
+  flavors?: string[] | null;
+};
 export type OrderPaidSummary = {
   customerName?: string;
   phone?: string;
-  items?: { name: string; quantity: number }[];
+  items?: OrderPaidItem[];
 };
 
 /** Tầng quản lý stored procedure của domain webhooks. */
