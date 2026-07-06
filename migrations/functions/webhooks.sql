@@ -45,8 +45,11 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     'phone',        COALESCE(o.phone, ''),
     'items', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
-        'name',     COALESCE(NULLIF(oi.product_name, ''), '(?)'),
-        'quantity', COALESCE(oi.quantity, 0)
+        'name',       COALESCE(NULLIF(oi.product_name, ''), '(?)'),
+        'quantity',   COALESCE(oi.quantity, 0),
+        'size',       oi.size,
+        'sizeCounts', oi.size_counts,
+        'flavors',    COALESCE(to_jsonb(oi.flavors), '[]'::jsonb)
       ) ORDER BY oi.id)
       FROM order_items oi WHERE oi.order_id = o.id
     ), '[]'::jsonb)

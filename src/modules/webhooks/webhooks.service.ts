@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { WebhookProc, OrderPaidSummary } from './webhooks.proc';
+import { WebhookProc, OrderPaidSummary, OrderPaidItem } from './webhooks.proc';
 import { EventsGateway } from '../events/events.gateway';
 import { ZaloService } from '../zalo/zalo.service';
 
@@ -149,12 +149,42 @@ export class WebhooksService {
     lines.push(`💵 ${money.join(' · ')}`);
 
     if (items.length) {
-      const parts = items.slice(0, 6).map((it) => `${it.name || '(?)'} ×${it.quantity || 0}`);
-      if (items.length > 6) parts.push(`…+${items.length - 6}`);
-      lines.push(`📦 ${parts.join(', ')}`);
+      lines.push('📦 Sản phẩm:');
+      items.forEach((it) => this.itemLines(it).forEach((l) => lines.push(l)));
     }
 
     lines.push('✅ ĐÃ THANH TOÁN');
     return lines.join('\n');
+  }
+
+  /** Gom vị (có lặp) → "4 socola, 3 matcha" (số lượng trước). '' nếu không có. */
+  private flavorsDetail(flavors?: string[] | null): string {
+    if (!Array.isArray(flavors) || !flavors.length) return '';
+    const m = new Map<string, number>();
+    flavors.forEach((f) => m.set(f, (m.get(f) || 0) + 1));
+    return Array.from(m.entries())
+      .map(([n, q]) => `${q} ${n}`)
+      .join(', ');
+  }
+
+  /**
+   * Các dòng hiển thị 1 món (cấu trúc phân cấp, khớp FE): • tên → mỗi size "- Tên: SL n"
+   * → "Chi tiết (vị...)" nếu có vị. Món không có size → gộp "· SL n" vào dòng tên.
+   */
+  private itemLines(it: OrderPaidItem): string[] {
+    const out: string[] = [];
+    const scs = (it.sizeCounts ?? []).filter((x) => (x?.qty || 0) > 0);
+    const qty = it.quantity || 0;
+    if (scs.length > 0) {
+      out.push(`• ${it.name || '(?)'}`);
+      scs.forEach((sc) => out.push(`- ${sc.name}: SL ${sc.qty}`));
+    } else if (it.size) {
+      out.push(`• ${it.name || '(?)'} · ${it.size}${qty > 1 ? ` · SL ${qty}` : ''}`);
+    } else {
+      out.push(`• ${it.name || '(?)'}${qty > 1 ? ` · SL ${qty}` : ''}`);
+    }
+    const fl = this.flavorsDetail(it.flavors);
+    if (fl) out.push(`Chi tiết (${fl})`);
+    return out;
   }
 }
