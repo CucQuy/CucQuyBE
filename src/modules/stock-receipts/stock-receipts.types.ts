@@ -36,9 +36,10 @@ export interface StockReceiptValidationSnapshot {
 }
 
 /**
- * Thông tin liên hệ NCC. Bảng `suppliers` chỉ có cột phone/address nên các field
- * còn lại (contactPerson/email/taxCode/category/notes) hiện KHÔNG được lưu —
- * proc app.* sẽ bỏ qua. Giữ optional để API/FE cũ không vỡ.
+ * Thông tin liên hệ NCC — lưu đầy đủ vào bảng `suppliers`
+ * (phone/address/contact_person/email/tax_code/category/notes; migration 011).
+ * `category` lưu dạng text tự do (FE dùng union ingredient|packaging|equipment|
+ * other) — BE không enforce. Giữ optional để API/FE cũ không vỡ.
  */
 export interface SupplierContactInfo {
   phone?: string | null;
@@ -47,6 +48,7 @@ export interface SupplierContactInfo {
   email?: string | null;
   taxCode?: string | null;
   category?: string | null;
+  channel?: string | null;
   notes?: string | null;
 }
 
@@ -59,6 +61,9 @@ export interface SavedStockReceiptSummary {
   totalAmount: number | null;
   currency: string;
   productLineCount: number;
+  source?: string;
+  reconciled?: boolean;
+  transactionId?: string;
   createdAt?: string;
 }
 
@@ -91,6 +96,8 @@ export interface ImportedMaterialSummary {
   importCount: number;
   totalQty: number;
   totalAmount: number;
+  canonicalUnit?: string;
+  lastUnitPrice?: number;
   lastSupplierName?: string;
   lastReceiptDate?: string;
 }
@@ -101,6 +108,31 @@ export interface MaterialPriceOption {
   unitPrice: number;
 }
 
+/** Patch sửa nguyên liệu (NVL) — partial update qua jsonb. */
+export interface MaterialUpdatePatch {
+  name?: string;
+  canonicalUnit?: string | null;
+}
+
+/** 1 nguyên liệu trong cặp gợi ý gộp (camelCase từ jsonb fn). */
+export interface MaterialMergeCandidate {
+  id: string;
+  name: string;
+  importCount: number;
+  totalQty: number;
+  canonicalUnit: string | null;
+}
+
+/** 1 cặp nguyên liệu nghi trùng + độ tương đồng (0..1). */
+export interface MaterialMergeSuggestion {
+  similarity: number;
+  a: MaterialMergeCandidate;
+  b: MaterialMergeCandidate;
+}
+
+/** Nguồn tạo phiếu nhập: OCR ảnh bill hoặc nhập thủ công qua form. */
+export type StockReceiptSource = 'ocr' | 'manual';
+
 /** Payload lưu phiếu nhập (saveStockReceiptDraft). */
 export interface SaveStockReceiptDraftInput {
   structured: StockReceiptStructured;
@@ -110,4 +142,6 @@ export interface SaveStockReceiptDraftInput {
   receiptImageMimeType?: string | null;
   targetSupplierId?: string | null;
   supplierContact?: SupplierContactInfo | null;
+  /** Mặc định 'ocr' (BE coi thiếu = 'ocr'). 'manual' → bỏ chống trùng DUPLICATE_BILL. */
+  source?: StockReceiptSource;
 }

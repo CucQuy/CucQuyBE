@@ -20,7 +20,28 @@ export interface Product {
   gallery?: string[];
   recipeId?: string;
   cakesPerProduct?: number;
+  /** Vị (multi-select) — không ảnh hưởng giá */
+  flavors?: string[];
+  /** Size (biến thể giá) — giá dòng đơn lấy theo size chọn */
+  sizes?: ProductSize[];
+  /** Biến thể vị: mỗi vị có ảnh + giá riêng (giá dòng = tổng vị chọn) */
+  flavorVariants?: ProductFlavorVariant[];
   createdAt?: string; // ISO
+}
+
+/** 1 size của sản phẩm: tên + giá + ảnh + số cái combo (tùy chọn). */
+export interface ProductSize {
+  name: string;
+  price: number;
+  image?: string;
+  count?: number;
+}
+
+/** 1 biến thể vị: tên + ảnh riêng + giá riêng (tùy chọn). */
+export interface ProductFlavorVariant {
+  name: string;
+  image?: string;
+  price?: number;
 }
 
 /**

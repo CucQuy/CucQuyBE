@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
 import {
+  PaymentAccount,
   ScreenConfiguration,
   ShippingConfiguration,
   ZaloGroupsConfiguration,
@@ -62,5 +63,27 @@ export class ConfigurationProc {
   ): Promise<{ data: ShippingConfiguration | null }[]> {
     return this.db.sql<{ data: ShippingConfiguration | null }[]>`
       SELECT shipping_config_save(${this.db.json(config ?? {})}::jsonb) AS data`;
+  }
+
+  // ==================== PAYMENT ACCOUNTS (multi-account) ====================
+
+  paymentAccountsList(): Promise<{ data: PaymentAccount[] }[]> {
+    return this.db.sql<{ data: PaymentAccount[] }[]>`
+      SELECT payment_accounts_list() AS data`;
+  }
+
+  paymentAccountCreate(payload: unknown): Promise<{ data: PaymentAccount[] }[]> {
+    return this.db.sql<{ data: PaymentAccount[] }[]>`
+      SELECT payment_account_create(${this.db.json(payload ?? {})}::jsonb) AS data`;
+  }
+
+  paymentAccountSetActive(id: string): Promise<{ data: PaymentAccount[] }[]> {
+    return this.db.sql<{ data: PaymentAccount[] }[]>`
+      SELECT payment_account_set_active(${id ?? ''}) AS data`;
+  }
+
+  paymentAccountDelete(id: string): Promise<{ data: PaymentAccount[] }[]> {
+    return this.db.sql<{ data: PaymentAccount[] }[]>`
+      SELECT payment_account_delete(${id ?? ''}) AS data`;
   }
 }

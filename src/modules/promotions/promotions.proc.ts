@@ -39,6 +39,11 @@ export class PromotionProc {
     return this.db.sql`SELECT promotion_delete(${id})`;
   }
 
+  reopen(id: string, input: { startAt?: string; endAt?: string }): Promise<unknown> {
+    return this.db.sql`
+      SELECT promotion_reopen(${id}, ${this.db.json(input)}::jsonb)`;
+  }
+
   // ─────────────────── Engine tính giảm giá ───────────────────
 
   compute(input: ComputeInput): Promise<{ result: ComputeResult }[]> {

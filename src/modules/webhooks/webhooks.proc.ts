@@ -8,6 +8,11 @@ export type SepayResult = {
   transaction?: unknown;
 };
 export type FacebookResult = { duplicate: boolean; id: string };
+export type OrderPaidSummary = {
+  customerName?: string;
+  phone?: string;
+  items?: { name: string; quantity: number }[];
+};
 
 /** Tầng quản lý stored procedure của domain webhooks. */
 @Injectable()
@@ -18,6 +23,13 @@ export class WebhookProc {
     const rows = await this.db.sql<{ result: SepayResult }[]>`
       SELECT webhook_sepay(${this.db.json(body ?? {})}::jsonb) AS result`;
     return rows[0].result;
+  }
+
+  /** Tóm tắt đơn (khách + món) cho noti Zalo khi auto-PAID. null nếu không thấy đơn. */
+  async orderPaidSummary(orderNumber: string): Promise<OrderPaidSummary | null> {
+    const rows = await this.db.sql<{ result: OrderPaidSummary | null }[]>`
+      SELECT order_paid_noti_summary(${orderNumber}) AS result`;
+    return rows[0]?.result ?? null;
   }
 
   async facebookMessage(body: unknown): Promise<FacebookResult> {

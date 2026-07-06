@@ -11,6 +11,12 @@ export interface OrderItem {
   quantity: number;
   price: number;
   image: string;
+  /** Các vị đã chọn khi bán (nếu sản phẩm có vị) */
+  flavors?: string[];
+  /** Size đã chọn (nếu sản phẩm có size) */
+  size?: string;
+  /** Nhiều size + số lượng trong 1 dòng (vd 2 Gia Đình + 1 Lẻ) */
+  sizeCounts?: { name: string; qty: number }[];
 }
 
 export interface OrderDecoration {
@@ -22,6 +28,49 @@ export interface OrderDecoration {
 
 /** Nhãn loại phụ thu tổng theo đơn. */
 export type SurchargeTag = 'decoration' | 'theme' | 'accessory';
+
+/** 1 dòng sản phẩm bị hoàn (giảm SL) trong 1 lần hoàn tiền. */
+export interface OrderRefundItem {
+  productName: string;
+  qtyRefunded: number;
+  unitPrice: number;
+  amount: number; // qtyRefunded * unitPrice (VND)
+}
+
+/** 1 lần hoàn tiền (đơn ĐÃ THANH TOÁN giảm SL) — bảng order_refunds. */
+export interface OrderRefund {
+  id: string;
+  amount: number; // VND
+  reason?: string;
+  items: OrderRefundItem[];
+  createdAt?: unknown; // ISO timestamptz
+  createdBy?: string;
+  // Đối soát (008/#186): gắn giao dịch SePay 'out' hoặc đánh dấu tiền mặt.
+  transactionId?: string | null;
+  reconciled?: boolean;
+  reconcileMethod?: 'sepay' | 'cash' | null;
+  reconciledAt?: unknown; // ISO timestamptz
+  reconciledBy?: string | null;
+}
+
+/** 1 phiếu hoàn (mọi đơn) kèm ngữ cảnh đơn — dùng đối soát từ phía GD tiền ra. */
+export interface RefundListItem {
+  refundId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  amount: number; // VND
+  reason?: string | null;
+  createdAt?: unknown; // ISO timestamptz
+  transactionId?: string | null;
+  reconciled: boolean;
+  reconcileMethod?: 'sepay' | 'cash' | null;
+}
+
+/** Payload tuỳ chọn khi cập nhật đơn để ghi nhận hoàn tiền. */
+export interface OrderRefundInput {
+  amount?: number; // nếu bỏ trống → BE tính = total_cũ − total_mới
+  reason?: string;
+}
 
 export interface OrderFieldChange {
   field: string;
@@ -95,6 +144,22 @@ export interface Order {
   commissionStatus?: 'pending' | 'paid';
   /** ISO thời điểm trả hoa hồng (cột commission_paid_at). */
   commissionPaidAt?: string | null;
+  /** Tổng tiền đã hoàn cho đơn (cộng dồn qua nhiều lần). Đơn cũ = 0. */
+  refundedAmount?: number;
+  /** Thời điểm hoàn gần nhất (ISO timestamptz) — null nếu chưa hoàn. */
+  refundedAt?: string | null;
+  /** Lý do hoàn gần nhất. */
+  refundReason?: string | null;
+  /** Người thực hiện hoàn gần nhất (display name / uid). */
+  refundedBy?: string | null;
+  /** Lý do huỷ đơn (vá nợ kỹ thuật). */
+  cancelReason?: string | null;
+  /** Thời điểm huỷ đơn (ISO timestamptz). */
+  cancelledAt?: string | null;
+  /** Người huỷ đơn. */
+  cancelledBy?: string | null;
+  /** Lịch sử các lần hoàn tiền (mới → cũ). */
+  refunds?: OrderRefund[];
 }
 
 /** Kết quả app.order_update: order sau cập nhật + diff + snapshot trước (FE gửi Zalo). */

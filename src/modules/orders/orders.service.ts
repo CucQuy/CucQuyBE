@@ -1,12 +1,20 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuthUser, UserRole } from '../../auth/user.types';
 import { diffOrders } from './order-history-diff';
 import { OrderProc } from './orders.proc';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   Order,
   OrderDeleteResult,
   OrderFieldChange,
   OrderUpdateResult,
+  RefundListItem,
 } from './orders.types';
 
 /** Ném khi CTV cố cập nhật đơn không phải do họ tạo. Giữ trùng giá trị FE. */
@@ -27,7 +35,15 @@ export const ORDER_EDIT_DENIED = 'ORDER_EDIT_DENIED';
  */
 @Injectable()
 export class OrdersService {
-  constructor(private readonly proc: OrderProc) {}
+  constructor(
+    private readonly proc: OrderProc,
+    private readonly notif: NotificationsService,
+  ) {}
+
+  /** Tên hiển thị người thao tác cho nội dung thông báo. */
+  private who(u?: AuthUser): string {
+    return u?.displayName || u?.email || 'ai đó';
+  }
 
   // ── Đọc: danh sách đơn (đã enrich createdBy = tên hiển thị, sort number desc) ──
   async fetchOrders(): Promise<Order[]> {
@@ -44,7 +60,16 @@ export class OrdersService {
     orderData: Record<string, any>,
     _currentUser: AuthUser,
   ): Promise<Order> {
-    return this.proc.create(orderData);
+    const order = await this.proc.create(orderData);
+    void this.notif.log({
+      kind: 'inapp',
+      category: 'order_new',
+      title: `Đơn mới ${order.orderNumber ?? order.id}`,
+      body: `${order.customerName || order.customer?.name || ''} · ${(order.total ?? 0).toLocaleString('vi-VN')}đ`.trim(),
+      target: 'admins',
+      triggeredBy: _currentUser?.uid,
+    });
+    return order;
   }
 
   // ── Cập nhật đơn (check quyền CTV + ghi history qua diff) ────
@@ -99,11 +124,109 @@ export class OrdersService {
       changes: OrderFieldChange[];
       prevOrder: Order;
     };
+
+    // Thông báo in-app: phân loại thanh toán / đổi trạng thái / sửa thường.
+    const chg = r.changes ?? [];
+    const pay = chg.find((x) => x.field === 'paymentStatus');
+    const st = chg.find((x) => x.field === 'status');
+    const num = r.order.orderNumber ?? orderId;
+    let body: string;
+    let category: string;
+    if (pay) { category = 'order_payment'; body = `Thanh toán → ${pay.newValue}`; }
+    else if (st) { category = 'order_status'; body = `Trạng thái → ${st.newValue}`; }
+    else { category = 'order_update'; body = chg.length ? `Đã sửa ${chg.length} mục` : 'Cập nhật đơn'; }
+    void this.notif.log({
+      kind: 'inapp',
+      category,
+      title: `Cập nhật đơn ${num} · ${this.who(currentUser)}`,
+      body,
+      target: 'admins',
+      triggeredBy: currentUser?.uid,
+    });
+
     return { ...r.order, changes: r.changes, prevOrder: r.prevOrder };
   }
 
   /** Xoá đơn — proc trả snapshot đã xoá + hoàn lượt KM. */
   async deleteOrder(id: string): Promise<OrderDeleteResult> {
-    return this.proc.delete(id);
+    const res = await this.proc.delete(id);
+    void this.notif.log({
+      kind: 'inapp',
+      category: 'order_delete',
+      title: `Xoá đơn ${res.prevOrder?.orderNumber ?? id}`,
+      body: res.prevOrder?.customerName || res.prevOrder?.customer?.name || undefined,
+      target: 'admins',
+    });
+    return res;
   }
+
+  /** Danh sách toàn bộ phiếu hoàn (mọi đơn) — đối soát từ phía GD tiền ra. */
+  async listRefunds(): Promise<RefundListItem[]> {
+    return this.proc.refundList();
+  }
+
+  /** Đối soát 1 phiếu hoàn với 1 giao dịch SePay 'out'. Trả order đầy đủ. */
+  async reconcileRefund(
+    refundId: string,
+    transactionId: string,
+    currentUser: AuthUser,
+  ): Promise<Order> {
+    try {
+      return await this.proc.reconcileRefund(
+        refundId,
+        transactionId,
+        userJson(currentUser),
+      );
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+
+  /** Đánh dấu phiếu hoàn đã trả bằng tiền mặt (gỡ giao dịch). Trả order. */
+  async markRefundCash(refundId: string, currentUser: AuthUser): Promise<Order> {
+    try {
+      return await this.proc.markRefundCash(refundId, userJson(currentUser));
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+
+  /** Gỡ đối soát phiếu hoàn (về chưa đối soát). Trả order. */
+  async unreconcileRefund(
+    refundId: string,
+    currentUser: AuthUser,
+  ): Promise<Order> {
+    try {
+      return await this.proc.unreconcileRefund(refundId, userJson(currentUser));
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+}
+
+/** Chuẩn hoá AuthUser -> jsonb p_user cho stored function. */
+function userJson(u: AuthUser): Record<string, any> {
+  return {
+    uid: u?.uid ?? '',
+    role: u?.role ?? '',
+    displayName: u?.displayName ?? '',
+    email: u?.email ?? '',
+  };
+}
+
+/** Map exception raw từ Postgres (đối soát) sang HTTP status có nghĩa cho FE. */
+function mapRefundError(e: unknown): Error {
+  const msg = (e as { message?: string })?.message ?? '';
+  if (msg.includes('REFUND_NOT_FOUND') || msg.includes('TRANSACTION_NOT_FOUND')) {
+    return new NotFoundException(
+      msg.includes('TRANSACTION') ? 'TRANSACTION_NOT_FOUND' : 'REFUND_NOT_FOUND',
+    );
+  }
+  if (msg.includes('TRANSACTION_ALREADY_LINKED')) {
+    return new ConflictException('TRANSACTION_ALREADY_LINKED');
+  }
+  if (msg.includes('TRANSACTION_NOT_OUTGOING')) {
+    return new BadRequestException('TRANSACTION_NOT_OUTGOING');
+  }
+  return e as Error;
 }

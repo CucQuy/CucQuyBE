@@ -18,7 +18,11 @@ BEGIN
   END IF;
 
   v_order_number := v_res->'transaction'->>'order_number';
-  IF v_order_number IS NOT NULL THEN
+  -- ⚠️ CHỈ auto-PAID khi giao dịch là tiền VÀO (transfer_type='in'). Giao dịch tiền RA
+  -- (hoàn tiền/chuyển khoản đi) có thể trích trúng mã ORDxxx trong description → KHÔNG
+  -- được đánh dấu đơn là đã thanh toán. (vá latent bug — gate transfer_type)
+  IF v_order_number IS NOT NULL
+     AND COALESCE(v_res->'transaction'->>'transfer_type', 'in') = 'in' THEN
     UPDATE orders
        SET payment_status = 'PAID',
            sepay_id = p_body->>'id',
@@ -29,6 +33,28 @@ BEGIN
 
   RETURN v_res || jsonb_build_object('orderNumber', v_order_number, 'orderMatched', v_matched > 0);
 END;
+$$;
+
+-- Tóm tắt đơn cho noti Zalo khi auto-PAID: tên khách + SĐT + danh sách món (name × qty).
+-- Read-only; tách khỏi webhook_sepay để không đổi luồng ghi. Lấy đơn khớp order_number
+-- mới cập nhật nhất (phòng trùng số đơn hiếm gặp).
+CREATE OR REPLACE FUNCTION order_paid_noti_summary(p_order_number text)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'customerName', COALESCE(o.customer_name, ''),
+    'phone',        COALESCE(o.phone, ''),
+    'items', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'name',     COALESCE(NULLIF(oi.product_name, ''), '(?)'),
+        'quantity', COALESCE(oi.quantity, 0)
+      ) ORDER BY oi.id)
+      FROM order_items oi WHERE oi.order_id = o.id
+    ), '[]'::jsonb)
+  )
+  FROM orders o
+  WHERE o.order_number = p_order_number
+  ORDER BY o.updated_at DESC NULLS LAST
+  LIMIT 1;
 $$;
 
 -- Facebook/Fanpage inbox: lưu message + attachments, idempotent theo id_new_message.

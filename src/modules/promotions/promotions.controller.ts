@@ -16,6 +16,7 @@ import { UserRole } from '../../auth/user.types';
 import { PromotionsService } from './promotions.service';
 import { CreatePromotionDto } from './dto/create-promotion.dto';
 import { UpdatePromotionDto } from './dto/update-promotion.dto';
+import { ReopenPromotionDto } from './dto/reopen-promotion.dto';
 import { PreviewPromotionDto } from './dto/preview-promotion.dto';
 
 @ApiTags('Khuyến mãi')
@@ -53,6 +54,14 @@ export class PromotionsController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async remove(@Param('id') id: string) {
     await this.service.remove(id);
+    return { id };
+  }
+
+  /** Mở lại chạy đợt mới (cất đợt hiện tại vào lịch sử, reset lượt). */
+  @Post(':id/reopen')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async reopen(@Param('id') id: string, @Body() dto: ReopenPromotionDto) {
+    await this.service.reopen(id, dto);
     return { id };
   }
 }

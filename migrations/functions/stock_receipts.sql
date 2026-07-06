@@ -159,10 +159,41 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- Danh sách phiếu nhập (summary) — mới tạo trước.
+-- TICKET 5: KHÔNG trả receipt_image_base64 trong list (ảnh nặng) — chỉ trả ở
+-- detail (stock_receipt_get). FE list summary không dùng ảnh.
+-- Trả TABLE để loại cột ảnh nhưng vẫn đủ field cho mapSummary.
+-- ⚠️ RETURNS TABLE đổi (thêm reconciled, transaction_id) -> đổi return type,
+-- CREATE OR REPLACE sẽ lỗi "cannot change return type". Auto-migrate re-apply file
+-- này lúc deploy nên phải DROP trước.
+DROP FUNCTION IF EXISTS stock_receipt_list();
 CREATE OR REPLACE FUNCTION stock_receipt_list()
-RETURNS SETOF stock_receipts
+RETURNS TABLE (
+  id text,
+  supplier_id text,
+  supplier_name_raw text,
+  supplier_name_canonical text,
+  store_or_branch text,
+  invoice_number text,
+  receipt_date text,
+  total_amount numeric,
+  currency text,
+  product_line_count int,
+  status text,
+  source text,
+  reconciled boolean,
+  transaction_id text,
+  created_at timestamptz,
+  updated_at timestamptz
+)
 LANGUAGE sql STABLE AS $$
-  SELECT * FROM stock_receipts ORDER BY created_at DESC NULLS LAST;
+  SELECT
+    id, supplier_id, supplier_name_raw, supplier_name_canonical,
+    store_or_branch, invoice_number, receipt_date, total_amount, currency,
+    product_line_count, status, source,
+    COALESCE(reconciled, false) AS reconciled, transaction_id,
+    created_at, updated_at
+  FROM stock_receipts
+  ORDER BY created_at DESC NULLS LAST;
 $$;
 
 -- Chi tiết 1 phiếu nhập kèm lines -> jsonb (NULL nếu không tồn tại).
@@ -195,8 +226,9 @@ $$;
 
 -- ── WRITE đơn giản ───────────────────────────────────────────────────────────
 
--- Cập nhật thông tin NCC (chỉ field có trong p_patch & tồn tại cột: name/phone/address).
--- p_patch: jsonb camelCase {name,phone,address,...}. Field rỗng -> NULL.
+-- Cập nhật thông tin NCC. Field có trong p_patch mới được set (partial update):
+-- name/phone/address/contactPerson/email/taxCode/category/channel/notes.
+-- p_patch: jsonb camelCase. Chuỗi rỗng -> NULL (trừ name: rỗng thì BỎ QUA, giữ tên cũ).
 CREATE OR REPLACE FUNCTION stock_receipt_supplier_update(p_id text, p_patch jsonb)
 RETURNS SETOF suppliers
 LANGUAGE plpgsql AS $$
@@ -219,6 +251,24 @@ BEGIN
   END IF;
   IF p_patch ? 'address' THEN
     UPDATE suppliers SET address = NULLIF(trim(COALESCE(p_patch->>'address','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'contactPerson' THEN
+    UPDATE suppliers SET contact_person = NULLIF(trim(COALESCE(p_patch->>'contactPerson','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'email' THEN
+    UPDATE suppliers SET email = NULLIF(trim(COALESCE(p_patch->>'email','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'taxCode' THEN
+    UPDATE suppliers SET tax_code = NULLIF(trim(COALESCE(p_patch->>'taxCode','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'category' THEN
+    UPDATE suppliers SET category = NULLIF(trim(COALESCE(p_patch->>'category','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'channel' THEN
+    UPDATE suppliers SET channel = NULLIF(trim(COALESCE(p_patch->>'channel','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'notes' THEN
+    UPDATE suppliers SET notes = NULLIF(trim(COALESCE(p_patch->>'notes','')), '') WHERE id = p_id;
   END IF;
 
   UPDATE suppliers SET updated_at = now() WHERE id = p_id;
@@ -246,6 +296,8 @@ DECLARE
   v_target_supplier text := NULLIF(p_input->>'targetSupplierId', '');
   v_created_by text := NULLIF(p_input->>'createdByUid', '');
   v_ocr text := COALESCE(p_input->>'ocrText', '');
+  -- nguồn phiếu: 'ocr' (mặc định) | 'manual'. Phiếu manual bỏ qua chống trùng billHash.
+  v_source text := COALESCE(NULLIF(p_input->>'source', ''), 'ocr');
 
   v_supplier_name_raw text := NULLIF(v_struct->>'supplierName', '');
   v_supplier_id text;
@@ -253,12 +305,21 @@ DECLARE
   v_supplier_key text;
   v_supplier_is_new boolean := false;
 
-  v_total numeric := COALESCE(NULLIF(v_struct->>'totalAmount','')::numeric, 0);
+  -- Tổng phiếu (cho thống kê supplier.total_amount). Nếu FE gửi totalAmount đã
+  -- chốt -> GIỮ NGUYÊN; null -> fallback = tổng line (gán sau khi tính v_sum_lines).
+  v_total_input numeric := NULLIF(v_struct->>'totalAmount','')::numeric;
+  v_total numeric := COALESCE(v_total_input, 0);
   v_bill_hash text;
   v_dup_id text;
 
   v_contact_phone text;
   v_contact_address text;
+  v_contact_person text;
+  v_contact_email text;
+  v_contact_tax_code text;
+  v_contact_category text;
+  v_contact_channel text;
+  v_contact_notes text;
 
   v_receipt_date text := NULLIF(v_struct->>'receiptDate', '');
   v_now timestamptz := now();
@@ -310,30 +371,53 @@ BEGIN
   v_supplier_key := COALESCE(v_supplier_key, '');
 
   -- ── computeBillHash + chống trùng ────────────────────────────────────────
+  -- Vẫn tính & lưu bill_hash cho mọi phiếu (truy vết), nhưng CHỈ chặn trùng với
+  -- phiếu OCR. Phiếu manual (ocrText rỗng) dễ ra hash trùng oan khi cùng
+  -- NCC + ngày + tổng tiền — thực tế là 2 phiếu hợp lệ khác nhau.
   v_bill_hash := sr_bill_hash(
     v_supplier_key,
     v_receipt_date,
     CASE WHEN (v_struct->>'totalAmount') IS NULL THEN '' ELSE (v_struct->>'totalAmount') END,
     v_ocr
   );
-  SELECT id INTO v_dup_id FROM stock_receipts WHERE bill_hash = v_bill_hash LIMIT 1;
-  IF v_dup_id IS NOT NULL THEN
-    RAISE EXCEPTION 'DUPLICATE_BILL:%', v_dup_id;
+  IF v_source = 'ocr' THEN
+    SELECT id INTO v_dup_id FROM stock_receipts WHERE bill_hash = v_bill_hash LIMIT 1;
+    IF v_dup_id IS NOT NULL THEN
+      RAISE EXCEPTION 'DUPLICATE_BILL:%', v_dup_id;
+    END IF;
   END IF;
 
-  -- contact (chỉ phone/address có cột trong suppliers)
-  v_contact_phone := NULLIF(trim(COALESCE(v_contact->>'phone','')), '');
-  v_contact_address := NULLIF(trim(COALESCE(v_contact->>'address','')), '');
+  -- contact (đầy đủ field — bảng suppliers đã có cột từ migration 011)
+  v_contact_phone    := NULLIF(trim(COALESCE(v_contact->>'phone','')), '');
+  v_contact_address  := NULLIF(trim(COALESCE(v_contact->>'address','')), '');
+  v_contact_person   := NULLIF(trim(COALESCE(v_contact->>'contactPerson','')), '');
+  v_contact_email    := NULLIF(trim(COALESCE(v_contact->>'email','')), '');
+  v_contact_tax_code := NULLIF(trim(COALESCE(v_contact->>'taxCode','')), '');
+  v_contact_category := NULLIF(trim(COALESCE(v_contact->>'category','')), '');
+  v_contact_channel  := NULLIF(trim(COALESCE(v_contact->>'channel','')), '');
+  v_contact_notes    := NULLIF(trim(COALESCE(v_contact->>'notes','')), '');
+
+  -- tổng các dòng (dùng cho amountCheck + fallback total khi FE không gửi total)
+  SELECT COALESCE(SUM(COALESCE(NULLIF(li->>'lineTotal','')::numeric, 0)), 0)
+    INTO v_sum_lines
+  FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
+  WHERE trim(COALESCE(li->>'name','')) <> '';
+
+  -- TICKET 4: tổng phiếu đã chốt -> giữ nguyên; null -> fallback tổng line.
+  -- (KHÔNG ép tính lại khi FE đã gửi total.)
+  v_total := COALESCE(v_total_input, v_sum_lines);
 
   -- ── upsert supplier + thống kê ───────────────────────────────────────────
   IF v_supplier_id IS NOT NULL AND v_supplier_name IS NOT NULL THEN
     IF v_supplier_is_new THEN
       INSERT INTO suppliers (
         id, name, normalized_name, receipt_count, total_amount, last_receipt_date,
-        phone, address, created_at, updated_at
+        phone, address, contact_person, email, tax_code, category, channel, notes,
+        created_at, updated_at
       ) VALUES (
         v_supplier_id, v_supplier_name, v_supplier_key, 1, v_total, v_now,
-        v_contact_phone, v_contact_address, v_now, v_now
+        v_contact_phone, v_contact_address, v_contact_person, v_contact_email,
+        v_contact_tax_code, v_contact_category, v_contact_channel, v_contact_notes, v_now, v_now
       );
     ELSE
       UPDATE suppliers SET
@@ -342,6 +426,12 @@ BEGIN
         last_receipt_date = v_now,
         phone = COALESCE(v_contact_phone, phone),
         address = COALESCE(v_contact_address, address),
+        contact_person = COALESCE(v_contact_person, contact_person),
+        email = COALESCE(v_contact_email, email),
+        tax_code = COALESCE(v_contact_tax_code, tax_code),
+        category = COALESCE(v_contact_category, category),
+        channel = COALESCE(v_contact_channel, channel),
+        notes = COALESCE(v_contact_notes, notes),
         updated_at = v_now
       WHERE id = v_supplier_id;
     END IF;
@@ -350,12 +440,8 @@ BEGIN
   END IF;
 
   -- ── amountCheck (computeAmountCheck) ─────────────────────────────────────
-  SELECT COALESCE(SUM(COALESCE(NULLIF(li->>'lineTotal','')::numeric, 0)), 0)
-    INTO v_sum_lines
-  FROM jsonb_array_elements(COALESCE(v_struct->'lineItems', '[]'::jsonb)) AS li
-  WHERE trim(COALESCE(li->>'name','')) <> '';
-  IF (v_struct->>'totalAmount') IS NOT NULL AND v_total > 0 THEN
-    v_delta_pct := abs(v_sum_lines - v_total) / v_total;
+  IF v_total_input IS NOT NULL AND v_total_input > 0 THEN
+    v_delta_pct := abs(v_sum_lines - v_total_input) / v_total_input;
   ELSE
     v_delta_pct := 0;
   END IF;
@@ -375,7 +461,7 @@ BEGIN
     validation_is_likely_receipt, validation_confidence, validation_reason_vi,
     validation_heuristic_score, validation_heuristic_note_vi,
     amount_check_sum_lines, amount_check_delta_pct, amount_check_warn,
-    bill_hash, status, created_by_uid, created_at, updated_at
+    bill_hash, status, source, created_by_uid, created_at, updated_at
   ) VALUES (
     v_header_id,
     v_supplier_id,
@@ -408,6 +494,7 @@ BEGIN
     v_warn,
     v_bill_hash,
     'committed',
+    v_source,
     v_created_by,
     v_now,
     v_now
@@ -517,11 +604,28 @@ BEGIN
   SET last_supplier_id = p_root_id, last_supplier_name = v_root_name, updated_at = now()
   WHERE last_supplier_id = ANY(v_dups);
 
-  UPDATE suppliers
-  SET receipt_count = COALESCE(receipt_count,0) + v_count_sum,
-      total_amount = COALESCE(total_amount,0) + v_amount_sum,
+  -- Cộng dồn thống kê vào root + giữ field liên hệ của root; chỉ lấp từ dup
+  -- (theo updated_at mới nhất) khi field root đang NULL — tránh mất data khi gộp.
+  UPDATE suppliers r
+  SET receipt_count = COALESCE(r.receipt_count,0) + v_count_sum,
+      total_amount = COALESCE(r.total_amount,0) + v_amount_sum,
+      phone          = COALESCE(r.phone,          d.phone),
+      address        = COALESCE(r.address,        d.address),
+      contact_person = COALESCE(r.contact_person, d.contact_person),
+      email          = COALESCE(r.email,          d.email),
+      tax_code       = COALESCE(r.tax_code,       d.tax_code),
+      category       = COALESCE(r.category,       d.category),
+      channel        = COALESCE(r.channel,        d.channel),
+      notes          = COALESCE(r.notes,          d.notes),
       updated_at = now()
-  WHERE id = p_root_id;
+  FROM (
+    SELECT DISTINCT ON (1) true AS k,
+           phone, address, contact_person, email, tax_code, category, channel, notes
+    FROM suppliers
+    WHERE id = ANY(v_dups)
+    ORDER BY 1, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+  ) d
+  WHERE r.id = p_root_id;
 
   DELETE FROM suppliers WHERE id = ANY(v_dups);
 END;
@@ -566,5 +670,178 @@ BEGIN
   WHERE id = p_root_id;
 
   DELETE FROM materials WHERE id = ANY(v_dups);
+END;
+$$;
+
+-- ── GỢI Ý GỘP nguyên liệu trùng (Phase 1) ────────────────────────────────────
+-- So sánh từng cặp material (a.id < b.id) bằng similarity của phần BASE
+-- (split_part(normalized_name,'|',1) — bỏ phần pack "|<num><unit>") dùng pg_trgm.
+-- Chỉ giữ cặp similarity >= p_threshold. Trả jsonb ARRAY camelCase (FE dùng thẳng),
+-- sắp xếp similarity DESC.
+-- ⚠️ Chỉ chạy được SAU khi migration 013 (CREATE EXTENSION pg_trgm) đã apply.
+CREATE OR REPLACE FUNCTION stock_receipt_material_merge_suggestions(
+  p_threshold real DEFAULT 0.4
+)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH base AS (
+    SELECT
+      id, name, import_count, total_qty, canonical_unit,
+      split_part(COALESCE(normalized_name, ''), '|', 1) AS base_name
+    FROM materials
+    WHERE COALESCE(split_part(COALESCE(normalized_name, ''), '|', 1), '') <> ''
+  ),
+  pairs AS (
+    SELECT
+      similarity(a.base_name, b.base_name) AS sim,
+      a.id AS a_id, a.name AS a_name, a.import_count AS a_import,
+      a.total_qty AS a_qty, a.canonical_unit AS a_unit,
+      b.id AS b_id, b.name AS b_name, b.import_count AS b_import,
+      b.total_qty AS b_qty, b.canonical_unit AS b_unit
+    FROM base a
+    JOIN base b ON a.id < b.id
+    WHERE similarity(a.base_name, b.base_name) >= p_threshold
+  )
+  SELECT COALESCE(jsonb_agg(
+    jsonb_build_object(
+      'similarity', sim,
+      'a', jsonb_build_object(
+        'id', a_id, 'name', a_name, 'importCount', COALESCE(a_import, 0),
+        'totalQty', COALESCE(a_qty, 0), 'canonicalUnit', a_unit
+      ),
+      'b', jsonb_build_object(
+        'id', b_id, 'name', b_name, 'importCount', COALESCE(b_import, 0),
+        'totalQty', COALESCE(b_qty, 0), 'canonicalUnit', b_unit
+      )
+    ) ORDER BY sim DESC
+  ), '[]'::jsonb)
+  FROM pairs;
+$$;
+
+-- ── Sửa NVL (vá gap "NVL không sửa được") ────────────────────────────────────
+-- Partial update qua jsonb patch (style stock_receipt_supplier_update).
+-- Cho phép set name / canonicalUnit. Đổi name -> cập nhật normalized_name =
+-- sr_material_key(name). Chỉ update key có trong patch. Luôn set updated_at.
+CREATE OR REPLACE FUNCTION stock_receipt_material_update(p_id text, p_patch jsonb)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_name text;
+BEGIN
+  -- name: chỉ set khi gửi lên & không rỗng (đồng thời cập nhật normalized_name)
+  IF p_patch ? 'name' THEN
+    v_name := trim(COALESCE(p_patch->>'name', ''));
+    IF v_name <> '' THEN
+      UPDATE materials
+      SET name = v_name,
+          normalized_name = sr_material_key(v_name)
+      WHERE id = p_id;
+    END IF;
+  END IF;
+
+  IF p_patch ? 'canonicalUnit' THEN
+    UPDATE materials
+    SET canonical_unit = NULLIF(trim(COALESCE(p_patch->>'canonicalUnit', '')), '')
+    WHERE id = p_id;
+  END IF;
+
+  UPDATE materials SET updated_at = now() WHERE id = p_id;
+END;
+$$;
+
+-- ============================================================
+-- Đối soát phiếu nhập kho ↔ giao dịch SePay tiền ra (009).
+-- ============================================================
+
+-- Danh sách phiếu nhập + field đối soát — phục vụ tab "Tiền ra" (FE) gắn 1 GD
+-- out ↔ 1 phiếu nhập. transactionId != NULL => đã gắn GD đó.
+CREATE OR REPLACE FUNCTION stock_receipt_list_for_reconcile()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'receiptId',      sr.id,
+    'supplierName',   COALESCE(NULLIF(sr.supplier_name_canonical,''), NULLIF(sr.supplier_name_raw,'')),
+    'totalAmount',    sr.total_amount,
+    'receiptDate',    sr.receipt_date,
+    'invoiceNumber',  sr.invoice_number,
+    'transactionId',  sr.transaction_id,
+    'reconciled',     COALESCE(sr.reconciled, false)
+  ) ORDER BY sr.created_at DESC NULLS LAST), '[]'::jsonb)
+  FROM stock_receipts sr;
+$$;
+
+-- Gắn 1 GD tiền ra cho 1 phiếu nhập. Trả { ok, receiptId, transactionId }.
+CREATE OR REPLACE FUNCTION stock_receipt_reconcile(
+  p_receipt_id     text,
+  p_transaction_id text,
+  p_user           jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_tx_type   text;
+  v_tx_amount numeric;
+  v_total     numeric;
+  v_used      text;
+  v_actor     text := refund_actor_name(p_user);  -- tái dùng helper (orders.sql)
+BEGIN
+  SELECT total_amount INTO v_total FROM stock_receipts WHERE id = p_receipt_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RECEIPT_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  SELECT transfer_type, transfer_amount INTO v_tx_type, v_tx_amount
+  FROM transactions WHERE id = p_transaction_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+  IF COALESCE(v_tx_type,'') <> 'out' THEN
+    RAISE EXCEPTION 'TRANSACTION_NOT_OUTGOING' USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- GD đã gắn cho phiếu nhập KHÁC?
+  SELECT id INTO v_used FROM stock_receipts
+  WHERE transaction_id = p_transaction_id AND id <> p_receipt_id LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_ALREADY_LINKED' USING ERRCODE = 'unique_violation';
+  END IF;
+  -- GD đã gắn cho 1 phiếu HOÀN TIỀN? (không cho dùng chéo)
+  SELECT id INTO v_used FROM order_refunds WHERE transaction_id = p_transaction_id LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TRANSACTION_ALREADY_LINKED' USING ERRCODE = 'unique_violation';
+  END IF;
+
+  IF v_tx_amount IS NOT NULL AND COALESCE(v_total,0) <> v_tx_amount THEN
+    RAISE WARNING 'Tổng phiếu nhập (%) lệch số tiền giao dịch (%) — vẫn cho đối soát',
+      v_total, v_tx_amount;
+  END IF;
+
+  UPDATE stock_receipts SET
+    transaction_id = p_transaction_id,
+    reconciled     = true,
+    reconciled_at  = now(),
+    reconciled_by  = v_actor
+  WHERE id = p_receipt_id;
+
+  RETURN jsonb_build_object('ok', true, 'receiptId', p_receipt_id, 'transactionId', p_transaction_id);
+END;
+$$;
+
+-- Gỡ đối soát phiếu nhập (về chưa đối soát).
+CREATE OR REPLACE FUNCTION stock_receipt_unreconcile(p_receipt_id text)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM stock_receipts WHERE id = p_receipt_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RECEIPT_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+  UPDATE stock_receipts SET
+    transaction_id = NULL,
+    reconciled     = false,
+    reconciled_at  = NULL,
+    reconciled_by  = NULL
+  WHERE id = p_receipt_id;
+  RETURN jsonb_build_object('ok', true, 'receiptId', p_receipt_id);
 END;
 $$;

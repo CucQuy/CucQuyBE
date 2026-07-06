@@ -3,20 +3,27 @@ import {
   LineRow,
   MaterialRow,
   ReceiptRow,
+  ReconcileReceiptItem,
   StockReceiptProc,
   SupplierRow,
 } from './stock-receipts.proc';
+import { AuthUser } from '../../auth/user.types';
 import {
   BillLineItem,
   ImportedMaterialSummary,
   ImportedSupplierSummary,
+  MaterialMergeSuggestion,
   MaterialPriceOption,
+  MaterialUpdatePatch,
   SavedStockReceiptDetail,
   SavedStockReceiptSummary,
   SaveStockReceiptDraftInput,
   StockReceiptValidationSnapshot,
   SupplierContactInfo,
 } from './stock-receipts.types';
+
+/** Ngưỡng similarity mặc định cho gợi ý gộp nguyên liệu. */
+const DEFAULT_MERGE_THRESHOLD = 0.4;
 
 // ── Helpers map ─────────────────────────────────────────────────────────────
 
@@ -43,6 +50,12 @@ const mapSupplier = (r: SupplierRow): ImportedSupplierSummary => ({
   lastReceiptDate: r.last_receipt_date ?? undefined,
   phone: r.phone,
   address: r.address,
+  contactPerson: r.contact_person,
+  email: r.email,
+  taxCode: r.tax_code,
+  category: r.category,
+  channel: r.channel ?? undefined,
+  notes: r.notes,
 });
 
 const mapMaterial = (r: MaterialRow): ImportedMaterialSummary => ({
@@ -52,6 +65,8 @@ const mapMaterial = (r: MaterialRow): ImportedMaterialSummary => ({
   importCount: r.import_count ?? 0,
   totalQty: numOr0(r.total_qty),
   totalAmount: numOr0(r.total_amount),
+  canonicalUnit: r.canonical_unit ?? undefined,
+  lastUnitPrice: r.last_unit_price != null ? numOr0(r.last_unit_price) : undefined,
   lastSupplierName: r.last_supplier_name ?? undefined,
   lastReceiptDate: r.last_receipt_date ?? undefined,
 });
@@ -65,6 +80,9 @@ const mapSummary = (r: ReceiptRow): SavedStockReceiptSummary => ({
   totalAmount: num(r.total_amount),
   currency: r.currency || 'VND',
   productLineCount: r.product_line_count ?? 0,
+  source: r.source ?? undefined,
+  reconciled: Boolean(r.reconciled),
+  transactionId: r.transaction_id ?? undefined,
   createdAt: toIso(r.created_at),
 });
 
@@ -189,5 +207,45 @@ export class StockReceiptsService {
 
   async mergeMaterials(rootId: string, duplicateIds: string[]): Promise<void> {
     await this.proc.mergeMaterials(rootId, duplicateIds);
+  }
+
+  /**
+   * Gợi ý các cặp nguyên liệu nghi trùng (Phase 1). Passthrough jsonb từ DB.
+   * threshold không hợp lệ -> dùng mặc định 0.4.
+   */
+  async getMaterialMergeSuggestions(
+    threshold?: number,
+  ): Promise<MaterialMergeSuggestion[]> {
+    const t =
+      typeof threshold === 'number' && Number.isFinite(threshold)
+        ? threshold
+        : DEFAULT_MERGE_THRESHOLD;
+    return this.proc.materialMergeSuggestions(t);
+  }
+
+  /** Sửa nguyên liệu (NVL): name / canonicalUnit. */
+  async updateMaterial(id: string, patch: MaterialUpdatePatch): Promise<void> {
+    await this.proc.materialUpdate(id, patch);
+  }
+
+  // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────
+  async listReceiptsForReconcile(): Promise<ReconcileReceiptItem[]> {
+    return this.proc.listForReconcile();
+  }
+
+  async reconcileReceipt(
+    receiptId: string,
+    transactionId: string,
+    currentUser: AuthUser,
+  ): Promise<{ ok: boolean }> {
+    return this.proc.reconcile(receiptId, transactionId, {
+      uid: currentUser?.uid ?? '',
+      displayName: currentUser?.displayName ?? '',
+      email: currentUser?.email ?? '',
+    });
+  }
+
+  async unreconcileReceipt(receiptId: string): Promise<{ ok: boolean }> {
+    return this.proc.unreconcile(receiptId);
   }
 }

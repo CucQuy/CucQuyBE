@@ -33,6 +33,56 @@ export interface RequestLogEntry {
   body: string | null; // payload đã redact + cắt bớt (chỉ method có body)
 }
 
+/** Phân bố {name, count} (thiết bị/trình duyệt/OS). */
+export interface NameCount {
+  name: string;
+  count: number;
+}
+
+/** Thống kê lưu lượng (khớp output request_log_stats). */
+export interface RequestLogStats {
+  scanned: number;
+  total: number;
+  errorCount: number;
+  uniqueIps: number;
+  uniqueUsers: number;
+  bandwidth: number; // tổng bytes response
+  avgDuration: number; // ms
+  p50: number;
+  p90: number;
+  p95: number;
+  p99: number;
+  statusBuckets: { s2xx: number; s3xx: number; s4xx: number; s5xx: number };
+  methodBuckets: Array<{ method: string; count: number }>;
+  deviceBuckets: NameCount[];
+  browserBuckets: NameCount[];
+  osBuckets: NameCount[];
+  topCountries: Array<{ country: string; count: number }>;
+  topReferers: Array<{ referer: string; count: number }>;
+  topUsers: Array<{ user: string; count: number }>;
+  topPaths: Array<{ path: string; count: number }>;
+  slowestPaths: Array<{ path: string; p95: number; count: number }>;
+  topIps: Array<{ ip: string; country?: string; count: number }>;
+}
+
+/** 1 điểm trên chuỗi thời gian lưu lượng. */
+export interface RequestLogTimePoint {
+  ts: string; // ISO (đầu bucket)
+  requests: number;
+  errors: number;
+  uniqueIps: number;
+}
+
+/** 1 nhóm lỗi (gom theo method+path+status). */
+export interface RequestLogErrorGroup {
+  method: string;
+  path: string;
+  status: number;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
 export interface QueryLogsParams {
   from?: string; // ISO date
   to?: string; // ISO date
@@ -116,38 +166,72 @@ export class RequestLogsService {
   /**
    * Thống kê nhanh trên cửa sổ gần nhất (tối đa STATS_SCAN_CAP dòng trong khoảng
    * thời gian lọc). Trả kèm `scanned` để minh bạch số dòng đã quét.
+   * errorsOnly = true → chỉ tính trên request lỗi (status >= 400).
    */
-  async stats(params: Pick<QueryLogsParams, 'from' | 'to'>): Promise<{
-    scanned: number;
-    total: number;
-    errorCount: number;
-    uniqueIps: number;
-    topPaths: Array<{ path: string; count: number }>;
-    topIps: Array<{ ip: string; country?: string; count: number }>;
-  }> {
+  async stats(
+    params: Pick<QueryLogsParams, 'from' | 'to'> & { errorsOnly?: boolean },
+  ): Promise<RequestLogStats> {
     const [row] = await this.proc.stats(
       params.from ?? null,
       params.to ?? null,
       STATS_SCAN_CAP,
+      params.errorsOnly ?? false,
     );
 
-    const s = (row?.stats ?? {}) as {
-      scanned?: number;
-      total?: number;
-      errorCount?: number;
-      uniqueIps?: number;
-      topPaths?: Array<{ path: string; count: number }>;
-      topIps?: Array<{ ip: string; country?: string; count: number }>;
-    };
+    const s = (row?.stats ?? {}) as Partial<RequestLogStats>;
 
     return {
       scanned: s.scanned ?? 0,
       total: s.total ?? 0,
       errorCount: s.errorCount ?? 0,
       uniqueIps: s.uniqueIps ?? 0,
+      uniqueUsers: s.uniqueUsers ?? 0,
+      bandwidth: s.bandwidth ?? 0,
+      avgDuration: s.avgDuration ?? 0,
+      p50: s.p50 ?? 0,
+      p90: s.p90 ?? 0,
+      p95: s.p95 ?? 0,
+      p99: s.p99 ?? 0,
+      statusBuckets: s.statusBuckets ?? { s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 },
+      methodBuckets: s.methodBuckets ?? [],
+      deviceBuckets: s.deviceBuckets ?? [],
+      browserBuckets: s.browserBuckets ?? [],
+      osBuckets: s.osBuckets ?? [],
+      topCountries: s.topCountries ?? [],
+      topReferers: s.topReferers ?? [],
+      topUsers: s.topUsers ?? [],
       topPaths: s.topPaths ?? [],
+      slowestPaths: s.slowestPaths ?? [],
       topIps: s.topIps ?? [],
     };
+  }
+
+  /** Gom lỗi theo (method,path,status) — kiểu Sentry. */
+  async errorGroups(
+    params: Pick<QueryLogsParams, 'from' | 'to'> & { limit?: number },
+  ): Promise<RequestLogErrorGroup[]> {
+    const [row] = await this.proc.errorGroups(
+      params.from ?? null,
+      params.to ?? null,
+      Math.min(200, Math.max(1, params.limit ?? 50)),
+    );
+    return (row?.groups ?? []) as RequestLogErrorGroup[];
+  }
+
+  /** Chuỗi thời gian lưu lượng (gom theo giờ/ngày). errorsOnly → chỉ request lỗi. */
+  async timeseries(
+    params: Pick<QueryLogsParams, 'from' | 'to'> & {
+      bucket?: 'hour' | 'day';
+      errorsOnly?: boolean;
+    },
+  ): Promise<RequestLogTimePoint[]> {
+    const [row] = await this.proc.timeseries(
+      params.from ?? null,
+      params.to ?? null,
+      params.bucket === 'hour' ? 'hour' : 'day',
+      params.errorsOnly ?? false,
+    );
+    return (row?.series ?? []) as RequestLogTimePoint[];
   }
 
   /** Xoá log đã hết hạn (TTL thủ công). Trả số dòng đã xoá. */

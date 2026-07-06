@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { TransactionProc, TransactionRow } from './transactions.proc';
+import {
+  TransactionProc,
+  TransactionRow,
+  ReconcilePreviewResult,
+} from './transactions.proc';
 import { Transaction } from './transactions.types';
+import { ReconcilePair } from './dto/reconcile-apply.dto';
 
 const toIso = (val: string | Date | null): string => {
   if (!val) return new Date().toISOString();
@@ -25,6 +30,7 @@ const mapRow = (r: TransactionRow): Transaction => ({
   transferType: r.transfer_type ?? 'in',
   transferAmount: Number(r.transfer_amount) || 0,
   isExternal: r.is_external === true,
+  settledOut: r.settled_out === true,
 });
 
 /** Service chỉ orchestration + map; mọi call DB qua TransactionProc. */
@@ -40,9 +46,19 @@ export class TransactionsService {
     return (await this.proc.listByOrder(orderNumber)).map(mapRow);
   }
 
+  /** Giao dịch tiền RA chưa gắn phiếu hoàn nào — cho FE chọn khi đối soát hoàn. */
+  async fetchOutUnlinked(): Promise<Transaction[]> {
+    return (await this.proc.listOutUnlinked()).map(mapRow);
+  }
+
   /** Đánh dấu giao dịch là không liên quan đến hệ thống (hoặc bỏ đánh dấu). */
   async markTransactionExternal(id: string, isExternal: boolean): Promise<void> {
     await this.proc.markExternal(id, isExternal);
+  }
+
+  /** Đánh dấu giao dịch tiền RA đã kết toán (chuyển về TK chính) hoặc bỏ. */
+  async markTransactionSettled(id: string, settled: boolean): Promise<void> {
+    await this.proc.markSettled(id, settled);
   }
 
   /** Liên kết giao dịch với 1 đơn (ghi orderNumber); chuỗi rỗng = gỡ liên kết. */
@@ -60,5 +76,27 @@ export class TransactionsService {
     const rows = await this.proc.createFromSepay(body);
     const result = rows[0].result;
     return { duplicate: result.duplicate, transaction: mapRow(result.transaction) };
+  }
+
+  /** Đối soát: preview (dry-run) các cặp GD↔đơn sẽ khớp tự động — KHÔNG ghi. */
+  async reconcilePreview(): Promise<ReconcilePreviewResult> {
+    const rows = await this.proc.reconcilePreview();
+    const r = rows[0].result;
+    return {
+      ...r,
+      matched: (r.matched ?? []).map((m) => ({
+        ...m,
+        sepayId: Number(m.sepayId) || 0,
+        amount: Number(m.amount) || 0,
+      })),
+    };
+  }
+
+  /** Đối soát: ghi map cho danh sách cặp đã user confirm (atomic, idempotent). */
+  async reconcileApply(
+    pairs: ReconcilePair[],
+  ): Promise<{ applied: number; skipped: number }> {
+    const rows = await this.proc.reconcileApply(pairs ?? []);
+    return rows[0].result;
   }
 }

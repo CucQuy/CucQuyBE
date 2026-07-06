@@ -17,4 +17,6 @@ export interface Transaction {
   transferAmount: number;
   /** Giao dịch không liên quan đến hệ thống (đánh dấu thủ công) */
   isExternal?: boolean;
+  /** Tiền RA đã "kết toán" — chuyển về tài khoản chính (đánh dấu thủ công) */
+  settledOut?: boolean;
 }

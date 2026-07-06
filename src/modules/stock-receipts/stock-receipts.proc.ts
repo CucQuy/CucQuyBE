@@ -1,11 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
 import {
+  MaterialMergeSuggestion,
+  MaterialUpdatePatch,
   SaveStockReceiptDraftInput,
   SupplierContactInfo,
 } from './stock-receipts.types';
 
 // ── Rows trả về từ * (snake_case khớp cột bảng) ─────────────────────────
+
+/** 1 phiếu nhập + field đối soát (camelCase từ jsonb fn). */
+export type ReconcileReceiptItem = {
+  receiptId: string;
+  supplierName: string | null;
+  totalAmount: number | null;
+  receiptDate: string | null;
+  invoiceNumber: string | null;
+  transactionId: string | null;
+  reconciled: boolean;
+};
 
 export type SupplierRow = {
   id: string;
@@ -16,6 +29,12 @@ export type SupplierRow = {
   last_receipt_date: string | null;
   phone: string | null;
   address: string | null;
+  contact_person: string | null;
+  email: string | null;
+  tax_code: string | null;
+  category: string | null;
+  channel: string | null;
+  notes: string | null;
 };
 
 export type MaterialRow = {
@@ -64,6 +83,9 @@ export type ReceiptRow = {
   amount_check_warn: boolean | null;
   bill_hash: string | null;
   status: string | null;
+  source: string | null;
+  reconciled: boolean | null;
+  transaction_id: string | null;
   created_by_uid: string | null;
   created_at: string | Date | null;
   updated_at: string | Date | null;
@@ -101,6 +123,31 @@ export class StockReceiptProc {
     return this.db.sql<ReceiptRow[]>`SELECT * FROM stock_receipt_list()`;
   }
 
+  // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────
+  async listForReconcile(): Promise<ReconcileReceiptItem[]> {
+    const [row] = await this.db.sql<{ list: ReconcileReceiptItem[] }[]>`
+      SELECT stock_receipt_list_for_reconcile() AS list`;
+    return row?.list ?? [];
+  }
+
+  async reconcile(
+    receiptId: string,
+    transactionId: string,
+    userJson: Record<string, unknown>,
+  ): Promise<{ ok: boolean }> {
+    const [row] = await this.db.sql<{ result: { ok: boolean } }[]>`
+      SELECT stock_receipt_reconcile(
+        ${receiptId}, ${transactionId}, ${this.db.json(userJson)}::jsonb
+      ) AS result`;
+    return row.result;
+  }
+
+  async unreconcile(receiptId: string): Promise<{ ok: boolean }> {
+    const [row] = await this.db.sql<{ result: { ok: boolean } }[]>`
+      SELECT stock_receipt_unreconcile(${receiptId}) AS result`;
+    return row.result;
+  }
+
   get(
     receiptId: string,
   ): Promise<{ result: { header: ReceiptRow; lines: LineRow[] } | null }[]> {
@@ -136,5 +183,20 @@ export class StockReceiptProc {
     return this.db.sql`
       SELECT stock_receipt_merge_materials(
         ${rootId}, ${this.db.json(duplicateIds ?? [])}::jsonb)`;
+  }
+
+  /** Gợi ý các cặp nguyên liệu nghi trùng (jsonb array passthrough). */
+  async materialMergeSuggestions(
+    threshold: number,
+  ): Promise<MaterialMergeSuggestion[]> {
+    const [row] = await this.db.sql<{ result: MaterialMergeSuggestion[] }[]>`
+      SELECT stock_receipt_material_merge_suggestions(${threshold}::real) AS result`;
+    return row?.result ?? [];
+  }
+
+  /** Sửa nguyên liệu (NVL) — partial update qua jsonb patch. */
+  materialUpdate(id: string, patch: MaterialUpdatePatch): Promise<unknown> {
+    return this.db.sql`
+      SELECT stock_receipt_material_update(${id}, ${this.db.json(patch ?? {})}::jsonb)`;
   }
 }

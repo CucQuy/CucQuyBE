@@ -11,6 +11,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { CategoriesModule } from './modules/categories/categories.module';
+import { FlavorsModule } from './modules/flavors/flavors.module';
 import { BadgesModule } from './modules/badges/badges.module';
 import { CommissionGroupsModule } from './modules/commission-groups/commission-groups.module';
 import { ConfigurationsModule } from './modules/configurations/configurations.module';
@@ -28,6 +29,8 @@ import { RequestLogsModule } from './modules/request-logs/request-logs.module';
 import { LoggingMiddleware } from './modules/request-logs/logging.middleware';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { NotificationSchedulesModule } from './modules/notification-schedules/notification-schedules.module';
 
 @Module({
   imports: [
@@ -50,6 +53,7 @@ import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.mod
     CustomersModule,
     TransactionsModule,
     CategoriesModule,
+    FlavorsModule,
     BadgesModule,
     CommissionGroupsModule,
     ConfigurationsModule,
@@ -66,6 +70,8 @@ import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.mod
     RequestLogsModule,
     PromotionsModule,
     SurchargeTagsModule,
+    NotificationsModule,
+    NotificationSchedulesModule,
   ],
   controllers: [HealthController],
 })

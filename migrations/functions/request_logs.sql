@@ -76,11 +76,14 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- Thống kê nhanh trên cửa sổ gần nhất (tối đa p_cap dòng mới nhất trong khoảng lọc).
--- Trả 1 dòng jsonb: {scanned,total,errorCount,uniqueIps,topPaths,topIps}.
+-- p_errors_only = true → chỉ tính trên request lỗi (status >= 400).
+-- Trả 1 dòng jsonb rộng: KPI + percentiles latency + bandwidth + phân bố
+-- status/method/thiết bị/trình duyệt/OS + top path/ip/quốc gia/referrer/user + endpoint chậm.
 CREATE OR REPLACE FUNCTION request_log_stats(
   p_from timestamptz DEFAULT NULL,
   p_to timestamptz DEFAULT NULL,
-  p_cap int DEFAULT 2000
+  p_cap int DEFAULT 2000,
+  p_errors_only boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -89,36 +92,207 @@ LANGUAGE sql STABLE AS $$
       COALESCE(NULLIF(ip,''), 'unknown') AS ip,
       COALESCE(NULLIF(path,''), 'unknown') AS path,
       COALESCE(status_code, 0) AS status_code,
-      geo->>'country' AS country
+      COALESCE(NULLIF(method,''), '?') AS method,
+      COALESCE(duration_ms, 0) AS duration_ms,
+      COALESCE(response_size, 0) AS response_size,
+      geo->>'country' AS country,
+      NULLIF(referer, '') AS referer,
+      uid,
+      email,
+      lower(COALESCE(user_agent, '')) AS ua
     FROM request_logs
     WHERE (p_from IS NULL OR timestamp >= p_from)
       AND (p_to IS NULL OR timestamp <= p_to)
+      AND (NOT p_errors_only OR COALESCE(status_code, 0) >= 400)
     ORDER BY timestamp DESC
     LIMIT GREATEST(p_cap, 0)
   ),
+  -- Phân loại từ user-agent (thô nhưng đủ dùng).
+  ua AS (
+    SELECT *,
+      CASE
+        WHEN ua ~ '(bot|crawl|spider|slurp|bing|headless|monitor)' THEN 'Bot'
+        WHEN ua ~ '(mobile|android|iphone|ipad)' THEN 'Mobile'
+        WHEN ua = '' THEN 'Khác'
+        ELSE 'Desktop'
+      END AS device,
+      CASE
+        WHEN ua LIKE '%edg%' THEN 'Edge'
+        WHEN ua ~ '(opr|opera)' THEN 'Opera'
+        WHEN ua ~ '(chrome|crios)' THEN 'Chrome'
+        WHEN ua ~ '(firefox|fxios)' THEN 'Firefox'
+        WHEN ua LIKE '%safari%' THEN 'Safari'
+        WHEN ua = '' THEN 'Khác'
+        ELSE 'Khác'
+      END AS browser,
+      CASE
+        WHEN ua LIKE '%windows%' THEN 'Windows'
+        WHEN ua LIKE '%android%' THEN 'Android'
+        WHEN ua ~ '(iphone|ipad|ios)' THEN 'iOS'
+        WHEN ua ~ '(mac os|macintosh)' THEN 'macOS'
+        WHEN ua LIKE '%linux%' THEN 'Linux'
+        WHEN ua = '' THEN 'Khác'
+        ELSE 'Khác'
+      END AS os
+    FROM scan
+  ),
   paths AS (
     SELECT jsonb_agg(jsonb_build_object('path', path, 'count', c) ORDER BY c DESC) AS top
+    FROM (SELECT path, count(*) AS c FROM scan GROUP BY path ORDER BY c DESC LIMIT 10) p
+  ),
+  slow AS (
+    SELECT jsonb_agg(jsonb_build_object('path', path, 'p95', p95, 'count', c) ORDER BY p95 DESC) AS top
     FROM (
-      SELECT path, count(*) AS c FROM scan GROUP BY path ORDER BY c DESC LIMIT 10
-    ) p
+      SELECT path,
+             round(percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms))::int AS p95,
+             count(*) AS c
+      FROM scan GROUP BY path HAVING count(*) >= 3 ORDER BY p95 DESC LIMIT 10
+    ) s
   ),
   ips AS (
-    SELECT jsonb_agg(
-             jsonb_build_object('ip', ip, 'country', country, 'count', c) ORDER BY c DESC
-           ) AS top
+    SELECT jsonb_agg(jsonb_build_object('ip', ip, 'country', country, 'count', c) ORDER BY c DESC) AS top
     FROM (
       SELECT ip, (array_agg(country))[1] AS country, count(*) AS c
       FROM scan GROUP BY ip ORDER BY c DESC LIMIT 10
     ) i
+  ),
+  countries AS (
+    SELECT jsonb_agg(jsonb_build_object('country', country, 'count', c) ORDER BY c DESC) AS top
+    FROM (
+      SELECT COALESCE(NULLIF(country,''), '?') AS country, count(*) AS c
+      FROM scan GROUP BY 1 ORDER BY c DESC LIMIT 10
+    ) x
+  ),
+  referers AS (
+    SELECT jsonb_agg(jsonb_build_object('referer', referer, 'count', c) ORDER BY c DESC) AS top
+    FROM (
+      SELECT referer, count(*) AS c FROM scan WHERE referer IS NOT NULL
+      GROUP BY referer ORDER BY c DESC LIMIT 10
+    ) r
+  ),
+  users AS (
+    SELECT jsonb_agg(jsonb_build_object('user', u, 'count', c) ORDER BY c DESC) AS top
+    FROM (
+      SELECT COALESCE(NULLIF(email,''), uid) AS u, count(*) AS c
+      FROM scan WHERE uid IS NOT NULL AND uid <> '' GROUP BY 1 ORDER BY c DESC LIMIT 10
+    ) u
+  ),
+  methods AS (
+    SELECT jsonb_agg(jsonb_build_object('method', method, 'count', c) ORDER BY c DESC) AS top
+    FROM (SELECT method, count(*) AS c FROM scan GROUP BY method ORDER BY c DESC) x
+  ),
+  devices AS (
+    SELECT jsonb_agg(jsonb_build_object('name', device, 'count', c) ORDER BY c DESC) AS top
+    FROM (SELECT device, count(*) AS c FROM ua GROUP BY device ORDER BY c DESC) x
+  ),
+  browsers AS (
+    SELECT jsonb_agg(jsonb_build_object('name', browser, 'count', c) ORDER BY c DESC) AS top
+    FROM (SELECT browser, count(*) AS c FROM ua GROUP BY browser ORDER BY c DESC) x
+  ),
+  oses AS (
+    SELECT jsonb_agg(jsonb_build_object('name', os, 'count', c) ORDER BY c DESC) AS top
+    FROM (SELECT os, count(*) AS c FROM ua GROUP BY os ORDER BY c DESC) x
   )
   SELECT jsonb_build_object(
     'scanned', (SELECT count(*) FROM scan),
     'total', (SELECT count(*) FROM scan),
     'errorCount', (SELECT count(*) FROM scan WHERE status_code >= 400),
     'uniqueIps', (SELECT count(DISTINCT ip) FROM scan),
+    'uniqueUsers', (SELECT count(DISTINCT uid) FROM scan WHERE uid IS NOT NULL AND uid <> ''),
+    'bandwidth', (SELECT COALESCE(sum(response_size), 0)::bigint FROM scan),
+    'avgDuration', (SELECT COALESCE(round(avg(duration_ms))::int, 0) FROM scan),
+    'p50', (SELECT COALESCE(round(percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_ms))::int, 0) FROM scan),
+    'p90', (SELECT COALESCE(round(percentile_cont(0.90) WITHIN GROUP (ORDER BY duration_ms))::int, 0) FROM scan),
+    'p95', (SELECT COALESCE(round(percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms))::int, 0) FROM scan),
+    'p99', (SELECT COALESCE(round(percentile_cont(0.99) WITHIN GROUP (ORDER BY duration_ms))::int, 0) FROM scan),
+    'statusBuckets', jsonb_build_object(
+      's2xx', (SELECT count(*) FROM scan WHERE status_code BETWEEN 200 AND 299),
+      's3xx', (SELECT count(*) FROM scan WHERE status_code BETWEEN 300 AND 399),
+      's4xx', (SELECT count(*) FROM scan WHERE status_code BETWEEN 400 AND 499),
+      's5xx', (SELECT count(*) FROM scan WHERE status_code >= 500)
+    ),
+    'methodBuckets', COALESCE((SELECT top FROM methods), '[]'::jsonb),
+    'deviceBuckets', COALESCE((SELECT top FROM devices), '[]'::jsonb),
+    'browserBuckets', COALESCE((SELECT top FROM browsers), '[]'::jsonb),
+    'osBuckets', COALESCE((SELECT top FROM oses), '[]'::jsonb),
+    'topCountries', COALESCE((SELECT top FROM countries), '[]'::jsonb),
+    'topReferers', COALESCE((SELECT top FROM referers), '[]'::jsonb),
+    'topUsers', COALESCE((SELECT top FROM users), '[]'::jsonb),
     'topPaths', COALESCE((SELECT top FROM paths), '[]'::jsonb),
+    'slowestPaths', COALESCE((SELECT top FROM slow), '[]'::jsonb),
     'topIps', COALESCE((SELECT top FROM ips), '[]'::jsonb)
   );
+$$;
+
+-- Chuỗi thời gian lưu lượng: gom theo 'hour' hoặc 'day' trong khoảng lọc.
+-- p_errors_only = true → chỉ tính request lỗi. Trả jsonb array [{ts,requests,errors,uniqueIps}].
+CREATE OR REPLACE FUNCTION request_log_timeseries(
+  p_from timestamptz DEFAULT NULL,
+  p_to timestamptz DEFAULT NULL,
+  p_bucket text DEFAULT 'day',
+  p_errors_only boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH b AS (
+    SELECT
+      date_trunc(CASE WHEN p_bucket = 'hour' THEN 'hour' ELSE 'day' END, timestamp) AS ts,
+      COALESCE(status_code, 0) AS status_code,
+      COALESCE(NULLIF(ip,''), 'unknown') AS ip
+    FROM request_logs
+    WHERE (p_from IS NULL OR timestamp >= p_from)
+      AND (p_to IS NULL OR timestamp <= p_to)
+      AND (NOT p_errors_only OR COALESCE(status_code, 0) >= 400)
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'ts', ts,
+    'requests', c,
+    'errors', errc,
+    'uniqueIps', uips
+  ) ORDER BY ts), '[]'::jsonb)
+  FROM (
+    SELECT
+      ts,
+      count(*) AS c,
+      count(*) FILTER (WHERE status_code >= 400) AS errc,
+      count(DISTINCT ip) AS uips
+    FROM b GROUP BY ts
+  ) g;
+$$;
+
+-- Gom lỗi (status >= 400) theo (method, path, status) — kiểu Sentry.
+-- Trả jsonb array [{method,path,status,count,firstSeen,lastSeen}] sắp theo count giảm.
+CREATE OR REPLACE FUNCTION request_log_error_groups(
+  p_from timestamptz DEFAULT NULL,
+  p_to timestamptz DEFAULT NULL,
+  p_limit int DEFAULT 50
+)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'method', method,
+    'path', path,
+    'status', status_code,
+    'count', c,
+    'firstSeen', first_seen,
+    'lastSeen', last_seen
+  ) ORDER BY c DESC), '[]'::jsonb)
+  FROM (
+    SELECT
+      COALESCE(NULLIF(method,''), '?') AS method,
+      COALESCE(NULLIF(path,''), 'unknown') AS path,
+      COALESCE(status_code, 0) AS status_code,
+      count(*) AS c,
+      min(timestamp) AS first_seen,
+      max(timestamp) AS last_seen
+    FROM request_logs
+    WHERE COALESCE(status_code, 0) >= 400
+      AND (p_from IS NULL OR timestamp >= p_from)
+      AND (p_to IS NULL OR timestamp <= p_to)
+    GROUP BY 1, 2, 3
+    ORDER BY c DESC
+    LIMIT GREATEST(p_limit, 0)
+  ) g;
 $$;
 
 -- Xoá log đã hết hạn (expire_at <= now()). TTL thủ công thay cho Firestore TTL.
