@@ -120,7 +120,7 @@ BEGIN
   ) t;
 
   RETURN '🍰 SẢN XUẤT NGÀY MAI · ' || v_disp || E'\n' ||
-         '—————————————' || E'\n' ||
+         '─────────────────────────' || E'\n' ||
          '📊 ' || v_orders || ' đơn · ' || v_items || ' sản phẩm' || E'\n\n' ||
          v_body;
 END;
@@ -154,9 +154,9 @@ BEGIN
   ) t;
 
   RETURN '📊 TỔNG KẾT HÔM NAY · ' || v_disp || E'\n' ||
-         '—————————————' || E'\n' ||
+         '─────────────────────────' || E'\n' ||
          '📦 Đơn: ' || COALESCE(v_orders,0) || E'\n' ||
-         '💵 Doanh thu: ' || to_char(COALESCE(v_revenue,0), 'FM999,999,999') || 'đ' || E'\n\n' ||
+         '💵 Doanh thu: ' || translate(to_char(COALESCE(v_revenue,0), 'FM999,999,999'), ',', '.') || ' ₫' || E'\n\n' ||
          '💳 Đã TT: ' || COALESCE(v_paid,0) || ' · Chưa TT: ' || COALESCE(v_unpaid,0) ||
          CASE WHEN v_top IS NOT NULL THEN E'\n\n🏆 Top sản phẩm:\n' || v_top ELSE '' END;
 END;
