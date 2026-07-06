@@ -5,11 +5,11 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { FirestoreService } from '../../firebase/firestore.service';
 import { DbService } from '../../db/db.service';
 import { RedisService } from '../../redis/redis.service';
 import { UserRole } from '../../auth/user.types';
 import { userCacheKey } from '../../auth/firebase-auth.guard';
+import { verifySsoToken } from '../../auth/sso.util';
 import { SOCKET_EVENTS, type OrderPaidEvent } from './events.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -47,7 +47,6 @@ export class EventsGateway implements OnGatewayConnection {
   @WebSocketServer() server!: Server;
 
   constructor(
-    private readonly firestore: FirestoreService,
     private readonly db: DbService,
     private readonly redis: RedisService,
     private readonly notif: NotificationsService,
@@ -63,18 +62,18 @@ export class EventsGateway implements OnGatewayConnection {
         return;
       }
 
-      const decoded = await this.firestore.auth().verifyIdToken(token);
+      const email = verifySsoToken(token).email;
 
-      // Role: ưu tiên cache (guard set sẵn), miss thì đọc Postgres user_get.
+      // Role: ưu tiên cache (guard set sẵn theo email), miss thì đọc Postgres theo email.
       let role: UserRole | undefined;
       const cached = await this.redis.get<{ role: UserRole | null }>(
-        userCacheKey(decoded.uid),
+        userCacheKey(email),
       );
       if (cached?.role) {
         role = normalizeRole(cached.role);
       } else {
         const rows = await this.db.sql<{ role: string | null }[]>`
-          SELECT role FROM user_get(${decoded.uid})`;
+          SELECT role FROM users WHERE lower(email) = lower(${email}) LIMIT 1`;
         role = normalizeRole(rows[0]?.role);
       }
 
