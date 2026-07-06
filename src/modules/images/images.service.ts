@@ -1,60 +1,72 @@
-import { Injectable } from '@nestjs/common';
-import * as admin from 'firebase-admin';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
+/**
+ * Lưu ảnh trên RiceService (object storage self-hosted) thay cho Firebase Storage.
+ * Backend giữ API key (env), upload server-side → trả public URL.
+ *   RICE_ENDPOINT = https://api.riceservice.xyz
+ *   RICE_BUCKET   = <partition/bucket của tài khoản tiembanhcucquy>
+ *   RICE_API_KEY  = rsk_...
+ */
 @Injectable()
 export class ImagesService {
-  /**
-   * Upload file lên Firebase Storage (bucket mặc định) và trả public URL.
-   */
+  private readonly endpoint = (process.env.RICE_ENDPOINT || '').replace(/\/+$/, '');
+  private readonly bucket = process.env.RICE_BUCKET || '';
+  private readonly apiKey = process.env.RICE_API_KEY || '';
+
+  private assertConfigured(): void {
+    if (!this.endpoint || !this.bucket || !this.apiKey) {
+      throw new InternalServerErrorException(
+        'Thiếu cấu hình RiceService: RICE_ENDPOINT / RICE_BUCKET / RICE_API_KEY',
+      );
+    }
+  }
+
+  /** Upload file lên RiceService, trả public URL. `path` = key (vd products/<id>_<ts>.jpg). */
   async upload(
     file: { buffer: Buffer; originalname: string; mimetype: string },
     path: string,
   ): Promise<string> {
-    const bucket = admin.storage().bucket();
-    const f = bucket.file(path);
-    await f.save(file.buffer, {
-      metadata: {
-        contentType: file.mimetype,
-        // Ảnh có tên path duy nhất → cache vĩnh viễn ở trình duyệt/CDN, lần sau
-        // không tải lại (immutable). 1 năm = 31536000s.
-        cacheControl: 'public, max-age=31536000, immutable',
-      },
-      resumable: false,
+    this.assertConfigured();
+    const form = new FormData();
+    const blob = new Blob([new Uint8Array(file.buffer)], {
+      type: file.mimetype || 'application/octet-stream',
     });
-    await f.makePublic();
-    return `https://storage.googleapis.com/${bucket.name}/${path}`;
+    form.append('file', blob, file.originalname || path.split('/').pop() || 'file');
+
+    const res = await fetch(
+      `${this.endpoint}/${this.bucket}?key=${encodeURIComponent(path)}`,
+      { method: 'POST', headers: { 'x-api-key': this.apiKey }, body: form },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new InternalServerErrorException(
+        `RiceService upload lỗi ${res.status}: ${detail.slice(0, 200)}`,
+      );
+    }
+    const j = (await res.json()) as { url?: string };
+    return j.url || `${this.endpoint}/${this.bucket}/${path}`;
   }
 
-  /**
-   * Xoá file theo URL. Hỗ trợ cả dạng public storage.googleapis.com và dạng
-   * cũ firebasestorage.googleapis.com. Nuốt lỗi / no-op nếu không parse được.
-   */
+  /** Xoá file theo URL. No-op nếu không phải URL RiceService (vd link Firebase cũ). */
   async remove(url: string): Promise<void> {
     if (!url) return;
-    const path = this.parsePath(url);
-    if (!path) return;
-    const bucket = admin.storage().bucket();
-    await bucket
-      .file(path)
-      .delete({ ignoreNotFound: true } as any)
-      .catch(() => {});
+    const key = this.parseKey(url);
+    if (!key) return;
+    this.assertConfigured();
+    await fetch(`${this.endpoint}/${this.bucket}/${key}`, {
+      method: 'DELETE',
+      headers: { 'x-api-key': this.apiKey },
+    }).catch(() => {});
   }
 
-  /** Trích storage path từ URL (2 định dạng), trả undefined nếu không hợp lệ. */
-  private parsePath(url: string): string | undefined {
+  /** Trích key từ URL RiceService (https://<endpoint>/<bucket>/<key>). */
+  private parseKey(url: string): string | undefined {
     try {
       const u = new URL(url);
-      // Dạng cũ: https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encodedPath>?...
-      const oMatch = u.pathname.match(/\/o\/(.+)$/);
-      if (oMatch) {
-        return decodeURIComponent(oMatch[1]);
-      }
-      // Dạng public: https://storage.googleapis.com/<bucket>/<path>
-      const parts = u.pathname.replace(/^\/+/, '').split('/');
-      if (parts.length >= 2) {
-        return decodeURIComponent(parts.slice(1).join('/'));
-      }
-      return undefined;
+      const prefix = `/${this.bucket}/`;
+      if (!u.pathname.startsWith(prefix)) return undefined; // link Firebase cũ → bỏ qua
+      const key = u.pathname.slice(prefix.length);
+      return key ? decodeURIComponent(key) : undefined;
     } catch {
       return undefined;
     }
