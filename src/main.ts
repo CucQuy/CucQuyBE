@@ -34,16 +34,16 @@ async function bootstrap() {
   // Swagger UI — http://localhost:<port>/api/docs
   const swaggerConfig = new DocumentBuilder()
     .setTitle('CucQuy Bakery API')
-    .setDescription('Backend NestJS — Firestore qua firebase-admin. Hầu hết endpoint cần Firebase ID token (Bearer).')
+    .setDescription('Backend NestJS — Postgres. Hầu hết endpoint cần SSO JWT (RiceService, Bearer).')
     .setVersion('1.0')
     .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'Firebase ID token' },
-      'firebase',
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'SSO JWT (RiceService)' },
+      'sso',
     )
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   // Áp Bearer cho mọi route (nhập token 1 lần ở nút Authorize là gọi được hết)
-  document.security = [{ firebase: [] }];
+  document.security = [{ sso: [] }];
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: { persistAuthorization: true },
   });
