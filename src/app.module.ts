@@ -2,7 +2,6 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { bullConnection } from './queue/queue.constants';
-import { FirebaseModule } from './firebase/firebase.module';
 import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthController } from './health/health.controller';
@@ -35,7 +34,6 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    FirebaseModule,
     DbModule,
     RedisModule,
     // BullMQ — hàng đợi job (gửi Zalo, xử webhook) chạy nền + retry. Dùng Redis.

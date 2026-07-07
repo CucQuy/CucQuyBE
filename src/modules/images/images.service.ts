@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
 /**
- * Lưu ảnh trên RiceService (object storage self-hosted) thay cho Firebase Storage.
+ * Lưu ảnh trên RiceService (object storage self-hosted) — KHÔNG còn Firebase Storage.
  * Backend giữ API key (env), upload server-side → trả public URL.
  *   RICE_ENDPOINT = https://api.riceservice.xyz
  *   RICE_BUCKET   = <partition/bucket của tài khoản tiembanhcucquy>
