@@ -179,6 +179,12 @@ LANGUAGE sql STABLE AS $$
     'decorations',       order_decorations_json(o.id),
     'surchargeAmount',   COALESCE(o.surcharge_amount, 0),
     'surchargeTag',      o.surcharge_tag,
+    -- Phụ thu nhiều dòng; đơn cũ (chưa có surcharges) → dựng 1 dòng từ tag+amount legacy.
+    'surcharges',        COALESCE(
+                           NULLIF(o.surcharges, '[]'::jsonb),
+                           CASE WHEN COALESCE(o.surcharge_amount, 0) > 0
+                                THEN jsonb_build_array(jsonb_build_object('tag', o.surcharge_tag, 'amount', o.surcharge_amount))
+                                ELSE '[]'::jsonb END),
     'subtotal',          COALESCE(o.subtotal, 0),
     'discountAmount',    COALESCE(o.discount_amount, 0),
     'appliedPromotions', order_applied_promotions_json(o.id),
@@ -539,6 +545,7 @@ DECLARE
   v_shipping numeric := COALESCE(NULLIF(p_input->>'shippingCost','')::numeric, 0);
   v_surcharge numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
   v_surcharge_tag text := NULLIF(p_input->>'surchargeTag', '');
+  v_surcharges jsonb := COALESCE(p_input->'surcharges', '[]'::jsonb);
   v_has      boolean;
   v_compute_in jsonb;
   v_promo    jsonb;
@@ -552,6 +559,16 @@ BEGIN
   v_id := replace(gen_random_uuid()::text, '-', '');
   v_number := COALESCE(NULLIF(p_input->>'orderNumber',''), order_next_number());
   v_has := jsonb_array_length(v_items) > 0;
+
+  -- Phụ thu nhiều dòng: có 'surcharges' → tổng = sum(amount), tag legacy = dòng đầu.
+  -- Chỉ gửi surchargeAmount (cũ) & >0 → dựng 1 dòng. Không có → [].
+  IF jsonb_array_length(v_surcharges) > 0 THEN
+    v_surcharge := COALESCE((SELECT sum(NULLIF(e->>'amount','')::numeric)
+                             FROM jsonb_array_elements(v_surcharges) e), 0);
+    v_surcharge_tag := NULLIF(v_surcharges->0->>'tag', '');
+  ELSIF v_surcharge > 0 THEN
+    v_surcharges := jsonb_build_array(jsonb_build_object('tag', v_surcharge_tag, 'amount', v_surcharge));
+  END IF;
 
   -- Map item.id -> productId cho engine (giống service cũ).
   SELECT jsonb_build_object(
@@ -603,7 +620,7 @@ BEGIN
     id, order_number, order_date, customer_id,
     customer_name, phone, address, email, customer_city, customer_country,
     subtotal, shipping_cost, discount_amount, total,
-    surcharge_amount, surcharge_tag,
+    surcharge_amount, surcharge_tag, surcharges,
     payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, sepay_id,
     commission_status, is_test, created_by, created_at
@@ -613,7 +630,7 @@ BEGIN
     COALESCE(v_cust->>'address',''), COALESCE(v_cust->>'email',''),
     NULLIF(v_cust->>'city',''), NULLIF(v_cust->>'country',''),
     v_subtotal, v_shipping, v_discount, v_total,
-    v_surcharge, v_surcharge_tag,
+    v_surcharge, v_surcharge_tag, v_surcharges,
     COALESCE(NULLIF(p_input->>'paymentStatus',''), 'UNPAID'),
     COALESCE(NULLIF(p_input->>'paymentMethod',''), 'CASH'),
     p_input->>'status',
@@ -665,6 +682,7 @@ DECLARE
   v_shipping  numeric := COALESCE(NULLIF(p_input->>'shippingCost','')::numeric, 0);
   v_surcharge numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
   v_surcharge_tag text := NULLIF(p_input->>'surchargeTag', '');
+  v_surcharges jsonb := p_input->'surcharges';  -- NULL nếu client không gửi
   v_has       boolean;
   v_compute_in jsonb;
   v_promo     jsonb;
@@ -698,6 +716,17 @@ BEGIN
 
   -- snapshot trước cập nhật (để FE gửi Zalo update).
   v_prev := order_to_json(v_existing);
+
+  -- Phụ thu nhiều dòng: nếu client gửi 'surcharges' → tổng = sum, tag legacy = dòng đầu
+  -- (dùng cho recompute total bên dưới). Chỉ gửi surchargeAmount cũ & >0 → dựng 1 dòng.
+  IF p_input ? 'surcharges' THEN
+    v_surcharges := COALESCE(v_surcharges, '[]'::jsonb);
+    v_surcharge  := COALESCE((SELECT sum(NULLIF(e->>'amount','')::numeric)
+                              FROM jsonb_array_elements(v_surcharges) e), 0);
+    v_surcharge_tag := NULLIF(v_surcharges->0->>'tag', '');
+  ELSIF v_surcharge > 0 THEN
+    v_surcharges := jsonb_build_array(jsonb_build_object('tag', v_surcharge_tag, 'amount', v_surcharge));
+  END IF;
 
   -- CTV chỉ được sửa đơn của chính mình.
   IF v_role = 'colaborator' THEN
@@ -825,10 +854,13 @@ BEGIN
     subtotal         = v_subtotal,
     discount_amount  = v_discount,
     total            = v_total,
-    surcharge_amount = CASE WHEN p_input ? 'surchargeAmount'
+    -- 'surcharges' là nguồn chuẩn cho phụ thu nhiều dòng; khi có → cập nhật cả tổng + tag.
+    surcharge_amount = CASE WHEN (p_input ? 'surcharges' OR p_input ? 'surchargeAmount')
                             THEN v_surcharge ELSE surcharge_amount END,
-    surcharge_tag    = CASE WHEN p_input ? 'surchargeTag'
+    surcharge_tag    = CASE WHEN (p_input ? 'surcharges' OR p_input ? 'surchargeTag')
                             THEN v_surcharge_tag ELSE surcharge_tag END,
+    surcharges       = CASE WHEN p_input ? 'surcharges'
+                            THEN v_surcharges ELSE surcharges END,
     note             = COALESCE(p_input->>'note',''),
     status           = p_input->>'status',
     delivery_date    = CASE WHEN p_input ? 'deliveryDate'
