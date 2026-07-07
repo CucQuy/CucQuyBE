@@ -5,11 +5,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { FirestoreService } from '../firebase/firestore.service';
 import { DbService } from '../db/db.service';
 import { RedisService } from '../redis/redis.service';
 import { IS_PUBLIC_KEY } from './roles.decorator';
 import { AuthUser, UserRole } from './user.types';
+import { verifySsoToken } from './sso.util';
 
 /** TTL cache hồ sơ user (giây). Đổi role có hiệu lực chậm nhất sau ngần này. */
 const USER_CACHE_TTL = 300;
@@ -17,6 +17,7 @@ export const userCacheKey = (uid: string) => `auth:user:${uid}`;
 
 /** Phần hồ sơ lấy từ Postgres (cache được) — email lấy từ token, không cache. */
 interface CachedProfile {
+  uid: string;
   role: UserRole | null;
   displayName: string | null;
 }
@@ -32,14 +33,13 @@ function normalizeRole(raw: unknown): UserRole | undefined {
 }
 
 /**
- * Verify Firebase ID token (Authorization: Bearer <token>) bằng Firebase Auth,
- * nạp role từ bảng `users` ở Postgres (user_get), gắn AuthUser vào request.
+ * Verify SSO JWT (Authorization: Bearer <token>) do RiceService phát (đăng nhập Google),
+ * map email → user ở Postgres (uid + role), gắn AuthUser vào request. (Trước dùng Firebase.)
  */
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly firestore: FirestoreService, // chỉ dùng .auth() để verify token
     private readonly db: DbService,
     private readonly redis: RedisService,
   ) {}
@@ -58,31 +58,32 @@ export class FirebaseAuthGuard implements CanActivate {
     }
     const token = header.slice('Bearer '.length).trim();
 
-    let decoded: { uid: string; email?: string };
+    let email: string;
     try {
-      decoded = await this.firestore.auth().verifyIdToken(token);
+      email = verifySsoToken(token).email;
     } catch {
       throw new UnauthorizedException('Token không hợp lệ hoặc đã hết hạn');
     }
 
-    // Cache hồ sơ user → tránh đọc Postgres users trên MỖI request.
-    // Miss/Redis lỗi → đọc Postgres rồi nạp lại cache (TTL ngắn).
-    let profile = await this.redis.get<CachedProfile>(userCacheKey(decoded.uid));
+    // Cache hồ sơ user (theo email) → tránh đọc Postgres users trên MỖI request.
+    let profile = await this.redis.get<CachedProfile>(userCacheKey(email));
     if (!profile) {
       const rows = await this.db.sql<
-        { role: string | null; custom_name: string | null; display_name: string | null }[]
-      >`SELECT role, custom_name, display_name FROM user_get(${decoded.uid})`;
-      const data = rows[0] ?? { role: null, custom_name: null, display_name: null };
+        { uid: string; role: string | null; custom_name: string | null; display_name: string | null }[]
+      >`SELECT uid, role, custom_name, display_name FROM users WHERE lower(email) = lower(${email}) LIMIT 1`;
+      const data = rows[0];
+      if (!data) throw new UnauthorizedException('Tài khoản chưa được cấp quyền');
       profile = {
+        uid: data.uid,
         role: normalizeRole(data.role) ?? null,
         displayName: data.custom_name ?? data.display_name ?? null,
       };
-      await this.redis.set(userCacheKey(decoded.uid), profile, USER_CACHE_TTL);
+      await this.redis.set(userCacheKey(email), profile, USER_CACHE_TTL);
     }
 
     const user: AuthUser = {
-      uid: decoded.uid,
-      email: decoded.email,
+      uid: profile.uid,
+      email,
       role: profile.role ?? undefined,
       displayName: profile.displayName ?? undefined,
     };
