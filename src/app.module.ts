@@ -5,6 +5,7 @@ import { bullConnection } from './queue/queue.constants';
 import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthController } from './health/health.controller';
+import { SsoLoginController } from './auth/sso-login.controller';
 import { CommissionModule } from './modules/commission/commission.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -71,7 +72,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     NotificationsModule,
     NotificationSchedulesModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, SsoLoginController],
 })
 export class AppModule implements NestModule {
   // Áp LoggingMiddleware cho mọi route → ghi nhật ký request.
