@@ -133,6 +133,8 @@ DECLARE
   v_disp text := to_char(to_date(p_date, 'YYYY-MM-DD'), 'DD/MM/YYYY');
   v_orders int; v_revenue numeric; v_paid int; v_unpaid int; v_top text;
 BEGIN
+  -- Loại đơn huỷ/hoàn (CANCELLED/RETURNED) khỏi tổng kết — khớp cách tính doanh thu
+  -- chuẩn ở revenue.sql; nếu không loại thì doanh thu bị thổi phồng bởi đơn đã huỷ.
   SELECT count(*),
          COALESCE(sum(total), 0),
          count(*) FILTER (WHERE payment_status = 'PAID'),
@@ -140,7 +142,9 @@ BEGIN
   INTO v_orders, v_revenue, v_paid, v_unpaid
   FROM orders
   WHERE (order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = to_date(p_date, 'YYYY-MM-DD')
-    AND COALESCE(is_test, false) = false;
+    AND COALESCE(is_test, false) = false
+    AND status IS DISTINCT FROM 'CANCELLED'
+    AND status IS DISTINCT FROM 'RETURNED';
 
   SELECT string_agg('   ' || rn || '. ' || name || ' × ' || qty, E'\n' ORDER BY rn)
   INTO v_top
@@ -150,6 +154,8 @@ BEGIN
     FROM orders o JOIN order_items oi ON oi.order_id = o.id
     WHERE (o.order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = to_date(p_date, 'YYYY-MM-DD')
       AND COALESCE(o.is_test, false) = false
+      AND o.status IS DISTINCT FROM 'CANCELLED'
+      AND o.status IS DISTINCT FROM 'RETURNED'
     GROUP BY 1 ORDER BY 2 DESC LIMIT 5
   ) t;
 
