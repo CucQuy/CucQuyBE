@@ -8,7 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from './roles.decorator';
 import { AuthUser, UserRole } from './user.types';
 
-/** Kiểm tra role của user (đã được FirebaseAuthGuard gắn) so với @Roles. */
+/** Kiểm tra role của user (đã được SsoAuthGuard gắn) so với @Roles. */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}

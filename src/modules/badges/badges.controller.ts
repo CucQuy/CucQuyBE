@@ -1,13 +1,13 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { ResponseMessage } from '../../common/response-message.decorator';
 import { BadgesService } from './badges.service';
 import { SaveBadgesDto } from './dto/save-badges.dto';
 
 @ApiTags('Badge')
 @Controller('badges')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class BadgesController {
   constructor(private readonly service: BadgesService) {}
 

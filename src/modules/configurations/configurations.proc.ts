@@ -10,7 +10,7 @@ import {
 /**
  * Tầng quản lý stored procedure của domain configurations.
  * Chỉ ở đây mới gọi * — service import class này để dùng.
- * Các function trả jsonb đúng shape FE/Firestore cũ:
+ * Các function trả jsonb đúng shape FE cũ:
  *   screen_visibility_get/_save, shipping_config_get/_save,
  *   zalo_config_get/_save, zalo_collaborator_has_group.
  */

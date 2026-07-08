@@ -8,7 +8,7 @@ import { WebhooksService } from './webhooks.service';
 import { QUEUE_WEBHOOKS } from '../../queue/queue.constants';
 
 /**
- * Webhook PUBLIC (SePay / Facebook gọi tới, KHÔNG có Firebase token).
+ * Webhook PUBLIC (SePay / Facebook gọi tới, KHÔNG có token đăng nhập).
  * Dùng @Res() để trả ĐÚNG format gốc (bypass envelope toàn cục) — nhà cung
  * cấp webhook kỳ vọng body riêng, không phải {data,message,...}.
  *

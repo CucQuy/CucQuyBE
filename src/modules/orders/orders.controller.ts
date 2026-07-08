@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { OrdersService } from './orders.service';
@@ -17,7 +17,7 @@ import { ReconcileRefundDto } from './dto/reconcile-refund.dto';
 
 @ApiTags('Đơn hàng')
 @Controller('orders')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class OrdersController {
   constructor(private readonly service: OrdersService) {}
 

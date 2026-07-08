@@ -7,7 +7,6 @@ dist/
 # Service account — TUYỆT ĐỐI không commit
 service_account.json
 serviceAccount*.json
-firebase-service-account*.json
 
 # Local data backups (không commit)
 scripts/backup-*.json

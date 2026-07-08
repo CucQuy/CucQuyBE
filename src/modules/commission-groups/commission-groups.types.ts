@@ -1,6 +1,6 @@
 /**
  * Types + defaults nhóm hoa hồng — port từ FE (frontend/types/commissionGroup.ts).
- * Giữ NGUYÊN dữ liệu defaults để bản BE khớp 100% bản FE-Firestore.
+ * Giữ NGUYÊN dữ liệu defaults để bản BE khớp 100% bản FE cũ.
  */
 
 /** Một bậc số lượng trong nhóm */

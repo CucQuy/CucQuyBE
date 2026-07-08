@@ -1,11 +1,11 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { SerpapiService } from './serpapi.service';
 
 @ApiTags('SerpApi (bản đồ/ship)')
 @Controller('serpapi')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class SerpapiController {
   constructor(private readonly service: SerpapiService) {}
 

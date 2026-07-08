@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { UserRole } from '../../auth/user.types';
@@ -9,7 +9,7 @@ import { NotificationsService } from './notifications.service';
 /** Nhật ký gửi + hộp thư in-app. Admin/super_admin. */
 @ApiTags('Thông báo')
 @Controller('notifications')
-@UseGuards(FirebaseAuthGuard, RolesGuard)
+@UseGuards(SsoAuthGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}

@@ -9,13 +9,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { Customer, CustomersService } from './customers.service';
 
 /** Khách hàng — chỉ cần đăng nhập (CTV cũng tạo được khách hàng). */
 @ApiTags('Khách hàng')
 @Controller('customers')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class CustomersController {
   constructor(private readonly service: CustomersService) {}
 

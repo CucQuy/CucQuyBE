@@ -8,4 +8,3 @@ dist
 .env.local
 service_account.json
 serviceAccount*.json
-firebase-service-account*.json

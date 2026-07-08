@@ -34,10 +34,10 @@ function normalizeRole(raw: unknown): UserRole | undefined {
 
 /**
  * Verify SSO JWT (Authorization: Bearer <token>) do RiceService phát (đăng nhập Google),
- * map email → user ở Postgres (uid + role), gắn AuthUser vào request. (Trước dùng Firebase.)
+ * map email → user ở Postgres (uid + role), gắn AuthUser vào request.
  */
 @Injectable()
-export class FirebaseAuthGuard implements CanActivate {
+export class SsoAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly db: DbService,

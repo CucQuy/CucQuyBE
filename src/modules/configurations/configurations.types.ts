@@ -59,7 +59,7 @@ export interface ShippingConfiguration {
   updatedBy?: string | null;
 }
 
-/** Fallback khi Firestore chưa có doc shipping. */
+/** Fallback khi chưa có cấu hình shipping. */
 export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
   shopOrigin: {
     name: '30/10 Nguyễn Hữu Cảnh, An Cựu, Huế',

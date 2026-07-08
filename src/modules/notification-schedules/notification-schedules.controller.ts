@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { UserRole } from '../../auth/user.types';
@@ -10,7 +10,7 @@ import { ScheduleInput } from './notification-schedules.types';
 /** Lịch tự động gửi thông báo — chỉ super_admin/admin. */
 @ApiTags('Lịch thông báo')
 @Controller('notification-schedules')
-@UseGuards(FirebaseAuthGuard, RolesGuard)
+@UseGuards(SsoAuthGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class NotificationSchedulesController {
   constructor(private readonly service: NotificationSchedulesService) {}

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { TransactionsService } from './transactions.service';
 import { MarkExternalDto } from './dto/mark-external.dto';
 import { MarkSettledDto } from './dto/mark-settled.dto';
@@ -9,7 +9,7 @@ import { ReconcileApplyDto } from './dto/reconcile-apply.dto';
 
 @ApiTags('Giao dịch')
 @Controller('transactions')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class TransactionsController {
   constructor(private readonly service: TransactionsService) {}
 

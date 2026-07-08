@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { UsersService } from './users.service';
@@ -16,7 +16,7 @@ import { UserRole, UserStatus, ZaloGroupConfigInput } from './users.types';
 
 @ApiTags('Người dùng')
 @Controller('users')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class UsersController {
   constructor(private readonly service: UsersService) {}
 

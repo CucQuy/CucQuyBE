@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { ResponseMessage } from '../../common/response-message.decorator';
@@ -9,7 +9,7 @@ import { ProductCategory } from './categories.types';
 
 @ApiTags('Danh mục')
 @Controller('categories')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class CategoriesController {
   constructor(private readonly service: CategoriesService) {}
 

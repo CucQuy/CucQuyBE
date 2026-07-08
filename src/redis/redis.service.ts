@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 
 /**
  * Bọc ioredis. NGUYÊN TẮC: cache là "tốt thì dùng" — nếu Redis lỗi/không kết nối
- * được thì mọi thao tác trả null / no-op để caller tự fallback (vd đọc Firestore),
+ * được thì mọi thao tác trả null / no-op để caller tự fallback (đọc DB trực tiếp),
  * TUYỆT ĐỐI không làm hỏng request. Vì vậy mọi lệnh đều bọc try/catch.
  */
 @Injectable()
@@ -24,7 +24,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       });
       this.client.on('error', (err) => {
         if (!this.loggedError) {
-          this.logger.warn(`Redis không kết nối được (cache tắt, fallback Firestore): ${err.message}`);
+          this.logger.warn(`Redis không kết nối được (cache tắt, đọc DB trực tiếp): ${err.message}`);
           this.loggedError = true;
         }
       });

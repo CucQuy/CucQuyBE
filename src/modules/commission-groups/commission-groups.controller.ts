@@ -9,12 +9,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CommissionGroupsService } from './commission-groups.service';
 
 @ApiTags('Nhóm hoa hồng')
 @Controller('commission-groups')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class CommissionGroupsController {
   constructor(private readonly service: CommissionGroupsService) {}
 

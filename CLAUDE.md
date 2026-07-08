@@ -7,7 +7,7 @@ NestJS API cho tiệm bánh. **Postgres raw SQL — KHÔNG ORM.** Phục vụ `a
 - 3 tầng: stored function ← **`<domain>.proc.ts`** (`@Injectable`, NƠI DUY NHẤT gọi DbService/`this.db.sql`) ← `<domain>.service.ts` (orchestration + map) ← controller.
 - Driver: **postgres.js**, wrapper `src/db/db.service.ts` (đọc `DATABASE_URL`).
 - 🔴 GOTCHA jsonb: KHÔNG `${JSON.stringify(x)}::jsonb` (double-encode → null). Dùng `${this.db.json(x)}::jsonb` (= `sql.json`).
-- Firebase chỉ còn: Auth (verify token, guard nạp role từ Postgres `user_get`) + Storage (`images.service`).
+- Auth: verify SSO JWT (RiceService) ở `sso-auth.guard`, nạp role từ Postgres `user_get`. Ảnh: RiceService object storage (`images.service`).
 
 ## Env / deploy
 - Env từ k8s secret `cucquy-backend-env` (xem `.env.example`). `APP_ENV` = production/staging/local → prefix noti Zalo.

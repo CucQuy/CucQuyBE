@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { RedisService } from '../../redis/redis.service';
-import { userCacheKey } from '../../auth/firebase-auth.guard';
+import { userCacheKey } from '../../auth/sso-auth.guard';
 import { UserProc, UserRow } from './users.proc';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -42,7 +42,7 @@ const mapRow = (r: UserRow): UserData => ({
 /**
  * Đọc/ghi hồ sơ user — toàn bộ logic ở stored function app.user_*, gọi qua UserProc.
  * Service chỉ orchestration + map; mọi call DB qua UserProc.
- * LƯU Ý: xác thực vẫn do Firebase Auth (firebase-auth.guard) lo, KHÔNG ở đây.
+ * LƯU Ý: xác thực do sso-auth.guard (SSO) lo, KHÔNG ở đây.
  */
 @Injectable()
 export class UsersService {

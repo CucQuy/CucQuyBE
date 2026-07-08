@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
@@ -25,7 +25,7 @@ import {
 
 @ApiTags('Nhập kho')
 @Controller('stock-receipts')
-@UseGuards(FirebaseAuthGuard, RolesGuard)
+@UseGuards(SsoAuthGuard, RolesGuard)
 export class StockReceiptsController {
   constructor(
     private readonly service: StockReceiptsService,

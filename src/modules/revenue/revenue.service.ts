@@ -10,7 +10,7 @@ const REPORT_TTL = 120;
  * Báo cáo doanh thu (P&L). Toàn bộ logic tổng hợp nằm ở stored function
  * app.revenue_report(p_from, p_to) — service chỉ gọi (qua RevenueProc) + cache.
  *
- * Lưu ý: chi phí khác (expenses) hiện chưa có bảng Postgres (vẫn ở Firestore),
+ * Lưu ý: chi phí khác (expenses) hiện chưa có bảng Postgres riêng,
  * nên totalExpenses do DB trả về = 0. Khi có bảng expenses, bổ sung trong
  * migrations/functions/revenue.sql, service KHÔNG cần đổi.
  */

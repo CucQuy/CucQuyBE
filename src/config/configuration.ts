@@ -1,4 +1,4 @@
-/** Đọc & validate biến môi trường. (Firebase đã gỡ — auth qua SSO RiceService.) */
+/** Đọc & validate biến môi trường. (Auth qua SSO RiceService.) */
 export interface AppConfig {
   port: number;
   allowedOrigins: string[];

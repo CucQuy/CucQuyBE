@@ -22,7 +22,7 @@ export const ORDER_EDIT_DENIED = 'ORDER_EDIT_DENIED';
 
 /**
  * Toàn bộ logic data ở stored function app.order_* — service chỉ orchestration + map.
- * Mọi call DB qua OrderProc (tầng proc). Đã port mọi side-effect của bản Firestore
+ * Mọi call DB qua OrderProc (tầng proc). Đã port mọi side-effect của bản cũ
  * xuống DB (transaction trong proc):
  *   - Sinh order_number (app.order_next_number).
  *   - Ghi orders + bảng con order_items / order_decorations / order_gift_items /

@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 
 /**
- * Lưu ảnh trên RiceService (object storage self-hosted) — KHÔNG còn Firebase Storage.
+ * Lưu ảnh trên RiceService (object storage self-hosted) — (object storage self-hosted).
  * Backend giữ API key (env), upload server-side → trả public URL.
  *   RICE_ENDPOINT = https://api.riceservice.xyz
  *   RICE_BUCKET   = <partition/bucket của tài khoản tiembanhcucquy>
@@ -47,7 +47,7 @@ export class ImagesService {
     return j.url || `${this.endpoint}/${this.bucket}/${path}`;
   }
 
-  /** Xoá file theo URL. No-op nếu không phải URL RiceService (vd link Firebase cũ). */
+  /** Xoá file theo URL. No-op nếu không phải URL RiceService (link ngoài bỏ qua). */
   async remove(url: string): Promise<void> {
     if (!url) return;
     const key = this.parseKey(url);
@@ -64,7 +64,7 @@ export class ImagesService {
     try {
       const u = new URL(url);
       const prefix = `/${this.bucket}/`;
-      if (!u.pathname.startsWith(prefix)) return undefined; // link Firebase cũ → bỏ qua
+      if (!u.pathname.startsWith(prefix)) return undefined; // link ngoài → bỏ qua
       const key = u.pathname.slice(prefix.length);
       return key ? decodeURIComponent(key) : undefined;
     } catch {

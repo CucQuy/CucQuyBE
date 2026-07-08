@@ -1,7 +1,7 @@
 {
   "name": "cucquy-bakery-server",
   "version": "0.1.0",
-  "description": "Backend NestJS cho CucQuyBakery — giữ Firestore qua firebase-admin",
+  "description": "Backend NestJS cho CucQuyBakery — Postgres raw SQL, auth qua SSO RiceService",
   "private": true,
   "scripts": {
     "build": "nest build",

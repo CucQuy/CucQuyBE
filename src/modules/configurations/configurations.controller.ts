@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from '../../auth/firebase-auth.guard';
+import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { ResponseMessage } from '../../common/response-message.decorator';
@@ -26,7 +26,7 @@ import {
 
 @ApiTags('Cấu hình')
 @Controller('configurations')
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(SsoAuthGuard)
 export class ConfigurationsController {
   constructor(private readonly service: ConfigurationsService) {}
 

@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { DbService } from './db.service';
 
-/** Global → mọi module inject DbService không cần import lại (giống FirebaseModule). */
+/** Global → mọi module inject DbService không cần import lại. */
 @Global()
 @Module({
   providers: [DbService],

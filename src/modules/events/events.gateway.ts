@@ -8,7 +8,7 @@ import { Server, Socket } from 'socket.io';
 import { DbService } from '../../db/db.service';
 import { RedisService } from '../../redis/redis.service';
 import { UserRole } from '../../auth/user.types';
-import { userCacheKey } from '../../auth/firebase-auth.guard';
+import { userCacheKey } from '../../auth/sso-auth.guard';
 import { verifySsoToken } from '../../auth/sso.util';
 import { SOCKET_EVENTS, type OrderPaidEvent } from './events.constants';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -30,7 +30,7 @@ function normalizeRole(raw: unknown): UserRole | undefined {
 }
 
 /**
- * Gateway socket.io realtime. Mỗi client connect phải kèm Firebase ID token
+ * Gateway socket.io realtime. Mỗi client connect phải kèm SSO token
  * (handshake.auth.token). Verify token + nạp role (tái dùng cache của guard):
  * chỉ super_admin/admin được join room `payments` để nhận `order:paid`.
  * BE 1 replica + worker in-process → emit trực tiếp, chưa cần Redis adapter.
