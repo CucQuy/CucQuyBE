@@ -131,17 +131,17 @@ CREATE OR REPLACE FUNCTION notification_compose_daily_summary(p_date text)
 RETURNS text LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_disp text := to_char(to_date(p_date, 'YYYY-MM-DD'), 'DD/MM/YYYY');
-  v_orders int; v_revenue numeric; v_paid int; v_unpaid int; v_top text;
+  v_orders int; v_revenue numeric; v_paid_amt numeric; v_unpaid_amt numeric; v_top text;
 BEGIN
-  -- Loại đơn huỷ/hoàn (CANCELLED/RETURNED) khỏi tổng kết — khớp cách tính doanh thu
-  -- chuẩn ở revenue.sql; nếu không loại thì doanh thu bị thổi phồng bởi đơn đã huỷ.
+  -- Doanh thu ghi nhận theo NGÀY GIAO (delivery_date) — hàng thực giao hôm nay.
+  -- Loại đơn huỷ/hoàn (CANCELLED/RETURNED) + đơn test. Tách TIỀN đã thu / còn nợ theo payment_status.
   SELECT count(*),
          COALESCE(sum(total), 0),
-         count(*) FILTER (WHERE payment_status = 'PAID'),
-         count(*) FILTER (WHERE payment_status IS DISTINCT FROM 'PAID')
-  INTO v_orders, v_revenue, v_paid, v_unpaid
+         COALESCE(sum(total) FILTER (WHERE payment_status = 'PAID'), 0),
+         COALESCE(sum(total) FILTER (WHERE payment_status IS DISTINCT FROM 'PAID'), 0)
+  INTO v_orders, v_revenue, v_paid_amt, v_unpaid_amt
   FROM orders
-  WHERE (order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = to_date(p_date, 'YYYY-MM-DD')
+  WHERE delivery_date = p_date
     AND COALESCE(is_test, false) = false
     AND status IS DISTINCT FROM 'CANCELLED'
     AND status IS DISTINCT FROM 'RETURNED';
@@ -152,7 +152,7 @@ BEGIN
     SELECT COALESCE(NULLIF(oi.product_name,''), '(?)') AS name, sum(oi.quantity) AS qty,
            row_number() OVER (ORDER BY sum(oi.quantity) DESC) AS rn
     FROM orders o JOIN order_items oi ON oi.order_id = o.id
-    WHERE (o.order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = to_date(p_date, 'YYYY-MM-DD')
+    WHERE o.delivery_date = p_date
       AND COALESCE(o.is_test, false) = false
       AND o.status IS DISTINCT FROM 'CANCELLED'
       AND o.status IS DISTINCT FROM 'RETURNED'
@@ -161,9 +161,9 @@ BEGIN
 
   RETURN '📊 TỔNG KẾT HÔM NAY · ' || v_disp || E'\n' ||
          '─────────────────────────' || E'\n' ||
-         '📦 Đơn: ' || COALESCE(v_orders,0) || E'\n' ||
-         '💵 Doanh thu: ' || translate(to_char(COALESCE(v_revenue,0), 'FM999,999,999'), ',', '.') || ' ₫' || E'\n\n' ||
-         '💳 Đã TT: ' || COALESCE(v_paid,0) || ' · Chưa TT: ' || COALESCE(v_unpaid,0) ||
+         '📦 Đơn giao: ' || COALESCE(v_orders,0) || E'\n' ||
+         '💵 Doanh thu (giao): ' || translate(to_char(COALESCE(v_revenue,0), 'FM999,999,999'), ',', '.') || ' ₫' || E'\n' ||
+         '💳 Đã thu: ' || translate(to_char(COALESCE(v_paid_amt,0), 'FM999,999,999'), ',', '.') || ' ₫ · Còn nợ: ' || translate(to_char(COALESCE(v_unpaid_amt,0), 'FM999,999,999'), ',', '.') || ' ₫' ||
          CASE WHEN v_top IS NOT NULL THEN E'\n\n🏆 Top sản phẩm:\n' || v_top ELSE '' END;
 END;
 $$;
