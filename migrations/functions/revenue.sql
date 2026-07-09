@@ -189,6 +189,7 @@ DECLARE
   v_unclassified_out numeric := 0; -- tiền ra CHƯA phân loại (chưa hoàn, chưa kết toán) — cảnh báo
   v_total_refunded  numeric := 0;  -- tiền đã hoàn: order_refunds.amount theo created_at trong kỳ
   v_net_revenue     numeric := 0;  -- doanh thu thuần = doanh thu - tiền hoàn
+  v_total_discount  numeric := 0;  -- tổng giảm giá (KM) các đơn trong kỳ
   v_series          jsonb;
 BEGIN
   -- periodBounds: from @ 00:00:00, to @ 23:59:59.999
@@ -205,8 +206,8 @@ BEGIN
   v_count := greatest(1, ceil(v_diff_days::numeric / v_bucket_days)::int);
 
   -- ── Doanh thu: đơn không huỷ/hoàn, delivery_date trong kỳ ──
-  SELECT coalesce(SUM(o.total),0), count(*)
-    INTO v_total_revenue, v_order_count
+  SELECT coalesce(SUM(o.total),0), count(*), coalesce(SUM(o.discount_amount),0)
+    INTO v_total_revenue, v_order_count, v_total_discount
   FROM orders o
   WHERE o.status IS DISTINCT FROM 'CANCELLED'
     AND o.status IS DISTINCT FROM 'RETURNED'
@@ -341,6 +342,7 @@ BEGIN
     'unclassifiedOut', v_unclassified_out,
     'totalRefunded', v_total_refunded,
     'netRevenue', v_net_revenue,
+    'totalDiscount', v_total_discount,
     'series', coalesce(v_series, '[]'::jsonb),
     'costBreakdown', jsonb_build_object(
       'stockIn', v_total_stock_in,
