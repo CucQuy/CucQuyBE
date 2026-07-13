@@ -15,6 +15,7 @@ export interface RevenueReport {
   totalCommission: number;
   totalStockIn: number;
   totalExpenses: number;
+  totalDepreciation: number;
   totalCosts: number;
   profit: number;
   margin: number;
@@ -34,5 +35,5 @@ export interface RevenueReport {
   /** Tổng giảm giá (KM) các đơn trong kỳ (VND) */
   totalDiscount: number;
   series: RevenuePoint[];
-  costBreakdown: { stockIn: number; commission: number; expenses: number };
+  costBreakdown: { stockIn: number; commission: number; expenses: number; depreciation: number };
 }

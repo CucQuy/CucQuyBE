@@ -179,7 +179,8 @@ DECLARE
   v_order_count     int     := 0;
   v_total_commission numeric := 0;
   v_total_stock_in  numeric := 0;
-  v_total_expenses  numeric := 0;  -- bảng expenses chưa có ở PG → 0
+  v_total_expenses  numeric := 0;  -- chi phí vận hành (OPEX) = bank-out chưa loại
+  v_total_depreciation numeric := 0; -- khấu hao tài sản (CAPEX) rơi trong kỳ
   v_total_costs     numeric := 0;
   v_profit          numeric := 0;
   v_margin          numeric := 0;
@@ -239,7 +240,10 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
-  v_total_costs := v_total_commission + v_total_stock_in + v_total_expenses;
+  -- ── Khấu hao tài sản (CAPEX) rơi trong kỳ ──
+  v_total_depreciation := asset_depreciation(v_from, v_to);
+
+  v_total_costs := v_total_commission + v_total_stock_in + v_total_expenses + v_total_depreciation;
   v_profit := v_total_revenue - v_total_costs;
   v_margin := CASE WHEN v_total_revenue > 0 THEN v_profit / v_total_revenue ELSE 0 END;
 
@@ -326,10 +330,19 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
       AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
   ),
+  cost_depreciation AS (
+    SELECT floor(EXTRACT(EPOCH FROM ((a.start_date::timestamptz + (i || ' months')::interval) - v_from))
+                 / (v_bucket_days * 86400.0))::int AS idx,
+           (a.cost / a.useful_months) AS amount
+    FROM assets a
+    CROSS JOIN LATERAL generate_series(0, a.useful_months - 1) AS i
+    WHERE (a.start_date::timestamptz + (i || ' months')::interval) BETWEEN v_from AND v_to
+  ),
   cost_all AS (
     SELECT idx, amount FROM cost_commission
     UNION ALL SELECT idx, amount FROM cost_stock
     UNION ALL SELECT idx, amount FROM cost_expenses
+    UNION ALL SELECT idx, amount FROM cost_depreciation
   ),
   cost_bucket AS (
     SELECT idx, coalesce(SUM(amount),0) AS cost
@@ -353,6 +366,7 @@ BEGIN
     'totalCommission', v_total_commission,
     'totalStockIn', v_total_stock_in,
     'totalExpenses', v_total_expenses,
+    'totalDepreciation', v_total_depreciation,
     'totalCosts', v_total_costs,
     'profit', v_profit,
     'margin', v_margin,
@@ -368,7 +382,8 @@ BEGIN
     'costBreakdown', jsonb_build_object(
       'stockIn', v_total_stock_in,
       'commission', v_total_commission,
-      'expenses', v_total_expenses
+      'expenses', v_total_expenses,
+      'depreciation', v_total_depreciation
     )
   );
 END;

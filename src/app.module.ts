@@ -10,6 +10,7 @@ import { CommissionModule } from './modules/commission/commission.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
+import { AssetsModule } from './modules/assets/assets.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { FlavorsModule } from './modules/flavors/flavors.module';
 import { BadgesModule } from './modules/badges/badges.module';
@@ -51,6 +52,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     ProductsModule,
     CustomersModule,
     TransactionsModule,
+    AssetsModule,
     CategoriesModule,
     FlavorsModule,
     BadgesModule,
