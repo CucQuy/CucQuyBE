@@ -19,7 +19,17 @@ export type TransactionRow = {
   order_number: string | null;
   is_external: boolean | null;
   settled_out: boolean | null;
+  expense_category: string | null;
+  cost_excluded: boolean | null;
   received_at: string | Date | null;
+  created_at: string | Date | null;
+};
+
+/** Rule phân loại chi phí (nội dung CK → category). */
+export type ExpenseRuleRow = {
+  id: string;
+  keyword: string;
+  category: string;
   created_at: string | Date | null;
 };
 
@@ -52,6 +62,28 @@ export class TransactionProc {
 
   markSettled(id: string, settled: boolean): Promise<unknown> {
     return this.db.sql`SELECT * FROM transaction_mark_settled(${id}, ${settled})`;
+  }
+
+  /** Set tay phân loại chi phí cho 1 giao dịch (category + cờ loại khỏi chi phí). */
+  setExpense(id: string, category: string | null, excluded: boolean): Promise<unknown> {
+    return this.db.sql`SELECT * FROM transaction_set_expense(${id}, ${category}, ${excluded})`;
+  }
+
+  /** Danh sách rule phân loại chi phí. */
+  expenseRulesList(): Promise<ExpenseRuleRow[]> {
+    return this.db.sql<ExpenseRuleRow[]>`SELECT * FROM expense_rules_list()`;
+  }
+
+  /** Thay toàn bộ danh sách rule (client gửi đủ list). */
+  expenseRulesSaveAll(items: unknown): Promise<ExpenseRuleRow[]> {
+    return this.db
+      .sql<ExpenseRuleRow[]>`SELECT * FROM expense_rules_save_all(${this.db.json(items ?? [])}::jsonb)`;
+  }
+
+  /** Auto phân loại bank-out theo rule; trả số bản ghi đã gán. */
+  expenseApplyRules(): Promise<{ expense_apply_rules: number }[]> {
+    return this.db
+      .sql<{ expense_apply_rules: number }[]>`SELECT expense_apply_rules()`;
   }
 
   linkOrder(id: string, orderNumber: string): Promise<unknown> {

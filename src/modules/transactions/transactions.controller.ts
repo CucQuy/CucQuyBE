@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { TransactionsService } from './transactions.service';
@@ -6,6 +6,8 @@ import { MarkExternalDto } from './dto/mark-external.dto';
 import { MarkSettledDto } from './dto/mark-settled.dto';
 import { LinkOrderDto } from './dto/link-order.dto';
 import { ReconcileApplyDto } from './dto/reconcile-apply.dto';
+import { SetExpenseDto } from './dto/set-expense.dto';
+import { SaveExpenseRulesDto } from './dto/expense-rules.dto';
 
 @ApiTags('Giao dịch')
 @Controller('transactions')
@@ -49,6 +51,31 @@ export class TransactionsController {
   @Patch(':id/link')
   async linkOrder(@Param('id') id: string, @Body() dto: LinkOrderDto) {
     await this.service.linkTransactionOrder(id, dto.orderNumber);
+    return { ok: true };
+  }
+
+  /** Danh sách rule phân loại chi phí (nội dung CK → category). */
+  @Get('expense-rules')
+  fetchExpenseRules() {
+    return this.service.fetchExpenseRules();
+  }
+
+  /** Thay toàn bộ rule phân loại chi phí. */
+  @Put('expense-rules')
+  saveExpenseRules(@Body() dto: SaveExpenseRulesDto) {
+    return this.service.saveExpenseRules(dto.items);
+  }
+
+  /** Auto phân loại bank-out theo rule; trả số bản ghi đã gán. */
+  @Post('expense/apply-rules')
+  applyExpenseRules() {
+    return this.service.applyExpenseRules();
+  }
+
+  /** Set tay phân loại chi phí cho 1 giao dịch (category + cờ loại khỏi chi phí). */
+  @Patch(':id/expense')
+  async setExpense(@Param('id') id: string, @Body() dto: SetExpenseDto) {
+    await this.service.setTransactionExpense(id, dto.category ?? null, dto.excluded);
     return { ok: true };
   }
 

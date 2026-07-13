@@ -2,9 +2,10 @@ import { Injectable } from '@nestjs/common';
 import {
   TransactionProc,
   TransactionRow,
+  ExpenseRuleRow,
   ReconcilePreviewResult,
 } from './transactions.proc';
-import { Transaction } from './transactions.types';
+import { Transaction, ExpenseRule } from './transactions.types';
 import { ReconcilePair } from './dto/reconcile-apply.dto';
 
 const toIso = (val: string | Date | null): string => {
@@ -31,6 +32,14 @@ const mapRow = (r: TransactionRow): Transaction => ({
   transferAmount: Number(r.transfer_amount) || 0,
   isExternal: r.is_external === true,
   settledOut: r.settled_out === true,
+  expenseCategory: r.expense_category ?? null,
+  costExcluded: r.cost_excluded === true,
+});
+
+const mapRule = (r: ExpenseRuleRow): ExpenseRule => ({
+  id: r.id,
+  keyword: r.keyword,
+  category: r.category,
 });
 
 /** Service chỉ orchestration + map; mọi call DB qua TransactionProc. */
@@ -64,6 +73,27 @@ export class TransactionsService {
   /** Liên kết giao dịch với 1 đơn (ghi orderNumber); chuỗi rỗng = gỡ liên kết. */
   async linkTransactionOrder(id: string, orderNumber: string): Promise<void> {
     await this.proc.linkOrder(id, orderNumber);
+  }
+
+  /** Set tay phân loại chi phí (category + cờ loại khỏi chi phí) cho 1 giao dịch. */
+  async setTransactionExpense(id: string, category: string | null, excluded: boolean): Promise<void> {
+    await this.proc.setExpense(id, category || null, excluded);
+  }
+
+  /** Danh sách rule phân loại chi phí. */
+  async fetchExpenseRules(): Promise<ExpenseRule[]> {
+    return (await this.proc.expenseRulesList()).map(mapRule);
+  }
+
+  /** Thay toàn bộ rule; trả list mới. */
+  async saveExpenseRules(items: { keyword: string; category: string }[]): Promise<ExpenseRule[]> {
+    return (await this.proc.expenseRulesSaveAll(items ?? [])).map(mapRule);
+  }
+
+  /** Auto phân loại bank-out theo rule; trả số bản ghi đã gán. */
+  async applyExpenseRules(): Promise<{ classified: number }> {
+    const rows = await this.proc.expenseApplyRules();
+    return { classified: Number(rows[0]?.expense_apply_rules) || 0 };
   }
 
   /**

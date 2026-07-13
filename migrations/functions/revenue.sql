@@ -227,8 +227,17 @@ BEGIN
   FROM stock_receipts r
   WHERE coalesce(revenue_try_ts(r.receipt_date), r.created_at) BETWEEN v_from AND v_to;
 
-  -- ── Chi phí khác: chưa có bảng → 0 ──
-  v_total_expenses := 0;
+  -- ── Chi phí vận hành (OPEX): bank "tiền ra" trong kỳ, KHÔNG nội bộ (settled),
+  --    KHÔNG loại thủ công (cost_excluded), KHÔNG gắn phiếu hoàn (đã tính riêng).
+  --    Auto: mọi tiền ra "chưa loại" đều tính là chi phí; expense_category chỉ để breakdown. ──
+  SELECT coalesce(SUM(t.transfer_amount),0)
+    INTO v_total_expenses
+  FROM transactions t
+  WHERE t.transfer_type = 'out'
+    AND coalesce(t.settled_out,false) = false
+    AND coalesce(t.cost_excluded,false) = false
+    AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+    AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
   v_total_costs := v_total_commission + v_total_stock_in + v_total_expenses;
   v_profit := v_total_revenue - v_total_costs;
@@ -306,9 +315,21 @@ BEGIN
     FROM stock_receipts r
     WHERE coalesce(revenue_try_ts(r.receipt_date), r.created_at) BETWEEN v_from AND v_to
   ),
+  cost_expenses AS (
+    SELECT floor(EXTRACT(EPOCH FROM (revenue_try_ts(t.transaction_date) - v_from))
+                 / (v_bucket_days * 86400.0))::int AS idx,
+           t.transfer_amount AS amount
+    FROM transactions t
+    WHERE t.transfer_type = 'out'
+      AND coalesce(t.settled_out,false) = false
+      AND coalesce(t.cost_excluded,false) = false
+      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+      AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
+  ),
   cost_all AS (
     SELECT idx, amount FROM cost_commission
     UNION ALL SELECT idx, amount FROM cost_stock
+    UNION ALL SELECT idx, amount FROM cost_expenses
   ),
   cost_bucket AS (
     SELECT idx, coalesce(SUM(amount),0) AS cost
