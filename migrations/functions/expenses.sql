@@ -61,6 +61,25 @@ BEGIN
 END;
 $$;
 
+-- ── Tổng hợp OPEX theo category trong kỳ (cho pie/tổng quan chi phí) ──
+CREATE OR REPLACE FUNCTION expense_summary(p_from timestamptz, p_to timestamptz)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT coalesce(
+    jsonb_agg(jsonb_build_object('category', category, 'amount', amount) ORDER BY amount DESC),
+    '[]'::jsonb)
+  FROM (
+    SELECT coalesce(NULLIF(t.expense_category, ''), 'unclassified') AS category,
+           SUM(t.transfer_amount) AS amount
+    FROM transactions t
+    WHERE t.transfer_type = 'out'
+      AND coalesce(t.settled_out,false) = false
+      AND coalesce(t.cost_excluded,false) = false
+      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+      AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
+    GROUP BY coalesce(NULLIF(t.expense_category, ''), 'unclassified')
+  ) s;
+$$;
+
 -- ── List bank-out trong kỳ cho màn "Chi phí vận hành" (kèm phân loại + cờ) ──
 CREATE OR REPLACE FUNCTION expense_out_list(p_from timestamptz, p_to timestamptz)
 RETURNS SETOF transactions LANGUAGE sql STABLE AS $$

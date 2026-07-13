@@ -96,6 +96,18 @@ export class TransactionsService {
     return { classified: Number(rows[0]?.expense_apply_rules) || 0 };
   }
 
+  /** Tổng hợp OPEX theo category trong kỳ. */
+  async fetchExpenseSummary(fromIso: string, toIso: string): Promise<{ category: string; amount: number }[]> {
+    const rows = await this.proc.expenseSummary(fromIso, toIso);
+    const arr = rows[0]?.result ?? [];
+    return arr.map((x) => ({ category: x.category, amount: Number(x.amount) || 0 }));
+  }
+
+  /** Bank-out trong kỳ (kèm phân loại) cho màn chi phí. */
+  async fetchExpenseOut(fromIso: string, toIso: string): Promise<Transaction[]> {
+    return (await this.proc.expenseOutList(fromIso, toIso)).map(mapRow);
+  }
+
   /**
    * Tạo giao dịch từ webhook SePay — IDEMPOTENT theo sepayId (sepay_id).
    * Logic chống trùng nằm trong proc. Trả về cờ duplicate + transaction.

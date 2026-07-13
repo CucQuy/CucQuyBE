@@ -86,6 +86,17 @@ export class TransactionProc {
       .sql<{ expense_apply_rules: number }[]>`SELECT expense_apply_rules()`;
   }
 
+  /** Tổng hợp OPEX theo category trong kỳ (jsonb array). */
+  expenseSummary(fromIso: string, toIso: string): Promise<{ result: { category: string; amount: number | string }[] }[]> {
+    return this.db.sql<{ result: { category: string; amount: number | string }[] }[]>`
+      SELECT expense_summary(${fromIso}, ${toIso}) AS result`;
+  }
+
+  /** Bank-out trong kỳ (kèm phân loại) cho màn chi phí. */
+  expenseOutList(fromIso: string, toIso: string): Promise<TransactionRow[]> {
+    return this.db.sql<TransactionRow[]>`SELECT * FROM expense_out_list(${fromIso}, ${toIso})`;
+  }
+
   linkOrder(id: string, orderNumber: string): Promise<unknown> {
     return this.db.sql`SELECT * FROM transaction_link_order(${id}, ${orderNumber})`;
   }

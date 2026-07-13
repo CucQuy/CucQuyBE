@@ -72,6 +72,18 @@ export class TransactionsController {
     return this.service.applyExpenseRules();
   }
 
+  /** Tổng hợp OPEX theo category trong kỳ (pie/tổng quan chi phí). */
+  @Get('expense-summary')
+  fetchExpenseSummary(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.fetchExpenseSummary(from ?? '', to ?? '');
+  }
+
+  /** Bank-out trong kỳ (kèm phân loại) — màn Chi phí vận hành. */
+  @Get('expense-out')
+  fetchExpenseOut(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.fetchExpenseOut(from ?? '', to ?? '');
+  }
+
   /** Set tay phân loại chi phí cho 1 giao dịch (category + cờ loại khỏi chi phí). */
   @Patch(':id/expense')
   async setExpense(@Param('id') id: string, @Body() dto: SetExpenseDto) {
