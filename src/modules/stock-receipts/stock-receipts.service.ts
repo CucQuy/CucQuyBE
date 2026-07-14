@@ -8,10 +8,12 @@ import {
   SupplierRow,
 } from './stock-receipts.proc';
 import { AuthUser } from '../../auth/user.types';
+import { GeminiService } from '../gemini/gemini.service';
 import {
   BillLineItem,
   ImportedMaterialSummary,
   ImportedSupplierSummary,
+  MaterialMergeAiGroup,
   MaterialMergeSuggestion,
   MaterialPriceOption,
   MaterialUpdatePatch,
@@ -97,7 +99,10 @@ const mapLine = (l: LineRow): BillLineItem => ({
 /** Toàn bộ logic ở stored function app.* — service chỉ gọi. */
 @Injectable()
 export class StockReceiptsService {
-  constructor(private readonly proc: StockReceiptProc) {}
+  constructor(
+    private readonly proc: StockReceiptProc,
+    private readonly gemini: GeminiService,
+  ) {}
 
   // ── ĐỌC ────────────────────────────────────────────────────────────────────
 
@@ -221,6 +226,49 @@ export class StockReceiptsService {
         ? threshold
         : DEFAULT_MERGE_THRESHOLD;
     return this.proc.materialMergeSuggestions(t);
+  }
+
+  /**
+   * Gợi ý gộp NVL bằng Claude (AI): đưa toàn bộ danh sách NVL cho Claude gom
+   * nhóm CÙNG sản phẩm (chịu được OCR sai / thiếu dấu), rồi map id → dữ liệu
+   * thật (importCount/totalQty/unit) + sort thành viên theo số lần nhập giảm dần
+   * (thành viên đầu = ứng viên root mặc định ở FE). Chỉ trả nhóm ≥2 thành viên.
+   */
+  async getMaterialMergeSuggestionsAi(): Promise<MaterialMergeAiGroup[]> {
+    const materials = await this.fetchImportedMaterials();
+    const byId = new Map(materials.map((m) => [m.id, m]));
+
+    const groups = await this.gemini.suggestMaterialMerges(
+      materials.map((m) => ({
+        id: m.id,
+        name: m.name,
+        canonicalUnit: m.canonicalUnit ?? null,
+        importCount: m.importCount,
+      })),
+    );
+
+    return groups
+      .map((g) => {
+        const members = g.memberIds
+          .map((id) => byId.get(id))
+          .filter((m): m is ImportedMaterialSummary => !!m)
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            importCount: m.importCount,
+            totalQty: m.totalQty,
+            canonicalUnit: m.canonicalUnit ?? null,
+          }))
+          .sort((a, b) => b.importCount - a.importCount);
+        return {
+          members,
+          suggestedName: g.suggestedName,
+          suggestedUnit: g.suggestedUnit,
+          confidence: g.confidence,
+          reason: g.reason,
+        };
+      })
+      .filter((g) => g.members.length >= 2);
   }
 
   /** Sửa nguyên liệu (NVL): name / canonicalUnit. */
