@@ -638,11 +638,13 @@ CREATE OR REPLACE FUNCTION material_recompute(p_id text DEFAULT NULL)
 RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE v_count int;
 BEGIN
+  -- QUAN TRỌNG: KHÔNG đè canonical_unit đang có (đã chuẩn hoá / user sửa tay) —
+  -- chỉ ĐIỀN khi đang trống, và dùng sr_canonical_unit(mode) để giữ dạng chuẩn.
   UPDATE materials m SET
     import_count = a.cnt,
     total_qty    = a.qty,
     total_amount = a.amount,
-    canonical_unit = COALESCE(a.top_unit, m.canonical_unit),
+    canonical_unit = COALESCE(NULLIF(trim(m.canonical_unit), ''), sr_canonical_unit(a.top_unit)),
     updated_at   = now()
   FROM (
     SELECT l.material_id,
