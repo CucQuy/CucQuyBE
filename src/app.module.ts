@@ -11,6 +11,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { AssetsModule } from './modules/assets/assets.module';
+import { ManualExpensesModule } from './modules/manual-expenses/manual-expenses.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { FlavorsModule } from './modules/flavors/flavors.module';
 import { BadgesModule } from './modules/badges/badges.module';
@@ -53,6 +54,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     CustomersModule,
     TransactionsModule,
     AssetsModule,
+    ManualExpensesModule,
     CategoriesModule,
     FlavorsModule,
     BadgesModule,

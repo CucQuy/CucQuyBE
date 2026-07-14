@@ -62,21 +62,37 @@ END;
 $$;
 
 -- ── Tổng hợp OPEX theo category trong kỳ (cho pie/tổng quan chi phí) ──
+--    Gồm: (1) bank "tiền ra" chưa loại + (2) chi phí THỦ CÔNG (đã phân bổ theo tháng).
+--    Manual inline (không gọi manual_expense_by_category) để không phụ thuộc thứ tự apply
+--    stored function (expense_summary là SQL-lang, validate body lúc tạo).
 CREATE OR REPLACE FUNCTION expense_summary(p_from timestamptz, p_to timestamptz)
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT coalesce(
     jsonb_agg(jsonb_build_object('category', category, 'amount', amount) ORDER BY amount DESC),
     '[]'::jsonb)
   FROM (
-    SELECT coalesce(NULLIF(t.expense_category, ''), 'unclassified') AS category,
-           SUM(t.transfer_amount) AS amount
-    FROM transactions t
-    WHERE t.transfer_type = 'out'
-      AND coalesce(t.settled_out,false) = false
-      AND coalesce(t.cost_excluded,false) = false
-      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
-      AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
-    GROUP BY coalesce(NULLIF(t.expense_category, ''), 'unclassified')
+    SELECT category, SUM(amount) AS amount
+    FROM (
+      -- (1) Bank tiền ra (auto)
+      SELECT coalesce(NULLIF(t.expense_category, ''), 'unclassified') AS category,
+             SUM(t.transfer_amount) AS amount
+      FROM transactions t
+      WHERE t.transfer_type = 'out'
+        AND coalesce(t.settled_out,false) = false
+        AND coalesce(t.cost_excluded,false) = false
+        AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+        AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
+      GROUP BY coalesce(NULLIF(t.expense_category, ''), 'unclassified')
+      UNION ALL
+      -- (2) Chi phí thủ công (phân bổ: amount/spread_months mỗi tháng rơi trong kỳ)
+      SELECT coalesce(NULLIF(m.category, ''), 'other') AS category,
+             SUM(m.amount / m.spread_months) AS amount
+      FROM manual_expenses m
+      CROSS JOIN LATERAL generate_series(0, m.spread_months - 1) AS i
+      WHERE (m.date::timestamptz + (i || ' months')::interval) BETWEEN p_from AND p_to
+      GROUP BY coalesce(NULLIF(m.category, ''), 'other')
+    ) u
+    GROUP BY category
   ) s;
 $$;
 
