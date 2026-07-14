@@ -57,6 +57,13 @@ export class StockReceiptsController {
     return this.service.getMaterialMergeSuggestions(t);
   }
 
+  /** Gợi ý gộp NVL bằng AI (Claude) — gom nhóm cùng sản phẩm, chịu OCR sai/thiếu dấu. */
+  @Get('materials/merge-suggestions/ai')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  getMaterialMergeSuggestionsAi() {
+    return this.service.getMaterialMergeSuggestionsAi();
+  }
+
   /** Nguyên liệu kèm đơn giá nhập TB (dropdown OrderForm). */
   @Get('material-options')
   fetchMaterialPriceOptions() {

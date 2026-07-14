@@ -2,6 +2,28 @@ import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { BillValidationResult, StockReceiptStructured } from './gemini.types';
 
+/** 1 NVL đưa vào Claude để gợi ý gộp (chỉ field cần thiết). */
+export interface MaterialForMerge {
+  id: string;
+  name: string;
+  canonicalUnit?: string | null;
+  importCount: number;
+}
+
+/** 1 nhóm NVL Claude cho là CÙNG sản phẩm (nên gộp). */
+export interface AiMergeGroup {
+  /** id các NVL trong nhóm (≥2). */
+  memberIds: string[];
+  /** Tên chuẩn Claude đề xuất cho nhóm. */
+  suggestedName: string;
+  /** Đơn vị chuẩn Claude đề xuất (null nếu không chắc). */
+  suggestedUnit: string | null;
+  /** Độ tin cậy 0–1. */
+  confidence: number;
+  /** Lý do ngắn (tiếng Việt) vì sao cùng sản phẩm. */
+  reason: string;
+}
+
 // LLM đọc bill đã chuyển sang Claude (Anthropic). Tên class/route giữ "gemini"
 // làm hợp đồng API với frontend (services/geminiService.ts gọi /gemini/...).
 // Đổi model qua env CLAUDE_MODEL (claude-haiku-4-5 / claude-sonnet-4-6) nếu cần.
@@ -100,6 +122,64 @@ export class GeminiService {
 
     return parsed as StockReceiptStructured;
   }
+
+  /**
+   * Gợi ý gộp NVL bằng Claude: đưa TOÀN BỘ danh sách tên NVL, Claude gom các mục
+   * CÙNG một sản phẩm thật (dù OCR ghi sai / thiếu dấu / viết tắt khác nhau),
+   * đồng thời GIỮ RIÊNG các biến thể khác nhau (loại/thương hiệu/quy cách).
+   * Trả về mảng nhóm (≥2 thành viên) đã validate id + clamp confidence.
+   */
+  async suggestMaterialMerges(
+    materials: MaterialForMerge[],
+  ): Promise<AiMergeGroup[]> {
+    if (materials.length < 2) return [];
+
+    // Danh sách gọn: "<id>\t<tên>[ (đơn vị)] [xN lần nhập]" — 1 dòng 1 NVL.
+    const list = materials
+      .map(
+        (m) =>
+          `${m.id}\t${m.name}${m.canonicalUnit ? ` (${m.canonicalUnit})` : ''} [x${m.importCount}]`,
+      )
+      .join('\n');
+
+    const resp = await this.getClient().messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: MERGE_SYSTEM_VI,
+      messages: [{ role: 'user', content: list.slice(0, 24000) }],
+    });
+
+    const parsed = this.parseJson<{ groups?: unknown }>(this.firstText(resp));
+    const rawGroups = Array.isArray(parsed.groups) ? parsed.groups : [];
+    const validIds = new Set(materials.map((m) => m.id));
+
+    return rawGroups
+      .map((g): AiMergeGroup => {
+        const r = (g ?? {}) as Record<string, unknown>;
+        const memberIds = Array.isArray(r.memberIds)
+          ? Array.from(
+              new Set(
+                (r.memberIds as unknown[]).filter(
+                  (id): id is string =>
+                    typeof id === 'string' && validIds.has(id),
+                ),
+              ),
+            )
+          : [];
+        const confidence =
+          typeof r.confidence === 'number'
+            ? Math.max(0, Math.min(1, r.confidence))
+            : 0;
+        return {
+          memberIds,
+          suggestedName: this.normalizeStr(r.suggestedName) ?? '',
+          suggestedUnit: this.normalizeStr(r.suggestedUnit),
+          confidence,
+          reason: this.normalizeStr(r.reason) ?? '',
+        };
+      })
+      .filter((g) => g.memberIds.length >= 2);
+  }
 }
 
 const VALIDATE_SYSTEM_VI = `Bạn kiểm tra nội dung OCR có phải chứng từ MUA HÀNG / BÁN HÀNG (hoá đơn, phiếu tính tiền, biên lai siêu thị, phiếu NCC, phiếu bán lẻ của shop…) hay không.
@@ -179,3 +259,29 @@ Trả về JSON đúng các key sau:
 }
 
 Nội dung OCR nằm trong message của người dùng.`;
+
+const MERGE_SYSTEM_VI = `Bạn là trợ lý kho của một TIỆM BÁNH. Bạn nhận DANH SÁCH nguyên vật liệu (NVL) đã nhập.
+Mỗi dòng: "<id><TAB><tên>[ (đơn vị)] [x<số lần nhập>]".
+
+NHIỆM VỤ: Tìm các NVL thực chất là CÙNG MỘT sản phẩm nhưng bị ghi khác nhau (do OCR đọc sai, thiếu/khác dấu, viết tắt, thừa/thiếu khoảng trắng, khác hoa thường, kèm/không kèm quy cách) → gom thành NHÓM để gộp.
+
+NGUYÊN TẮC (RẤT QUAN TRỌNG — thà bỏ sót còn hơn gộp nhầm):
+- CHỈ gom khi gần như chắc chắn là cùng một mặt hàng. Nếu phân vân → ĐỪNG gom.
+- GIỮ RIÊNG các biến thể KHÁC nhau, KHÔNG gộp:
+  • Khác LOẠI/màu/vị: "Đường đen" ≠ "Đường trắng"; "Chocolate trắng" ≠ "Chocolate đen".
+  • Khác THƯƠNG HIỆU: "Bơ Anchor" ≠ "Bơ President".
+  • Khác QUY CÁCH đóng gói rõ rệt nếu là SKU khác: "Whipping 250ml" ≠ "Whipping 1L" (nhưng "Trứng"/"Trứng gà"/"trứng gà (quả)" thì CÙNG).
+- Đơn vị đồng nghĩa coi như giống: cái = quả (với trứng), gói ≈ bịch.
+- Mỗi id chỉ thuộc TỐI ĐA 1 nhóm. Nhóm phải có ≥2 thành viên. NVL không trùng ai thì bỏ qua (không tạo nhóm 1 phần tử).
+
+Với mỗi nhóm, đề xuất:
+- suggestedName: tên chuẩn, rõ ràng, đúng chính tả tiếng Việt (chọn/soạn từ các tên trong nhóm).
+- suggestedUnit: đơn vị chuẩn của nhóm (vd kg, g, ml, gói, hộp, cái, quả…); null nếu không chắc.
+- confidence: 0–1 (độ chắc chắn cùng sản phẩm).
+- reason: 1 câu tiếng Việt vì sao là cùng sản phẩm.
+
+Trả về DUY NHẤT một JSON hợp lệ (KHÔNG markdown, KHÔNG giải thích ngoài JSON):
+{"groups":[{"memberIds":["id1","id2",...],"suggestedName":string,"suggestedUnit":string|null,"confidence":number,"reason":string}]}
+Nếu không có nhóm nào đáng gộp: {"groups":[]}
+
+Danh sách NVL nằm trong message của người dùng.`;

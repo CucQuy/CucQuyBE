@@ -130,6 +130,19 @@ export interface MaterialMergeSuggestion {
   b: MaterialMergeCandidate;
 }
 
+/** 1 nhóm NVL do Claude gợi ý gộp (cùng sản phẩm) — đã map id → dữ liệu thật. */
+export interface MaterialMergeAiGroup {
+  members: MaterialMergeCandidate[];
+  /** Tên chuẩn Claude đề xuất. */
+  suggestedName: string;
+  /** Đơn vị chuẩn Claude đề xuất (null nếu không chắc). */
+  suggestedUnit: string | null;
+  /** Độ tin cậy 0–1. */
+  confidence: number;
+  /** Lý do ngắn (tiếng Việt). */
+  reason: string;
+}
+
 /** Nguồn tạo phiếu nhập: OCR ảnh bill hoặc nhập thủ công qua form. */
 export type StockReceiptSource = 'ocr' | 'manual';
 
