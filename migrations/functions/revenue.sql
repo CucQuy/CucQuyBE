@@ -240,6 +240,10 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
+  -- ── + Chi phí THỦ CÔNG (không qua bank: tiền mặt/đã trả trước), phân bổ rơi trong kỳ.
+  --     Gộp vào OPEX (v_total_expenses) → cùng vào costBreakdown.expenses + lợi nhuận. ──
+  v_total_expenses := v_total_expenses + manual_expense_allocated(v_from, v_to);
+
   -- ── Khấu hao tài sản (CAPEX) rơi trong kỳ ──
   v_total_depreciation := asset_depreciation(v_from, v_to);
 
@@ -338,11 +342,20 @@ BEGIN
     CROSS JOIN LATERAL generate_series(0, a.useful_months - 1) AS i
     WHERE (a.start_date::timestamptz + (i || ' months')::interval) BETWEEN v_from AND v_to
   ),
+  cost_manual AS (
+    SELECT floor(EXTRACT(EPOCH FROM ((m.date::timestamptz + (i || ' months')::interval) - v_from))
+                 / (v_bucket_days * 86400.0))::int AS idx,
+           (m.amount / m.spread_months) AS amount
+    FROM manual_expenses m
+    CROSS JOIN LATERAL generate_series(0, m.spread_months - 1) AS i
+    WHERE (m.date::timestamptz + (i || ' months')::interval) BETWEEN v_from AND v_to
+  ),
   cost_all AS (
     SELECT idx, amount FROM cost_commission
     UNION ALL SELECT idx, amount FROM cost_stock
     UNION ALL SELECT idx, amount FROM cost_expenses
     UNION ALL SELECT idx, amount FROM cost_depreciation
+    UNION ALL SELECT idx, amount FROM cost_manual
   ),
   cost_bucket AS (
     SELECT idx, coalesce(SUM(amount),0) AS cost
