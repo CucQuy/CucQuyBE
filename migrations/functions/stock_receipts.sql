@@ -631,6 +631,61 @@ BEGIN
 END;
 $$;
 
+-- ── RECOMPUTE aggregate NVL từ nguồn thật (stock_receipt_lines) ──────────────
+-- Tính lại import_count/total_qty/total_amount/canonical_unit từ các dòng phiếu.
+-- canonical_unit = đơn vị xuất hiện nhiều nhất trong dòng. p_id NULL = tất cả.
+CREATE OR REPLACE FUNCTION material_recompute(p_id text DEFAULT NULL)
+RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE v_count int;
+BEGIN
+  UPDATE materials m SET
+    import_count = a.cnt,
+    total_qty    = a.qty,
+    total_amount = a.amount,
+    canonical_unit = COALESCE(a.top_unit, m.canonical_unit),
+    updated_at   = now()
+  FROM (
+    SELECT l.material_id,
+           count(*) AS cnt,
+           sum(COALESCE(l.quantity,0)) AS qty,
+           sum(COALESCE(l.line_total,0)) AS amount,
+           (SELECT NULLIF(trim(l2.unit),'')
+              FROM stock_receipt_lines l2
+             WHERE l2.material_id = l.material_id AND NULLIF(trim(l2.unit),'') IS NOT NULL
+             GROUP BY NULLIF(trim(l2.unit),'')
+             ORDER BY count(*) DESC, 1 LIMIT 1) AS top_unit
+    FROM stock_receipt_lines l
+    GROUP BY l.material_id
+  ) a
+  WHERE m.id = a.material_id AND (p_id IS NULL OR m.id = p_id);
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+-- Dry-run: trả các material lệch aggregate HOẶC có đơn vị lẫn (không ghi gì).
+CREATE OR REPLACE FUNCTION material_recompute_preview()
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'id', m.id, 'name', m.name,
+    'curQty', m.total_qty, 'newQty', a.qty,
+    'curAmount', m.total_amount, 'newAmount', a.amount,
+    'curCount', COALESCE(m.import_count,0), 'newCount', a.cnt,
+    'curUnit', m.canonical_unit, 'unitKinds', a.unit_kinds
+  ) ORDER BY a.unit_kinds DESC, m.name)
+    FILTER (WHERE m.total_qty IS DISTINCT FROM a.qty
+                OR m.total_amount IS DISTINCT FROM a.amount
+                OR COALESCE(m.import_count,0) <> a.cnt
+                OR a.unit_kinds > 1), '[]'::jsonb)
+  FROM materials m
+  JOIN (
+    SELECT material_id, count(*) cnt, sum(COALESCE(quantity,0)) qty,
+           sum(COALESCE(line_total,0)) amount,
+           count(DISTINCT NULLIF(trim(unit),'')) unit_kinds
+    FROM stock_receipt_lines GROUP BY material_id
+  ) a ON a.material_id = m.id;
+$$;
+
 -- ── MERGE nguyên liệu ────────────────────────────────────────────────────────
 -- Gộp các nguyên liệu trùng vào root: lines trỏ về root, cộng dồn thống kê, xoá dup.
 CREATE OR REPLACE FUNCTION stock_receipt_merge_materials(p_root_id text, p_dup_ids jsonb)
@@ -639,9 +694,6 @@ LANGUAGE plpgsql AS $$
 DECLARE
   v_root_name text;
   v_dups text[];
-  v_import_sum int := 0;
-  v_qty_sum numeric := 0;
-  v_amount_sum numeric := 0;
 BEGIN
   SELECT name INTO v_root_name FROM materials WHERE id = p_root_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'Root material không tồn tại'; END IF;
@@ -652,24 +704,15 @@ BEGIN
   WHERE d <> '' AND d <> p_root_id AND EXISTS (SELECT 1 FROM materials m WHERE m.id = d);
   IF v_dups IS NULL OR array_length(v_dups, 1) IS NULL THEN RETURN; END IF;
 
-  SELECT COALESCE(SUM(COALESCE(import_count,0)),0),
-         COALESCE(SUM(COALESCE(total_qty,0)),0),
-         COALESCE(SUM(COALESCE(total_amount,0)),0)
-    INTO v_import_sum, v_qty_sum, v_amount_sum
-  FROM materials WHERE id = ANY(v_dups);
-
+  -- Dồn dòng phiếu của dup về root, xoá dup, rồi TÍNH LẠI aggregate root từ
+  -- toàn bộ dòng (gồm dòng vừa gộp) → chính xác tuyệt đối, không cộng counter (drift).
   UPDATE stock_receipt_lines
   SET material_id = p_root_id, material_name_raw = v_root_name
   WHERE material_id = ANY(v_dups);
 
-  UPDATE materials
-  SET import_count = COALESCE(import_count,0) + v_import_sum,
-      total_qty = COALESCE(total_qty,0) + v_qty_sum,
-      total_amount = COALESCE(total_amount,0) + v_amount_sum,
-      updated_at = now()
-  WHERE id = p_root_id;
-
   DELETE FROM materials WHERE id = ANY(v_dups);
+
+  PERFORM material_recompute(p_root_id);
 END;
 $$;
 
