@@ -68,7 +68,8 @@ DECLARE
     "lit":"l","l":"l",
     "ml":"ml","cl":"cl",
     "thung":"thung","chai":"chai","lon":"lon","goi":"goi",
-    "hop":"hop","cai":"cai","cay":"cay","tui":"tui","bich":"tui","qua":"qua"
+    "hop":"hop","cai":"cai","cay":"cay","tui":"tui","bich":"tui","qua":"qua",
+    "bo":"bo","combo":"bo","set":"bo","cuon":"cuon","to":"to","xau":"xau"
   }'::jsonb;
 BEGIN
   IF p_raw IS NULL THEN RETURN NULL; END IF;
