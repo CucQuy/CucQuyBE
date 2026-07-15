@@ -27,12 +27,22 @@ export class WebhooksService {
       };
     }
     if (!res.orderMatched) {
+      // ≥2 đơn cùng số tiền (khớp theo số tiền bị nhập nhằng) → không auto-PAID.
+      // Bắn Zalo cảnh báo để admin vào màn đối soát xử lý tay (fire-and-forget).
+      if (res.needsReview) {
+        const tx = (res.transaction ?? {}) as Record<string, any>;
+        const amount = Number(tx.transfer_amount) || 0;
+        void this.buildAndSendReview(amount, res.ambiguousCount ?? 0, tx);
+      }
       return {
         status: 200,
         payload: {
           success: true,
-          message: 'Transaction saved but no matching order',
+          message: res.needsReview
+            ? 'Transaction saved, multiple orders match amount — needs manual reconcile'
+            : 'Transaction saved but no matching order',
           transactionId: body.id,
+          needsReview: res.needsReview ?? false,
         },
       };
     }
@@ -121,6 +131,27 @@ export class WebhooksService {
     await this.zalo
       .send({ message: this.buildPaidMessage(orderNumber, amount, tx, summary) })
       .catch(() => undefined);
+  }
+
+  /** Cảnh báo Zalo khi nhận tiền nhưng ≥2 đơn cùng số tiền → cần đối soát tay. */
+  private async buildAndSendReview(
+    amount: number,
+    ambiguousCount: number,
+    tx: Record<string, any>,
+  ): Promise<void> {
+    const bank = typeof tx.gateway === 'string' ? tx.gateway.trim() : '';
+    const time = this.formatTxTime(tx.transaction_date ?? tx.received_at);
+    const money = [this.formatVND(amount)];
+    if (bank) money.push(bank);
+    if (time) money.push(time);
+    const message = [
+      '⚠️ NHẬN TIỀN CẦN ĐỐI SOÁT',
+      '─────────────────────────',
+      `💵 ${money.join(' · ')}`,
+      `🔎 ${ambiguousCount} đơn cùng số tiền — không tự khớp được`,
+      '👉 Vào màn Giao dịch để đối soát thủ công',
+    ].join('\n');
+    await this.zalo.send({ message }).catch(() => undefined);
   }
 
   /**

@@ -68,7 +68,9 @@ CREATE OR REPLACE FUNCTION transaction_link_order(p_id text, p_order_number text
 RETURNS SETOF transactions
 LANGUAGE sql AS $$
   UPDATE transactions
-  SET order_number = NULLIF(p_order_number, '')
+  SET order_number = NULLIF(p_order_number, ''),
+      needs_review = false,   -- admin đã xử lý → gỡ cờ đối soát
+      review_note  = NULL
   WHERE id = p_id
   RETURNING *;
 $$;
@@ -249,7 +251,9 @@ BEGIN
     GET DIAGNOSTICS v_ord_updated = ROW_COUNT;
 
     IF v_ord_updated = 1 THEN
-      UPDATE transactions SET order_number = v_order_number WHERE id = v_tx_id;
+      UPDATE transactions
+        SET order_number = v_order_number, needs_review = false, review_note = NULL
+        WHERE id = v_tx_id;
       v_applied := v_applied + 1;
     ELSE
       v_skipped := v_skipped + 1;

@@ -21,6 +21,8 @@ export type TransactionRow = {
   settled_out: boolean | null;
   expense_category: string | null;
   cost_excluded: boolean | null;
+  needs_review: boolean | null;
+  review_note: string | null;
   received_at: string | Date | null;
   created_at: string | Date | null;
 };

@@ -5,6 +5,13 @@ export type SepayResult = {
   duplicate: boolean;
   orderNumber?: string | null;
   orderMatched?: boolean;
+  /** Cách khớp đơn: 'content' (mã đơn), 'amount' (số tiền), null (không khớp). */
+  matchBy?: 'content' | 'amount' | null;
+  /** ≥2 đơn cùng số tiền → không auto-PAID, giao dịch bị gắn cờ đối soát tay. */
+  needsReview?: boolean;
+  reviewNote?: string | null;
+  /** Số đơn ứng viên khi khớp theo số tiền. */
+  ambiguousCount?: number;
   transaction?: unknown;
 };
 export type FacebookResult = { duplicate: boolean; id: string };

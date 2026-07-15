@@ -34,6 +34,8 @@ const mapRow = (r: TransactionRow): Transaction => ({
   settledOut: r.settled_out === true,
   expenseCategory: r.expense_category ?? null,
   costExcluded: r.cost_excluded === true,
+  needsReview: r.needs_review === true,
+  reviewNote: r.review_note ?? null,
 });
 
 const mapRule = (r: ExpenseRuleRow): ExpenseRule => ({

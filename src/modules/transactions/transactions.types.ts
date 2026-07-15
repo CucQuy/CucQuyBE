@@ -23,6 +23,9 @@ export interface Transaction {
   expenseCategory?: string | null;
   /** Loại khỏi chi phí (nội bộ / trả NCC đã tính COGS...) — không trừ vào lợi nhuận. */
   costExcluded?: boolean;
+  /** Nhận tiền khớp ≥2 đơn cùng số tiền → cần đối soát tay (webhook gắn cờ). */
+  needsReview?: boolean;
+  reviewNote?: string | null;
 }
 
 export interface ExpenseRule {
