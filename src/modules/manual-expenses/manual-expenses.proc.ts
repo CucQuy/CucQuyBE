@@ -9,6 +9,7 @@ export type ManualExpenseRow = {
   spread_months: number | null;
   note: string | null;
   created_at: string | Date | null;
+  source: string | null;
 };
 
 @Injectable()

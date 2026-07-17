@@ -17,6 +17,8 @@ const mapRow = (r: AssetRow): Asset => ({
   category: r.category ?? null,
   note: r.note ?? null,
   createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at ?? ''),
+  source: r.source === 'receipt' ? 'receipt' : 'manual',
+  supplierId: r.supplier_id ?? null,
 });
 
 @Injectable()

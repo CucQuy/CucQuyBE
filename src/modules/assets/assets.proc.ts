@@ -10,6 +10,8 @@ export type AssetRow = {
   category: string | null;
   note: string | null;
   created_at: string | Date | null;
+  source: string | null;
+  supplier_id: string | null;
 };
 
 @Injectable()

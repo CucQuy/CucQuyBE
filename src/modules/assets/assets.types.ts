@@ -7,4 +7,6 @@ export interface Asset {
   category?: string | null;
   note?: string | null;
   createdAt: string;
+  source?: 'manual' | 'receipt';
+  supplierId?: string | null;
 }
