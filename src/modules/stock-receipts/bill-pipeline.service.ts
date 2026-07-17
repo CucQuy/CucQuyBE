@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OcrService } from '../ocr/ocr.service';
-import { AiService } from '../ai/ai.service';
+import { ReceiptValidateService } from '../ai/tasks/receipt-validate/receipt-validate.service';
+import { ReceiptStructureService } from '../ai/tasks/receipt-structure/receipt-structure.service';
 import {
   StockReceiptStructured,
   StockReceiptValidationSnapshot,
@@ -169,7 +170,8 @@ function quickReceiptHeuristic(ocrText: string): {
 export class BillPipelineService {
   constructor(
     private readonly ocr: OcrService,
-    private readonly ai: AiService,
+    private readonly receiptValidate: ReceiptValidateService,
+    private readonly receiptStructure: ReceiptStructureService,
   ) {}
 
   /**
@@ -201,7 +203,7 @@ export class BillPipelineService {
     // cắt phần dưới, đèn flash, hoặc chữ "HÓA ĐƠN BÁN HÀNG" không khớp template).
     let llmCheck: { isLikelyReceipt: boolean; confidence: number; reasonVi: string };
     try {
-      llmCheck = await this.ai.validateReceipt(ocrText);
+      llmCheck = await this.receiptValidate.run(ocrText);
     } catch (e) {
       if (signal.strong) {
         // AI lỗi nhưng OCR có cụm từ chắc chắn → vẫn tiếp tục
@@ -234,7 +236,7 @@ export class BillPipelineService {
       };
     }
 
-    const structured = await this.ai.structureStockReceipt(ocrText);
+    const structured = await this.receiptStructure.run(ocrText);
 
     // Mặc định ngày bill = hôm nay nếu AI không trích được — luôn có ngày
     // để sort / filter / hiển thị trong list phiếu.

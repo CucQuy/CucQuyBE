@@ -8,7 +8,7 @@ import {
   SupplierRow,
 } from './stock-receipts.proc';
 import { AuthUser } from '../../auth/user.types';
-import { AiService } from '../ai/ai.service';
+import { MaterialMergeService } from '../ai/tasks/material-merge/material-merge.service';
 import {
   BillLineItem,
   ImportedMaterialSummary,
@@ -102,7 +102,7 @@ const mapLine = (l: LineRow): BillLineItem => ({
 export class StockReceiptsService {
   constructor(
     private readonly proc: StockReceiptProc,
-    private readonly ai: AiService,
+    private readonly materialMerge: MaterialMergeService,
   ) {}
 
   // ── ĐỌC ────────────────────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ export class StockReceiptsService {
     const materials = await this.fetchImportedMaterials();
     const byId = new Map(materials.map((m) => [m.id, m]));
 
-    const groups = await this.ai.suggestMaterialMerges(
+    const groups = await this.materialMerge.run(
       materials.map((m) => ({
         id: m.id,
         name: m.name,

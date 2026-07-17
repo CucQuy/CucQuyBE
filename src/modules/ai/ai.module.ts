@@ -1,10 +1,27 @@
 import { Module } from '@nestjs/common';
 import { AiController } from './ai.controller';
-import { AiService } from './ai.service';
+import { AiClientService } from './core/ai-client.service';
+import { ReceiptValidateService } from './tasks/receipt-validate/receipt-validate.service';
+import { ReceiptStructureService } from './tasks/receipt-structure/receipt-structure.service';
+import { MaterialMergeService } from './tasks/material-merge/material-merge.service';
 
+/**
+ * Module AI: mỗi nghiệp vụ 1 service riêng trong tasks/<nghiệp-vụ>/ (service +
+ * config + prompt.md), dùng chung AiClientService (core). Thêm nghiệp vụ mới =
+ * tạo 1 folder trong tasks/ theo mẫu rồi đăng ký ở đây.
+ */
 @Module({
   controllers: [AiController],
-  providers: [AiService],
-  exports: [AiService],
+  providers: [
+    AiClientService,
+    ReceiptValidateService,
+    ReceiptStructureService,
+    MaterialMergeService,
+  ],
+  exports: [
+    ReceiptValidateService,
+    ReceiptStructureService,
+    MaterialMergeService,
+  ],
 })
 export class AiModule {}
