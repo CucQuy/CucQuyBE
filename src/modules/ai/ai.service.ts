@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import { BillValidationResult, StockReceiptStructured } from './gemini.types';
+import { BillValidationResult, StockReceiptStructured } from './ai.types';
 
 /** 1 NVL đưa vào Claude để gợi ý gộp (chỉ field cần thiết). */
 export interface MaterialForMerge {
@@ -24,14 +24,14 @@ export interface AiMergeGroup {
   reason: string;
 }
 
-// LLM đọc bill đã chuyển sang Claude (Anthropic). Tên class/route giữ "gemini"
-// làm hợp đồng API với frontend (services/geminiService.ts gọi /gemini/...).
+// Module AI (đọc/cấu trúc bill, gợi ý gộp NVL) chạy trên Claude (Anthropic).
+// Tên đặt chung "ai" (không gắn vendor) — route /ai/*.
 // Đổi model qua env CLAUDE_MODEL (claude-haiku-4-5 / claude-sonnet-4-6) nếu cần.
 const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8';
 
 @Injectable()
-export class GeminiService {
-  private readonly logger = new Logger(GeminiService.name);
+export class AiService {
+  private readonly logger = new Logger(AiService.name);
   private client: Anthropic | null = null;
 
   private getClient(): Anthropic {

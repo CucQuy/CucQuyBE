@@ -8,7 +8,7 @@ import {
   SupplierRow,
 } from './stock-receipts.proc';
 import { AuthUser } from '../../auth/user.types';
-import { GeminiService } from '../gemini/gemini.service';
+import { AiService } from '../ai/ai.service';
 import {
   BillLineItem,
   ImportedMaterialSummary,
@@ -102,7 +102,7 @@ const mapLine = (l: LineRow): BillLineItem => ({
 export class StockReceiptsService {
   constructor(
     private readonly proc: StockReceiptProc,
-    private readonly gemini: GeminiService,
+    private readonly ai: AiService,
   ) {}
 
   // ── ĐỌC ────────────────────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ export class StockReceiptsService {
     const materials = await this.fetchImportedMaterials();
     const byId = new Map(materials.map((m) => [m.id, m]));
 
-    const groups = await this.gemini.suggestMaterialMerges(
+    const groups = await this.ai.suggestMaterialMerges(
       materials.map((m) => ({
         id: m.id,
         name: m.name,

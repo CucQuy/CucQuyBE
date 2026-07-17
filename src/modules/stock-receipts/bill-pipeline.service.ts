@@ -1,13 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OcrService } from '../ocr/ocr.service';
-import { GeminiService } from '../gemini/gemini.service';
+import { AiService } from '../ai/ai.service';
 import {
   StockReceiptStructured,
   StockReceiptValidationSnapshot,
 } from './stock-receipts.types';
 
 /**
- * Kết quả pipeline xử lý bill (OCR + Gemini + gating) — khớp shape FE kỳ vọng.
+ * Kết quả pipeline xử lý bill (OCR + AI + gating) — khớp shape FE kỳ vọng.
  */
 export interface BillPipelineResult {
   ocrText: string;
@@ -15,7 +15,7 @@ export interface BillPipelineResult {
   validation: StockReceiptValidationSnapshot;
 }
 
-/** Ngưỡng tối thiểu: Gemini đánh giá đây là bill và độ tin cậy đủ cao. */
+/** Ngưỡng tối thiểu: AI đánh giá đây là bill và độ tin cậy đủ cao. */
 const MIN_LLM_CONFIDENCE = 0.42;
 
 const RECEIPT_KEYWORDS_VI = [
@@ -64,7 +64,7 @@ const RECEIPT_KEYWORDS_EN = [
 /**
  * Các cụm từ "chắc chắn là bill" trong OCR — đã strip dấu, lowercase.
  * Nếu OCR text chứa 1 trong các cụm này + heuristic không hard-reject,
- * pipeline sẽ pass dù Gemini có verdict thấp / lỗi.
+ * pipeline sẽ pass dù AI có verdict thấp / lỗi.
  */
 const STRONG_RECEIPT_PHRASES = [
   'hoa don ban hang',
@@ -169,12 +169,12 @@ function quickReceiptHeuristic(ocrText: string): {
 export class BillPipelineService {
   constructor(
     private readonly ocr: OcrService,
-    private readonly gemini: GeminiService,
+    private readonly ai: AiService,
   ) {}
 
   /**
-   * Pipeline đầy đủ: OCR → heuristic/strong-signal gating → Gemini validate →
-   * threshold gating → Gemini structure. Port nguyên logic từ FE.
+   * Pipeline đầy đủ: OCR → heuristic/strong-signal gating → AI validate →
+   * threshold gating → AI structure. Port nguyên logic từ FE.
    *
    * `imageBase64`: base64 thuần (không có prefix data:image/...).
    */
@@ -197,11 +197,11 @@ export class BillPipelineService {
       );
     }
 
-    // Strong signal → bỏ qua LLM gate luôn (Gemini đôi khi reject sai do ảnh bị
+    // Strong signal → bỏ qua LLM gate luôn (AI đôi khi reject sai do ảnh bị
     // cắt phần dưới, đèn flash, hoặc chữ "HÓA ĐƠN BÁN HÀNG" không khớp template).
     let llmCheck: { isLikelyReceipt: boolean; confidence: number; reasonVi: string };
     try {
-      llmCheck = await this.gemini.validateReceipt(ocrText);
+      llmCheck = await this.ai.validateReceipt(ocrText);
     } catch (e) {
       if (signal.strong) {
         // AI lỗi nhưng OCR có cụm từ chắc chắn → vẫn tiếp tục
@@ -225,7 +225,7 @@ export class BillPipelineService {
       );
     }
 
-    // Pass nhờ strong signal nhưng Gemini reject → ghi đè reason để UI hiển thị rõ
+    // Pass nhờ strong signal nhưng AI reject → ghi đè reason để UI hiển thị rõ
     if (!llmPasses && strongPasses) {
       llmCheck = {
         isLikelyReceipt: true,
@@ -234,9 +234,9 @@ export class BillPipelineService {
       };
     }
 
-    const structured = await this.gemini.structureStockReceipt(ocrText);
+    const structured = await this.ai.structureStockReceipt(ocrText);
 
-    // Mặc định ngày bill = hôm nay nếu Gemini không trích được — luôn có ngày
+    // Mặc định ngày bill = hôm nay nếu AI không trích được — luôn có ngày
     // để sort / filter / hiển thị trong list phiếu.
     if (!structured.receiptDate || !/^\d{4}-\d{2}-\d{2}$/.test(structured.receiptDate)) {
       const now = new Date();

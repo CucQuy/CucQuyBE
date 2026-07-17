@@ -33,7 +33,7 @@ export class StockReceiptsController {
     private readonly billPipeline: BillPipelineService,
   ) {}
 
-  /** OCR + Gemini + gating: xử lý ảnh bill thành phiếu nhập (chưa lưu). */
+  /** OCR + AI + gating: xử lý ảnh bill thành phiếu nhập (chưa lưu). */
   @Post('process-bill')
   processBill(@Body() dto: ProcessBillDto) {
     return this.billPipeline.processBill(dto.imageBase64);

@@ -1,13 +1,13 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
-import { GeminiService } from './gemini.service';
+import { AiService } from './ai.service';
 
-@ApiTags('Gemini')
-@Controller('gemini')
+@ApiTags('AI')
+@Controller('ai')
 @UseGuards(SsoAuthGuard)
-export class GeminiController {
-  constructor(private readonly service: GeminiService) {}
+export class AiController {
+  constructor(private readonly service: AiService) {}
 
   /** Kiểm tra OCR text có phải bill mua/bán hàng không. */
   @Post('validate-receipt')

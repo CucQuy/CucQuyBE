@@ -24,7 +24,7 @@ import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
 import { OcrModule } from './modules/ocr/ocr.module';
-import { GeminiModule } from './modules/gemini/gemini.module';
+import { AiModule } from './modules/ai/ai.module';
 import { ZaloModule } from './modules/zalo/zalo.module';
 import { RevenueModule } from './modules/revenue/revenue.module';
 import { RequestLogsModule } from './modules/request-logs/request-logs.module';
@@ -67,7 +67,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     WebhooksModule,
     SerpapiModule,
     OcrModule,
-    GeminiModule,
+    AiModule,
     ZaloModule,
     RevenueModule,
     RequestLogsModule,
