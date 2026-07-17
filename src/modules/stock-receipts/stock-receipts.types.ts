@@ -128,8 +128,9 @@ export interface MaterialCreateInput {
   name: string;
   unit?: string | null;
   lastUnitPrice?: number | null;
+  quantity?: number | null;
   lastSupplierId?: string | null;
-  lastSupplierName?: string | null;
+  lastSupplierName?: string | null; // tên NCC — tự tạo mới nếu chưa tồn tại
   lastReceiptDate?: string | null; // ISO yyyy-mm-dd
 }
 

@@ -837,8 +837,12 @@ DECLARE
   v_key      text;
   v_unit     text;
   v_price    numeric;
+  v_qty      numeric;
+  v_amount   numeric;
+  v_cnt      int;
   v_sup_id   text;
   v_sup_name text;
+  v_sup_key  text;
   v_date     text;
   v_lookup   text;
   v_id       text;
@@ -855,8 +859,9 @@ BEGIN
 
   v_unit  := sr_canonical_unit(NULLIF(trim(COALESCE(p_input->>'unit','')), ''));
   v_price := NULLIF(p_input->>'lastUnitPrice','')::numeric;
+  v_qty   := COALESCE(NULLIF(p_input->>'quantity','')::numeric, 0);
 
-  -- NCC gần nhất: chỉ giữ id nếu tồn tại (tránh vỡ FK); tự tra tên nếu thiếu.
+  -- NCC gần nhất: id hợp lệ → dùng; nếu không, theo TÊN tìm-hoặc-tạo-mới (như phiếu nhập).
   v_sup_id   := NULLIF(trim(COALESCE(p_input->>'lastSupplierId','')), '');
   v_sup_name := NULLIF(trim(COALESCE(p_input->>'lastSupplierName','')), '');
   IF v_sup_id IS NOT NULL THEN
@@ -867,14 +872,32 @@ BEGIN
       v_sup_name := COALESCE(v_sup_name, v_lookup);
     END IF;
   END IF;
+  IF v_sup_id IS NULL AND v_sup_name IS NOT NULL THEN
+    v_sup_key := sr_supplier_key(v_sup_name);
+    IF v_sup_key <> '' THEN
+      SELECT id INTO v_sup_id FROM suppliers WHERE normalized_name = v_sup_key LIMIT 1;
+      IF v_sup_id IS NULL THEN
+        v_sup_id := sr_gen_id();
+        INSERT INTO suppliers (id, name, normalized_name, receipt_count, total_amount, created_at, updated_at)
+        VALUES (v_sup_id, v_sup_name, v_sup_key, 0, 0, v_now, v_now);
+      END IF;
+    ELSE
+      v_sup_name := NULL;
+    END IF;
+  END IF;
+
   v_date := NULLIF(trim(COALESCE(p_input->>'lastReceiptDate','')), '');
+
+  -- Có số lượng → coi như 1 lần nhập tay (import_count=1); tổng tiền = SL × đơn giá.
+  v_cnt    := CASE WHEN v_qty > 0 THEN 1 ELSE 0 END;
+  v_amount := CASE WHEN v_qty > 0 AND v_price IS NOT NULL THEN v_qty * v_price ELSE 0 END;
 
   v_id := sr_gen_id();
   INSERT INTO materials (
     id, name, normalized_name, canonical_unit, import_count, total_qty, total_amount,
     last_unit_price, last_supplier_id, last_supplier_name, last_receipt_date, created_at, updated_at
   ) VALUES (
-    v_id, v_name, v_key, v_unit, 0, 0, 0,
+    v_id, v_name, v_key, v_unit, v_cnt, v_qty, v_amount,
     v_price, v_sup_id, v_sup_name, v_date::timestamptz, v_now, v_now
   );
   RETURN v_id;
