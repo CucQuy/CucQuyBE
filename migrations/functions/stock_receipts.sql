@@ -343,6 +343,15 @@ DECLARE
   v_lunitprice numeric;
   v_mat_id text;
   v_mat_is_new boolean;
+  -- phân loại dòng (029): material | asset | opex
+  v_line_id text;
+  v_item_type text;
+  v_lcategory text;
+  v_useful int;
+  v_asset_id uuid;
+  v_expense_id uuid;
+  v_ai_type text;
+  v_ai_conf numeric;
 BEGIN
   -- ── resolveSupplier ──────────────────────────────────────────────────────
   -- 1) targetSupplierId tồn tại -> dùng lại
@@ -523,47 +532,68 @@ BEGIN
       v_lunitprice := NULL;
     END IF;
 
-    -- resolveMaterial: tìm theo normalized_name, không có thì tạo mới
-    SELECT id INTO v_mat_id FROM materials WHERE normalized_name = v_lkey LIMIT 1;
-    IF v_mat_id IS NULL THEN
-      v_mat_id := sr_gen_id();
-      v_mat_is_new := true;
-    ELSE
-      v_mat_is_new := false;
-    END IF;
+    -- ── Phân loại dòng (029): material | asset | opex ──
+    v_item_type := lower(COALESCE(NULLIF(v_line->>'itemType',''), 'material'));
+    IF v_item_type NOT IN ('material','asset','opex') THEN v_item_type := 'material'; END IF;
+    v_lcategory := NULLIF(trim(COALESCE(v_line->>'category','')), '');
+    v_ai_type := NULLIF(v_line->>'aiSuggestedType','');
+    v_ai_conf := NULLIF(v_line->>'aiConfidence','')::numeric;
+    v_line_id := sr_gen_id();
+    v_mat_id := NULL; v_asset_id := NULL; v_expense_id := NULL;
 
-    IF v_mat_is_new THEN
-      INSERT INTO materials (
-        id, name, normalized_name, canonical_unit, import_count, total_qty, total_amount,
-        last_unit_price, last_supplier_id, last_supplier_name, last_receipt_date,
-        created_at, updated_at
-      ) VALUES (
-        v_mat_id, v_lname, v_lkey, v_lunit_canon, 1, v_lqty, v_lamount,
-        v_lunitprice, v_supplier_id, v_supplier_name, v_now, v_now, v_now
-      );
+    IF v_item_type = 'asset' THEN
+      -- Tài sản: khấu hao rải; KHÔNG vào materials / nhập kho.
+      v_useful := greatest(COALESCE(NULLIF(v_line->>'usefulMonths','')::int, 24), 1);
+      INSERT INTO assets (name, cost, useful_months, start_date, category, source, receipt_line_id, supplier_id)
+      VALUES (
+        v_lname, v_lamount, v_useful,
+        COALESCE(NULLIF(v_receipt_date,'')::date, v_now::date),
+        COALESCE(v_lcategory, 'equipment'), 'receipt', v_line_id, v_supplier_id
+      ) RETURNING id INTO v_asset_id;
+
+    ELSIF v_item_type = 'opex' THEN
+      -- Chi phí vận hành: OPEX ghi ngay; KHÔNG vào materials / nhập kho.
+      INSERT INTO manual_expenses (date, amount, category, spread_months, note, source, receipt_line_id)
+      VALUES (
+        COALESCE(NULLIF(v_receipt_date,'')::date, v_now::date),
+        v_lamount, COALESCE(v_lcategory, 'other'), 1, v_lname, 'receipt', v_line_id
+      ) RETURNING id INTO v_expense_id;
+
     ELSE
-      UPDATE materials SET
-        import_count = COALESCE(import_count, 0) + 1,
-        total_qty = COALESCE(total_qty, 0) + v_lqty,
-        total_amount = COALESCE(total_amount, 0) + v_lamount,
-        last_unit_price = v_lunitprice,
-        last_supplier_id = v_supplier_id,
-        last_supplier_name = v_supplier_name,
-        last_receipt_date = v_now,
-        updated_at = v_now
-      WHERE id = v_mat_id;
+      -- NVL: upsert materials + thống kê (như cũ).
+      SELECT id INTO v_mat_id FROM materials WHERE normalized_name = v_lkey LIMIT 1;
+      IF v_mat_id IS NULL THEN
+        v_mat_id := sr_gen_id();
+        INSERT INTO materials (
+          id, name, normalized_name, canonical_unit, import_count, total_qty, total_amount,
+          last_unit_price, last_supplier_id, last_supplier_name, last_receipt_date, created_at, updated_at
+        ) VALUES (
+          v_mat_id, v_lname, v_lkey, v_lunit_canon, 1, v_lqty, v_lamount,
+          v_lunitprice, v_supplier_id, v_supplier_name, v_now, v_now, v_now
+        );
+      ELSE
+        UPDATE materials SET
+          import_count = COALESCE(import_count, 0) + 1,
+          total_qty = COALESCE(total_qty, 0) + v_lqty,
+          total_amount = COALESCE(total_amount, 0) + v_lamount,
+          last_unit_price = v_lunitprice,
+          last_supplier_id = v_supplier_id,
+          last_supplier_name = v_supplier_name,
+          last_receipt_date = v_now,
+          updated_at = v_now
+        WHERE id = v_mat_id;
+      END IF;
     END IF;
 
     INSERT INTO stock_receipt_lines (
       id, receipt_id, material_id, material_name_raw, name, quantity, unit,
-      unit_price, line_total, supplier_id, receipt_date, created_at
+      unit_price, line_total, supplier_id, receipt_date, created_at,
+      item_type, asset_id, expense_id, ai_suggested_type, ai_confidence
     ) VALUES (
-      sr_gen_id(), v_header_id, v_mat_id, v_lname, v_lname,
-      NULLIF(v_line->>'quantity','')::numeric,
-      v_lunit,
-      v_lunitprice,
-      NULLIF(v_line->>'lineTotal','')::numeric,
-      v_supplier_id, v_receipt_date, v_now
+      v_line_id, v_header_id, v_mat_id, v_lname, v_lname,
+      NULLIF(v_line->>'quantity','')::numeric, v_lunit, v_lunitprice,
+      NULLIF(v_line->>'lineTotal','')::numeric, v_supplier_id, v_receipt_date, v_now,
+      v_item_type, v_asset_id::text, v_expense_id::text, v_ai_type, v_ai_conf
     );
   END LOOP;
 

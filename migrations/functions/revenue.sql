@@ -228,6 +228,15 @@ BEGIN
   FROM stock_receipts r
   WHERE coalesce(revenue_try_ts(r.receipt_date), r.created_at) BETWEEN v_from AND v_to;
 
+  -- Trừ phần dòng phiếu là Tài sản / Vận hành (đã tính qua khấu hao / OPEX) → chống đếm trùng (029).
+  v_total_stock_in := v_total_stock_in - coalesce((
+    SELECT SUM(l.line_total)
+    FROM stock_receipt_lines l
+    JOIN stock_receipts r ON r.id = l.receipt_id
+    WHERE l.item_type IN ('asset','opex')
+      AND coalesce(revenue_try_ts(r.receipt_date), r.created_at) BETWEEN v_from AND v_to
+  ), 0);
+
   -- ── Chi phí vận hành (OPEX): bank "tiền ra" trong kỳ, KHÔNG nội bộ (settled),
   --    KHÔNG loại thủ công (cost_excluded), KHÔNG gắn phiếu hoàn (đã tính riêng).
   --    Auto: mọi tiền ra "chưa loại" đều tính là chi phí; expense_category chỉ để breakdown. ──
