@@ -128,6 +128,9 @@ export interface MaterialCreateInput {
   name: string;
   unit?: string | null;
   lastUnitPrice?: number | null;
+  lastSupplierId?: string | null;
+  lastSupplierName?: string | null;
+  lastReceiptDate?: string | null; // ISO yyyy-mm-dd
 }
 
 /** 1 nguyên liệu trong cặp gợi ý gộp (camelCase từ jsonb fn). */

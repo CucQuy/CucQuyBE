@@ -833,12 +833,16 @@ CREATE OR REPLACE FUNCTION stock_receipt_material_create(p_input jsonb)
 RETURNS text
 LANGUAGE plpgsql AS $$
 DECLARE
-  v_name  text;
-  v_key   text;
-  v_unit  text;
-  v_price numeric;
-  v_id    text;
-  v_now   timestamptz := now();
+  v_name     text;
+  v_key      text;
+  v_unit     text;
+  v_price    numeric;
+  v_sup_id   text;
+  v_sup_name text;
+  v_date     text;
+  v_lookup   text;
+  v_id       text;
+  v_now      timestamptz := now();
 BEGIN
   v_name := trim(COALESCE(p_input->>'name', ''));
   IF v_name = '' THEN RAISE EXCEPTION 'Tên NVL không được rỗng'; END IF;
@@ -852,13 +856,26 @@ BEGIN
   v_unit  := sr_canonical_unit(NULLIF(trim(COALESCE(p_input->>'unit','')), ''));
   v_price := NULLIF(p_input->>'lastUnitPrice','')::numeric;
 
+  -- NCC gần nhất: chỉ giữ id nếu tồn tại (tránh vỡ FK); tự tra tên nếu thiếu.
+  v_sup_id   := NULLIF(trim(COALESCE(p_input->>'lastSupplierId','')), '');
+  v_sup_name := NULLIF(trim(COALESCE(p_input->>'lastSupplierName','')), '');
+  IF v_sup_id IS NOT NULL THEN
+    SELECT name INTO v_lookup FROM suppliers WHERE id = v_sup_id;
+    IF NOT FOUND THEN
+      v_sup_id := NULL;
+    ELSE
+      v_sup_name := COALESCE(v_sup_name, v_lookup);
+    END IF;
+  END IF;
+  v_date := NULLIF(trim(COALESCE(p_input->>'lastReceiptDate','')), '');
+
   v_id := sr_gen_id();
   INSERT INTO materials (
     id, name, normalized_name, canonical_unit, import_count, total_qty, total_amount,
-    last_unit_price, created_at, updated_at
+    last_unit_price, last_supplier_id, last_supplier_name, last_receipt_date, created_at, updated_at
   ) VALUES (
     v_id, v_name, v_key, v_unit, 0, 0, 0,
-    v_price, v_now, v_now
+    v_price, v_sup_id, v_sup_name, v_date::timestamptz, v_now, v_now
   );
   RETURN v_id;
 END;
