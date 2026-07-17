@@ -359,9 +359,20 @@ BEGIN
     CROSS JOIN LATERAL generate_series(0, m.spread_months - 1) AS i
     WHERE (m.date::timestamptz + (i || ' months')::interval) BETWEEN v_from AND v_to
   ),
+  -- Trừ dòng phiếu là Tài sản/Vận hành khỏi stock-in mỗi bucket (029) → khớp total + donut.
+  stock_deduct AS (
+    SELECT floor(EXTRACT(EPOCH FROM (coalesce(revenue_try_ts(r.receipt_date), r.created_at) - v_from))
+                 / (v_bucket_days * 86400.0))::int AS idx,
+           -l.line_total AS amount
+    FROM stock_receipt_lines l
+    JOIN stock_receipts r ON r.id = l.receipt_id
+    WHERE l.item_type IN ('asset','opex')
+      AND coalesce(revenue_try_ts(r.receipt_date), r.created_at) BETWEEN v_from AND v_to
+  ),
   cost_all AS (
     SELECT idx, amount FROM cost_commission
     UNION ALL SELECT idx, amount FROM cost_stock
+    UNION ALL SELECT idx, amount FROM stock_deduct
     UNION ALL SELECT idx, amount FROM cost_expenses
     UNION ALL SELECT idx, amount FROM cost_depreciation
     UNION ALL SELECT idx, amount FROM cost_manual
@@ -369,18 +380,39 @@ BEGIN
   cost_bucket AS (
     SELECT idx, coalesce(SUM(amount),0) AS cost
     FROM cost_all WHERE idx >= 0 AND idx < v_count GROUP BY idx
+  ),
+  -- 3 nhánh chi phí mỗi bucket (cho line chart Tổng quan).
+  stock_bucket AS (
+    SELECT idx, coalesce(SUM(amount),0) AS v FROM (
+      SELECT idx, amount FROM cost_stock UNION ALL SELECT idx, amount FROM stock_deduct
+    ) x WHERE idx >= 0 AND idx < v_count GROUP BY idx
+  ),
+  dep_bucket AS (
+    SELECT idx, coalesce(SUM(amount),0) AS v FROM cost_depreciation
+    WHERE idx >= 0 AND idx < v_count GROUP BY idx
+  ),
+  opex_bucket AS (
+    SELECT idx, coalesce(SUM(amount),0) AS v FROM (
+      SELECT idx, amount FROM cost_expenses UNION ALL SELECT idx, amount FROM cost_manual
+    ) x WHERE idx >= 0 AND idx < v_count GROUP BY idx
   )
   SELECT jsonb_agg(
            jsonb_build_object(
              'label', EXTRACT(DAY FROM b.bucket_start)::int || '/' || EXTRACT(MONTH FROM b.bucket_start)::int,
              'revenue', coalesce(rb.revenue, 0),
-             'profit', coalesce(rb.revenue, 0) - coalesce(cb.cost, 0)
+             'profit', coalesce(rb.revenue, 0) - coalesce(cb.cost, 0),
+             'stockIn', coalesce(sb.v, 0),
+             'depreciation', coalesce(db.v, 0),
+             'opex', coalesce(ob.v, 0)
            ) ORDER BY b.i
          )
     INTO v_series
   FROM buckets b
   LEFT JOIN rev_bucket rb ON rb.idx = b.i
-  LEFT JOIN cost_bucket cb ON cb.idx = b.i;
+  LEFT JOIN cost_bucket cb ON cb.idx = b.i
+  LEFT JOIN stock_bucket sb ON sb.idx = b.i
+  LEFT JOIN dep_bucket db ON db.idx = b.i
+  LEFT JOIN opex_bucket ob ON ob.idx = b.i;
 
   RETURN jsonb_build_object(
     'totalRevenue', v_total_revenue,
