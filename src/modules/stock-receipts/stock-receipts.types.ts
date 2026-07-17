@@ -6,6 +6,15 @@ export interface BillLineItem {
   unit: string | null;
   unitPrice: number | null;
   lineTotal: number | null;
+  /** Phân loại dòng: 'material' (NVL) | 'asset' (tài sản) | 'opex' (chi phí vận hành). */
+  itemType?: 'material' | 'asset' | 'opex';
+  /** Số tháng khấu hao (khi asset). */
+  usefulMonths?: number | null;
+  /** Loại (asset/opex). */
+  category?: string | null;
+  /** Vết AI gợi ý. */
+  aiSuggestedType?: string | null;
+  aiConfidence?: number | null;
 }
 
 export interface StockReceiptStructured {

@@ -212,6 +212,12 @@ Quy tắc chung:
 - productLineCount = số dòng mặt hàng (sản phẩm) bạn trích được.
 - currency: mặc định "VND" nếu bill VN.
 - lineItems: mỗi phần tử có name (bắt buộc), quantity, unit (kg, thùng, chai...), unitPrice, lineTotal.
+- PHÂN LOẠI mỗi dòng (itemType) dựa vào TÊN + GIÁ + SỐ LƯỢNG:
+  + "material" = nguyên vật liệu tiêu hao (bột, đường, trứng, bơ, hộp, túi, hương liệu... — mua thường xuyên).
+  + "asset"    = tài sản dùng lâu (máy, tủ, lò, cân, kệ inox, thiết bị... — giá cao, SL ít, dùng nhiều tháng).
+  + "opex"     = chi phí vận hành (tiền điện, nước, internet, thuê mặt bằng, sửa chữa, phí dịch vụ...).
+  Không chắc → "material". Kèm confidence (0..1). Nếu "asset": suggestedUsefulMonths (thiết bị ~24, nội thất ~36).
+  category gợi ý (asset: equipment|furniture|renovation|other; opex: rent|utilities|internet|maintenance|other).
 
 QUY TẮC TRÍCH XUẤT THÔNG TIN NCC (BẮT BUỘC CỐ GẮNG):
 
@@ -247,7 +253,7 @@ Trả về JSON đúng các key sau:
   "storeOrBranch": string | null,
   "receiptDate": string | null,
   "receiptTime": string | null,
-  "lineItems": [{ "name": string, "quantity": number | null, "unit": string | null, "unitPrice": number | null, "lineTotal": number | null }],
+  "lineItems": [{ "name": string, "quantity": number | null, "unit": string | null, "unitPrice": number | null, "lineTotal": number | null, "itemType": "material" | "asset" | "opex", "confidence": number, "suggestedUsefulMonths": number | null, "category": string | null }],
   "productLineCount": number,
   "subtotal": number | null,
   "tax": number | null,

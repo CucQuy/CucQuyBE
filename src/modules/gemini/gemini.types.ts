@@ -13,6 +13,14 @@ export interface BillLineItem {
   unit: string | null;
   unitPrice: number | null;
   lineTotal: number | null;
+  /** Phân loại dòng (AI gợi ý / người chọn): NVL | Tài sản | Chi phí vận hành. */
+  itemType?: 'material' | 'asset' | 'opex';
+  /** Độ chắc phân loại của AI (0..1). */
+  confidence?: number;
+  /** Số tháng khấu hao gợi ý (khi asset). */
+  suggestedUsefulMonths?: number | null;
+  /** Loại gợi ý (asset: equipment/...; opex: rent/utilities/...). */
+  category?: string | null;
 }
 
 /** Kết quả chuẩn hoá từ hoá đơn / phiếu nhập hàng (OCR + LLM). */
