@@ -17,6 +17,7 @@ import {
   MaterialMergeSuggestion,
   MaterialPriceOption,
   MaterialUpdatePatch,
+  MaterialCreateInput,
   SavedStockReceiptDetail,
   SavedStockReceiptSummary,
   SaveStockReceiptDraftInput,
@@ -274,6 +275,11 @@ export class StockReceiptsService {
   /** Sửa nguyên liệu (NVL): name / canonicalUnit. */
   async updateMaterial(id: string, patch: MaterialUpdatePatch): Promise<void> {
     await this.proc.materialUpdate(id, patch);
+  }
+
+  /** Tạo NVL thủ công (không qua phiếu nhập). Trả id (idempotent theo key). */
+  async createMaterial(input: MaterialCreateInput): Promise<string> {
+    return this.proc.materialCreate(input);
   }
 
   // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────

@@ -123,6 +123,13 @@ export interface MaterialUpdatePatch {
   canonicalUnit?: string | null;
 }
 
+/** Tạo NVL thủ công (không qua phiếu nhập). */
+export interface MaterialCreateInput {
+  name: string;
+  unit?: string | null;
+  lastUnitPrice?: number | null;
+}
+
 /** 1 nguyên liệu trong cặp gợi ý gộp (camelCase từ jsonb fn). */
 export interface MaterialMergeCandidate {
   id: string;

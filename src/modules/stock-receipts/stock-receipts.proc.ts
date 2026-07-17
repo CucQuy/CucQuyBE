@@ -3,6 +3,7 @@ import { DbService } from '../../db/db.service';
 import {
   MaterialMergeSuggestion,
   MaterialUpdatePatch,
+  MaterialCreateInput,
   SaveStockReceiptDraftInput,
   SupplierContactInfo,
 } from './stock-receipts.types';
@@ -198,5 +199,12 @@ export class StockReceiptProc {
   materialUpdate(id: string, patch: MaterialUpdatePatch): Promise<unknown> {
     return this.db.sql`
       SELECT stock_receipt_material_update(${id}, ${this.db.json(patch ?? {})}::jsonb)`;
+  }
+
+  /** Tạo NVL thủ công — trả id (idempotent theo key). */
+  async materialCreate(input: MaterialCreateInput): Promise<string> {
+    const [row] = await this.db.sql<{ id: string }[]>`
+      SELECT stock_receipt_material_create(${this.db.json(input)}::jsonb) AS id`;
+    return row.id;
   }
 }

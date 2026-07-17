@@ -825,6 +825,45 @@ BEGIN
 END;
 $$;
 
+-- Tạo NVL thủ công (không qua phiếu nhập). Trả về id.
+-- Idempotent theo key: nếu đã có NVL cùng normalized_name → trả id cũ (không tạo trùng).
+-- Thống kê (import_count/total_qty/total_amount) = 0 vì chưa có lần nhập nào;
+-- chỉ set last_unit_price nếu người dùng nhập đơn giá tham khảo.
+CREATE OR REPLACE FUNCTION stock_receipt_material_create(p_input jsonb)
+RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_name  text;
+  v_key   text;
+  v_unit  text;
+  v_price numeric;
+  v_id    text;
+  v_now   timestamptz := now();
+BEGIN
+  v_name := trim(COALESCE(p_input->>'name', ''));
+  IF v_name = '' THEN RAISE EXCEPTION 'Tên NVL không được rỗng'; END IF;
+  v_key := sr_material_key(v_name);
+  IF v_key = '' THEN RAISE EXCEPTION 'Tên NVL không hợp lệ'; END IF;
+
+  -- đã tồn tại theo key → trả id cũ, không tạo trùng
+  SELECT id INTO v_id FROM materials WHERE normalized_name = v_key LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+
+  v_unit  := sr_canonical_unit(NULLIF(trim(COALESCE(p_input->>'unit','')), ''));
+  v_price := NULLIF(p_input->>'lastUnitPrice','')::numeric;
+
+  v_id := sr_gen_id();
+  INSERT INTO materials (
+    id, name, normalized_name, canonical_unit, import_count, total_qty, total_amount,
+    last_unit_price, created_at, updated_at
+  ) VALUES (
+    v_id, v_name, v_key, v_unit, 0, 0, 0,
+    v_price, v_now, v_now
+  );
+  RETURN v_id;
+END;
+$$;
+
 -- ============================================================
 -- Đối soát phiếu nhập kho ↔ giao dịch SePay tiền ra (009).
 -- ============================================================

@@ -19,6 +19,7 @@ import { BillPipelineService } from './bill-pipeline.service';
 import { ProcessBillDto } from './dto/process-bill.dto';
 import {
   MaterialUpdatePatch,
+  MaterialCreateInput,
   SaveStockReceiptDraftInput,
   SupplierContactInfo,
 } from './stock-receipts.types';
@@ -107,6 +108,14 @@ export class StockReceiptsController {
     @Body() body: MaterialUpdatePatch,
   ) {
     await this.service.updateMaterial(id, body);
+    return { id };
+  }
+
+  /** Tạo NVL thủ công (không qua phiếu nhập). */
+  @Post('materials')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async createMaterial(@Body() body: MaterialCreateInput) {
+    const id = await this.service.createMaterial(body);
     return { id };
   }
 
