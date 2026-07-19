@@ -33,6 +33,7 @@ import { LoggingMiddleware } from './modules/request-logs/logging.middleware';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PosModule } from './modules/pos/pos.module';
 import { NotificationSchedulesModule } from './modules/notification-schedules/notification-schedules.module';
 
 @Module({
@@ -76,6 +77,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     PromotionsModule,
     SurchargeTagsModule,
     NotificationsModule,
+    PosModule,
     NotificationSchedulesModule,
   ],
   controllers: [HealthController, SsoLoginController],
