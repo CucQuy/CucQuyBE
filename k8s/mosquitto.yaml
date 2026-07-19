@@ -1,0 +1,158 @@
+# MQTT broker (Eclipse Mosquitto 2) trên k3s @ ricevps.
+# Public qua WSS: Cloudflare (TLS) -> cloudflared -> Traefik (Host: mqtt.cucquy.site) -> svc:9001.
+# Raw MQTT TCP 1883 chỉ trong cluster (backend NestJS) + LAN. Auth bắt buộc (allow_anonymous false).
+#
+# Secret KHÔNG nằm trong file này (repo PUBLIC). Tạo riêng:
+#   kubectl -n mqtt create secret generic mosquitto-auth \
+#     --from-literal=MQTT_USERNAME=<user> --from-literal=MQTT_PASSWORD=<pass>
+# initContainer sinh password_file (hash) từ secret trước khi broker chạy.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mqtt
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mosquitto-config
+  namespace: mqtt
+data:
+  mosquitto.conf: |
+    persistence true
+    persistence_location /mosquitto/data/
+    log_dest stdout
+    log_type warning
+    log_type notice
+    log_type information
+    connection_messages true
+
+    # Bắt buộc đăng nhập — KHÔNG mở anonymous (tránh thành open relay).
+    allow_anonymous false
+    password_file /mosquitto/config/passwd
+
+    # Raw MQTT TCP — dùng trong cluster (backend) + LAN.
+    listener 1883 0.0.0.0
+    protocol mqtt
+
+    # MQTT over WebSocket — expose công khai qua Traefik + Cloudflare (wss://mqtt.cucquy.site:443).
+    listener 9001 0.0.0.0
+    protocol websockets
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-data
+  namespace: mqtt
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  # k3s: storageClass mặc định "local-path" (bỏ trống => dùng default).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+  namespace: mqtt
+  labels:
+    app: mosquitto
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # RWO PVC — không chạy 2 pod cùng lúc.
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    metadata:
+      labels:
+        app: mosquitto
+    spec:
+      securityContext:
+        runAsUser: 1883        # user "mosquitto" trong image
+        runAsGroup: 1883
+        fsGroup: 1883          # để pod ghi được PVC + emptyDir
+      initContainers:
+        # Sinh password_file (hash PBKDF2) từ secret + đặt mosquitto.conf vào volume config.
+        - name: init-passwd
+          image: eclipse-mosquitto:2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              cp /tmp/cm/mosquitto.conf /mosquitto/config/mosquitto.conf
+              mosquitto_passwd -b -c /mosquitto/config/passwd "$MQTT_USERNAME" "$MQTT_PASSWORD"
+              echo "passwd file created for user: $MQTT_USERNAME"
+          env:
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef: { name: mosquitto-auth, key: MQTT_USERNAME }
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mosquitto-auth, key: MQTT_PASSWORD }
+          volumeMounts:
+            - { name: config, mountPath: /mosquitto/config }
+            - { name: cm, mountPath: /tmp/cm, readOnly: true }
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto:2
+          ports:
+            - { name: mqtt, containerPort: 1883 }
+            - { name: ws, containerPort: 9001 }
+          volumeMounts:
+            - { name: config, mountPath: /mosquitto/config }
+            - { name: data, mountPath: /mosquitto/data }
+          livenessProbe:
+            tcpSocket: { port: 1883 }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket: { port: 1883 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "10m", memory: "24Mi" }
+            limits: { memory: "128Mi" }
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: cm
+          configMap: { name: mosquitto-config }
+        - name: data
+          persistentVolumeClaim: { claimName: mosquitto-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mosquitto
+  namespace: mqtt
+  labels:
+    app: mosquitto
+spec:
+  selector:
+    app: mosquitto
+  ports:
+    - { name: mqtt, port: 1883, targetPort: 1883 }
+    - { name: ws, port: 9001, targetPort: 9001 }
+  # ClusterIP: đủ cho backend in-cluster + Traefik. LAN raw-TCP thì đổi type: NodePort.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mosquitto-ws
+  namespace: mqtt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: mqtt.cucquy.site
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mosquitto
+                port:
+                  number: 9001

@@ -4,6 +4,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { bullConnection } from './queue/queue.constants';
 import { DbModule } from './db/db.module';
 import { RedisModule } from './redis/redis.module';
+import { MqttModule } from './mqtt/mqtt.module';
 import { HealthController } from './health/health.controller';
 import { SsoLoginController } from './auth/sso-login.controller';
 import { CommissionModule } from './modules/commission/commission.module';
@@ -39,6 +40,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     ConfigModule.forRoot({ isGlobal: true }),
     DbModule,
     RedisModule,
+    MqttModule,
     // BullMQ — hàng đợi job (gửi Zalo, xử webhook) chạy nền + retry. Dùng Redis.
     BullModule.forRoot({
       connection: bullConnection(),

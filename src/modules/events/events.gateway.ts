@@ -12,6 +12,8 @@ import { userCacheKey } from '../../auth/sso-auth.guard';
 import { verifySsoToken } from '../../auth/sso.util';
 import { SOCKET_EVENTS, type OrderPaidEvent } from './events.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MqttService } from '../../mqtt/mqtt.service';
+import { MQTT_TOPICS } from '../../mqtt/mqtt.constants';
 
 export type { OrderPaidEvent };
 
@@ -50,6 +52,7 @@ export class EventsGateway implements OnGatewayConnection {
     private readonly db: DbService,
     private readonly redis: RedisService,
     private readonly notif: NotificationsService,
+    private readonly mqtt: MqttService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -93,6 +96,12 @@ export class EventsGateway implements OnGatewayConnection {
       this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.ORDER_PAID, event);
       this.logger.log(`order:paid → ${event.orderNumber} (${event.amount}đ)`);
     }
+    // Mirror ra MQTT (retain: client kết nối sau vẫn lấy được đơn mới nhất). No-op nếu MQTT tắt.
+    this.mqtt.publish(
+      MQTT_TOPICS.ORDER_PAID,
+      { ...event, at: new Date().toISOString() },
+      { qos: 1, retain: true },
+    );
     // Lưu vào hộp thư in-app (fire-and-forget, không chặn emit).
     void this.notif.log({
       kind: 'inapp',
