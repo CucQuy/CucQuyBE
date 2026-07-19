@@ -96,11 +96,12 @@ export class EventsGateway implements OnGatewayConnection {
       this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.ORDER_PAID, event);
       this.logger.log(`order:paid → ${event.orderNumber} (${event.amount}đ)`);
     }
-    // Mirror ra MQTT (retain: client kết nối sau vẫn lấy được đơn mới nhất). No-op nếu MQTT tắt.
+    // Mirror ra MQTT cho thiết bị POS/ESP32 (kêu loa + TTS). Key `order_id` khớp firmware.
+    // KHÔNG retain: sự kiện 1 lần, tránh device nối sau kêu loa lại với đơn cũ.
     this.mqtt.publish(
       MQTT_TOPICS.ORDER_PAID,
-      { ...event, at: new Date().toISOString() },
-      { qos: 1, retain: true },
+      { order_id: event.orderNumber, amount: event.amount },
+      { qos: 1, retain: false },
     );
     // Lưu vào hộp thư in-app (fire-and-forget, không chặn emit).
     void this.notif.log({

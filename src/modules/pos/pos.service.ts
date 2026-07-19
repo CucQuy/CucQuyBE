@@ -16,20 +16,18 @@ export class PosService {
   constructor(private readonly mqtt: MqttService) {}
 
   showQr(dto: PosQrDto): void {
+    // Key khớp firmware ESP32: { order_id, amount, qr }. Retain → thiết bị nối sau vẫn thấy.
     this.mqtt.publish(
-      MQTT_TOPICS.POS_QR,
-      { order_id: dto.order_id, amount: dto.amount, qr: dto.qr, at: new Date().toISOString() },
+      MQTT_TOPICS.ORDER_CREATE,
+      { order_id: dto.order_id, amount: dto.amount, qr: dto.qr },
       { qos: 1, retain: true },
     );
-    this.logger.log(`pos/qr ← ${dto.order_id} (${dto.amount}đ)`);
+    this.logger.log(`order/create ← ${dto.order_id} (${dto.amount}đ)`);
   }
 
   clear(): void {
-    this.mqtt.publish(
-      MQTT_TOPICS.POS_QR,
-      { cleared: true, at: new Date().toISOString() },
-      { qos: 1, retain: true },
-    );
-    this.logger.log('pos/qr ← cleared');
+    // Xoá retained QR → thiết bị nối sau không hiện đơn cũ.
+    this.mqtt.clearRetained(MQTT_TOPICS.ORDER_CREATE);
+    this.logger.log('order/create ← cleared (retained xoá)');
   }
 }

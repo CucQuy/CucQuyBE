@@ -84,6 +84,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Xoá retained message của topic (publish payload rỗng, retain). No-op nếu chưa nối. */
+  clearRetained(topic: string): void {
+    const c = this.client;
+    if (!c || !c.connected) return;
+    try {
+      c.publish(topic, '', { qos: 1, retain: true });
+    } catch (err) {
+      this.logger.warn(`MQTT clearRetained lỗi (${topic}): ${String(err)}`);
+    }
+  }
+
   /**
    * Subscribe 1 topic filter (hỗ trợ wildcard + / #) + handler. Payload tự
    * JSON.parse (fallback string). No-op nếu MQTT chưa cấu hình.
