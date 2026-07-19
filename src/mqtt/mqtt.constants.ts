@@ -11,4 +11,6 @@ export const MQTT_TOPICS = {
   /** Đơn đã thanh toán (webhook SePay khớp) → ESP32 kêu loa + TTS + về màn chờ.
    *  Payload: { order_id, amount }. KHÔNG retain (sự kiện 1 lần). */
   ORDER_PAID: `cucquy/${DEVICE_ID}/order/paid`,
+  /** Huỷ hiển thị QR → ESP32 về màn hình chính. Payload rỗng {}. KHÔNG retain. */
+  ORDER_CANCEL: `cucquy/${DEVICE_ID}/order/cancel`,
 } as const;

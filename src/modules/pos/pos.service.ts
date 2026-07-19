@@ -26,8 +26,9 @@ export class PosService {
   }
 
   clear(): void {
-    // Xoá retained QR → thiết bị nối sau không hiện đơn cũ.
+    // Báo thiết bị về màn chính + xoá retained QR (device nối sau không hiện đơn cũ).
+    this.mqtt.publish(MQTT_TOPICS.ORDER_CANCEL, {}, { qos: 1, retain: false });
     this.mqtt.clearRetained(MQTT_TOPICS.ORDER_CREATE);
-    this.logger.log('order/create ← cleared (retained xoá)');
+    this.logger.log('order/cancel → về màn chính (retained QR xoá)');
   }
 }
