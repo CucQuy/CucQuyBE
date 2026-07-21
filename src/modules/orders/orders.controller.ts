@@ -14,6 +14,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { OrdersService } from './orders.service';
 import { ReconcileRefundDto } from './dto/reconcile-refund.dto';
+import { ReconcileTransactionDto } from './dto/reconcile-transaction.dto';
 
 @ApiTags('Đơn hàng')
 @Controller('orders')
@@ -93,5 +94,17 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.unreconcileRefund(refundId, user);
+  }
+
+  /**
+   * Đối soát 1 giao dịch (tiền vào/ra) với đơn ngay từ form đơn:
+   * in → cộng, out → trừ paidAmount rồi suy lại payment_status. Trả order đã cập nhật.
+   */
+  @Post(':id/reconcile-transaction')
+  reconcileTransaction(
+    @Param('id') id: string,
+    @Body() dto: ReconcileTransactionDto,
+  ) {
+    return this.service.reconcileTransaction(id, dto.transactionId);
   }
 }

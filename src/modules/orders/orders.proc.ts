@@ -116,4 +116,18 @@ export class OrderProc {
       ) AS "order"`;
     return row.order;
   }
+
+  // ── Đối soát TAY 1 giao dịch (in/out) với đơn: +/- paid_amount, derive status,
+  //    gắn order_number cho GD. Trả order đã cập nhật (idempotent nếu GD đã gắn). ──
+  async reconcileTransaction(
+    orderId: string,
+    transactionId: string,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_reconcile_transaction(
+        ${orderId},
+        ${transactionId}
+      ) AS "order"`;
+    return row.order;
+  }
 }

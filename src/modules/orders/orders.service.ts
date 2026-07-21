@@ -202,6 +202,19 @@ export class OrdersService {
       throw mapRefundError(e);
     }
   }
+
+  /** Đối soát 1 giao dịch (tiền vào/ra) với đơn ngay từ form: +/- paidAmount + derive
+   *  status + gắn order_number cho GD. Trả order đã cập nhật (idempotent). */
+  async reconcileTransaction(
+    orderId: string,
+    transactionId: string,
+  ): Promise<Order> {
+    try {
+      return await this.proc.reconcileTransaction(orderId, transactionId);
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
 }
 
 /** Chuẩn hoá AuthUser -> jsonb p_user cho stored function. */

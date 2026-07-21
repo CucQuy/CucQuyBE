@@ -1066,3 +1066,51 @@ BEGIN
   RETURN jsonb_build_object('id', p_id, 'prevOrder', v_prev);
 END;
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- Đối soát TAY 1 giao dịch (tiền vào/ra) với 1 đơn ngay từ form đơn.
+-- Tiền VÀO (in) → +amount (thu cọc/thanh toán); tiền RA (out) → −amount (hoàn/đối ứng).
+-- Cập nhật paid_amount rồi suy lại payment_status (UNPAID/DEPOSITED/PAID) + gắn
+-- order_number cho giao dịch. CHỈ đụng paid_amount/payment_status → KHÔNG ghi đè
+-- items như order_update (an toàn khi form còn sửa dở). Idempotent: GD đã gắn đúng
+-- đơn này rồi thì không cộng lại. Trả order_to_json để FE refresh.
+CREATE OR REPLACE FUNCTION order_reconcile_transaction(
+  p_order_id       text,
+  p_transaction_id text
+) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  o          orders;
+  v_amount   numeric;
+  v_type     text;
+  v_tx_order text;
+  v_sepay    bigint;
+  v_new_paid numeric;
+BEGIN
+  SELECT * INTO o FROM orders WHERE id = p_order_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ORDER_NOT_FOUND'; END IF;
+
+  SELECT COALESCE(transfer_amount, 0), COALESCE(transfer_type, 'in'), order_number, sepay_id
+    INTO v_amount, v_type, v_tx_order, v_sepay
+    FROM transactions WHERE id = p_transaction_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'TRANSACTION_NOT_FOUND'; END IF;
+
+  -- Đã gắn đúng đơn này rồi → không cộng lại (idempotent), trả nguyên trạng.
+  IF v_tx_order IS NULL OR v_tx_order <> o.order_number THEN
+    v_new_paid := GREATEST(0, COALESCE(o.paid_amount, 0)
+                    + (CASE WHEN v_type = 'out' THEN -1 ELSE 1 END) * v_amount);
+    UPDATE orders
+       SET paid_amount    = v_new_paid,
+           payment_status = order_derive_pay_status(v_new_paid, total, payment_status),
+           sepay_id       = COALESCE(sepay_id, v_sepay::text),
+           updated_at     = now()
+     WHERE id = p_order_id
+     RETURNING * INTO o;
+
+    UPDATE transactions
+       SET order_number = o.order_number, needs_review = false, review_note = NULL
+     WHERE id = p_transaction_id;
+  END IF;
+
+  RETURN order_to_json(o);
+END;
+$$;
