@@ -42,9 +42,10 @@ BEGIN
   -- (hoàn tiền/chuyển khoản đi) có thể trích trúng mã ORDxxx trong description → KHÔNG
   -- được đánh dấu đơn là đã thanh toán. (vá latent bug — gate transfer_type)
   IF v_transfer_type = 'in' AND v_order_number IS NOT NULL THEN
-    -- (1) Khớp theo NỘI DUNG.
+    -- (1) Khớp theo NỘI DUNG. Cộng dồn tiền nhận (cọc + trả nốt) → status suy ra.
     UPDATE orders
-       SET payment_status = 'PAID',
+       SET paid_amount = COALESCE(paid_amount, 0) + v_amount,
+           payment_status = order_derive_pay_status(COALESCE(paid_amount, 0) + v_amount, total, payment_status),
            sepay_id = p_body->>'id',
            updated_at = now()
      WHERE order_number = v_order_number;
@@ -72,9 +73,10 @@ BEGIN
       FROM cand;
 
     IF v_cand_count = 1 THEN
-      -- Đúng 1 đơn → auto-PAID + gắn mã đơn cho giao dịch.
+      -- Đúng 1 đơn (khớp đúng total) → cộng dồn + status suy ra + gắn mã đơn cho giao dịch.
       UPDATE orders
-         SET payment_status = 'PAID',
+         SET paid_amount = COALESCE(paid_amount, 0) + v_amount,
+             payment_status = order_derive_pay_status(COALESCE(paid_amount, 0) + v_amount, total, payment_status),
              sepay_id = p_body->>'id',
              updated_at = now()
        WHERE id = v_cand_order_id

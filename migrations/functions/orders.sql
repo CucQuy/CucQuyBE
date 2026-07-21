@@ -23,6 +23,18 @@
 
 -- ─────────────────────── Helpers nội bộ ───────────────────────
 
+-- Suy ra payment_status từ số tiền đã trả vs tổng đơn (dùng chung create/update/webhook).
+--   REFUNDED (nếu chỉ định) > 0 tiền → UNPAID > 0<paid<total → DEPOSITED > paid≥total → PAID.
+CREATE OR REPLACE FUNCTION order_derive_pay_status(p_paid numeric, p_total numeric, p_explicit text DEFAULT NULL)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN p_explicit = 'REFUNDED' THEN 'REFUNDED'
+    WHEN COALESCE(p_paid, 0) <= 0 THEN 'UNPAID'
+    WHEN COALESCE(p_paid, 0) < COALESCE(p_total, 0) THEN 'DEPOSITED'
+    ELSE 'PAID'
+  END;
+$$;
+
 -- Tên hiển thị 1 user theo uid (như FE getUserByUid): customName||displayName||email||uid.
 CREATE OR REPLACE FUNCTION order_creator_name(p_uid text)
 RETURNS text
@@ -190,6 +202,9 @@ LANGUAGE sql STABLE AS $$
     'appliedPromotions', order_applied_promotions_json(o.id),
     'giftItems',         order_gift_items_json(o.id),
     'total',             COALESCE(o.total, 0),
+    'depositAmount',     COALESCE(o.deposit_amount, 0),
+    'paidAmount',        COALESCE(o.paid_amount, 0),
+    'remaining',         GREATEST(COALESCE(o.total, 0) - COALESCE(o.paid_amount, 0), 0),
     'shippingCost',      COALESCE(o.shipping_cost, 0),
     'status',            o.status,
     'paymentStatus',     o.payment_status,
@@ -620,6 +635,7 @@ BEGIN
     id, order_number, order_date, customer_id,
     customer_name, phone, address, email, customer_city, customer_country,
     subtotal, shipping_cost, discount_amount, total,
+    deposit_amount, paid_amount,
     surcharge_amount, surcharge_tag, surcharges,
     payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, sepay_id,
@@ -630,8 +646,14 @@ BEGIN
     COALESCE(v_cust->>'address',''), COALESCE(v_cust->>'email',''),
     NULLIF(v_cust->>'city',''), NULLIF(v_cust->>'country',''),
     v_subtotal, v_shipping, v_discount, v_total,
+    COALESCE(NULLIF(p_input->>'depositAmount','')::numeric, 0),
+    COALESCE(NULLIF(p_input->>'paidAmount','')::numeric,
+             CASE WHEN NULLIF(p_input->>'paymentStatus','') = 'PAID' THEN v_total ELSE 0 END),
     v_surcharge, v_surcharge_tag, v_surcharges,
-    COALESCE(NULLIF(p_input->>'paymentStatus',''), 'UNPAID'),
+    order_derive_pay_status(
+      COALESCE(NULLIF(p_input->>'paidAmount','')::numeric,
+               CASE WHEN NULLIF(p_input->>'paymentStatus','') = 'PAID' THEN v_total ELSE 0 END),
+      v_total, NULLIF(p_input->>'paymentStatus','')),
     COALESCE(NULLIF(p_input->>'paymentMethod',''), 'CASH'),
     p_input->>'status',
     COALESCE(NULLIF(p_input->>'deliveryType',''), 'SHIP'),
@@ -867,9 +889,19 @@ BEGIN
                             THEN NULLIF(p_input->>'deliveryDate','') ELSE delivery_date END,
     delivery_time    = CASE WHEN p_input ? 'deliveryTime'
                             THEN NULLIF(p_input->>'deliveryTime','') ELSE delivery_time END,
-    -- Đơn đã thanh toán: giữ PAID nếu input không gửi paymentStatus mới (refund không đổi sang REFUNDED).
-    payment_status   = COALESCE(NULLIF(p_input->>'paymentStatus',''),
-                                CASE WHEN v_was_paid THEN 'PAID' ELSE 'UNPAID' END),
+    -- Cọc: chỉ đổi khi input gửi; nếu không, giữ nguyên (webhook cập nhật paid_amount riêng).
+    deposit_amount   = CASE WHEN p_input ? 'depositAmount'
+                            THEN COALESCE(NULLIF(p_input->>'depositAmount','')::numeric, 0) ELSE deposit_amount END,
+    paid_amount      = CASE WHEN p_input ? 'paidAmount'
+                            THEN COALESCE(NULLIF(p_input->>'paidAmount','')::numeric, 0) ELSE paid_amount END,
+    -- payment_status: ưu tiên explicit (kể cả REFUNDED giữ như cũ), else suy ra từ paid_amount vs total.
+    payment_status   = COALESCE(
+                         NULLIF(p_input->>'paymentStatus',''),
+                         order_derive_pay_status(
+                           CASE WHEN p_input ? 'paidAmount'
+                                THEN COALESCE(NULLIF(p_input->>'paidAmount','')::numeric, 0)
+                                ELSE COALESCE(paid_amount, 0) END,
+                           v_total, NULL)),
     payment_method   = COALESCE(NULLIF(p_input->>'paymentMethod',''), 'CASH'),
     -- Vá nợ kỹ thuật: persist field huỷ đơn từ input nếu có (giữ giá trị cũ nếu không gửi).
     cancel_reason    = CASE WHEN p_input ? 'cancelReason'
