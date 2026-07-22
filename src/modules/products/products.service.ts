@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ProductProc, ProductRow } from './products.proc';
-import { Product, ProductVersion, ProductSize, ProductFlavorVariant, PriceTier } from './products.types';
+import { Product, ProductVersion, ProductSize, ProductFlavorVariant, PriceTier, PackagingOption } from './products.types';
 
 const num = (v: string | number | null): number | undefined =>
   v === null || v === undefined ? undefined : Number(v);
@@ -30,6 +30,7 @@ const mapRow = (r: ProductRow): Product => ({
   type: r.type ?? undefined,
   priceTiers: (r.price_tiers as PriceTier[] | null) ?? undefined,
   addOnProductIds: (r.add_on_product_ids as string[] | null) ?? undefined,
+  packagingOptions: (r.packaging_options as PackagingOption[] | null) ?? undefined,
   createdAt: iso(r.created_at),
 });
 

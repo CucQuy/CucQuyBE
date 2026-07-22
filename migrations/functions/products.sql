@@ -69,7 +69,7 @@ BEGIN
     id, name, price, cost_price, description, status,
     category_id, category, tags, image, gallery, recipe_id,
     cakes_per_product, flavors, sizes, flavor_variants,
-    type, price_tiers, add_on_product_ids, created_at
+    type, price_tiers, add_on_product_ids, packaging_options, created_at
   ) VALUES (
     v_id,
     COALESCE(p->>'name', ''),
@@ -93,6 +93,7 @@ BEGIN
     NULLIF(p->>'type', ''),
     CASE WHEN jsonb_typeof(p->'priceTiers') = 'array' THEN p->'priceTiers' ELSE NULL END,
     CASE WHEN jsonb_typeof(p->'addOnProductIds') = 'array' THEN p->'addOnProductIds' ELSE NULL END,
+    CASE WHEN jsonb_typeof(p->'packagingOptions') = 'array' THEN p->'packagingOptions' ELSE NULL END,
     now()
   )
   RETURNING *;
@@ -154,6 +155,9 @@ BEGIN
   IF p ? 'addOnProductIds' THEN
     v_after.add_on_product_ids := CASE WHEN jsonb_typeof(p->'addOnProductIds') = 'array' THEN p->'addOnProductIds' ELSE NULL END;
   END IF;
+  IF p ? 'packagingOptions' THEN
+    v_after.packaging_options := CASE WHEN jsonb_typeof(p->'packagingOptions') = 'array' THEN p->'packagingOptions' ELSE NULL END;
+  END IF;
 
   -- category / categoryId: nếu category đổi thì resolve lại category_id (trừ khi client gửi categoryId).
   IF p ? 'category' THEN
@@ -185,7 +189,8 @@ BEGIN
     flavor_variants = v_after.flavor_variants,
     type = v_after.type,
     price_tiers = v_after.price_tiers,
-    add_on_product_ids = v_after.add_on_product_ids
+    add_on_product_ids = v_after.add_on_product_ids,
+    packaging_options = v_after.packaging_options
   WHERE id = p_id;
 
   -- Tạo bản version + diff từng field thay đổi.
@@ -215,7 +220,8 @@ BEGIN
       ('flavorVariants',  v_before.flavor_variants::text,             v_after.flavor_variants::text),
       ('type',            v_before.type,                              v_after.type),
       ('priceTiers',      v_before.price_tiers::text,                 v_after.price_tiers::text),
-      ('addOnProductIds', v_before.add_on_product_ids::text,          v_after.add_on_product_ids::text)
+      ('addOnProductIds', v_before.add_on_product_ids::text,          v_after.add_on_product_ids::text),
+      ('packagingOptions',v_before.packaging_options::text,           v_after.packaging_options::text)
   ) AS d(field, before_value, after_value)
   WHERE d.before_value IS DISTINCT FROM d.after_value;
 
