@@ -4,7 +4,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN npm run build
+# nest build copy assets (**/*.md) đôi khi bỏ sót → copy tay đảm bảo mọi prompt .md có trong dist.
+RUN npm run build \
+ && cd src && find . -name '*.md' | while read -r f; do \
+      mkdir -p "../dist/$(dirname "$f")" && cp "$f" "../dist/$f"; \
+    done
 
 # ── Run ──
 FROM node:20-alpine
