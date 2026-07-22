@@ -26,7 +26,19 @@ export interface Product {
   sizes?: ProductSize[];
   /** Biến thể vị: mỗi vị có ảnh + giá riêng (giá dòng = tổng vị chọn) */
   flavorVariants?: ProductFlavorVariant[];
+  /** Phân loại sản phẩm (cake mặc định / packaging / decoration / accessory / service). */
+  type?: string;
+  /** Giá bậc theo SL: [{minQty, price}] — giá/đơn vị khi tổng SL >= minQty. */
+  priceTiers?: PriceTier[];
+  /** SP phụ phí tự thêm (qty đồng bộ) khi SP này vào đơn. */
+  addOnProductIds?: string[];
   createdAt?: string; // ISO
+}
+
+/** 1 bậc giá theo số lượng. price = đơn giá khi tổng SL >= minQty. */
+export interface PriceTier {
+  minQty: number;
+  price: number;
 }
 
 /** 1 size của sản phẩm: tên + giá + ảnh + số cái combo (tùy chọn). */

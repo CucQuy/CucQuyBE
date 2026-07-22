@@ -68,7 +68,8 @@ BEGIN
   INSERT INTO products (
     id, name, price, cost_price, description, status,
     category_id, category, tags, image, gallery, recipe_id,
-    cakes_per_product, flavors, sizes, flavor_variants, created_at
+    cakes_per_product, flavors, sizes, flavor_variants,
+    type, price_tiers, add_on_product_ids, created_at
   ) VALUES (
     v_id,
     COALESCE(p->>'name', ''),
@@ -89,6 +90,9 @@ BEGIN
          THEN ARRAY(SELECT jsonb_array_elements_text(p->'flavors')) ELSE NULL END,
     CASE WHEN jsonb_typeof(p->'sizes') = 'array' THEN p->'sizes' ELSE NULL END,
     CASE WHEN jsonb_typeof(p->'flavorVariants') = 'array' THEN p->'flavorVariants' ELSE NULL END,
+    NULLIF(p->>'type', ''),
+    CASE WHEN jsonb_typeof(p->'priceTiers') = 'array' THEN p->'priceTiers' ELSE NULL END,
+    CASE WHEN jsonb_typeof(p->'addOnProductIds') = 'array' THEN p->'addOnProductIds' ELSE NULL END,
     now()
   )
   RETURNING *;
@@ -143,6 +147,13 @@ BEGIN
   IF p ? 'flavorVariants' THEN
     v_after.flavor_variants := CASE WHEN jsonb_typeof(p->'flavorVariants') = 'array' THEN p->'flavorVariants' ELSE NULL END;
   END IF;
+  IF p ? 'type' THEN v_after.type := NULLIF(p->>'type', ''); END IF;
+  IF p ? 'priceTiers' THEN
+    v_after.price_tiers := CASE WHEN jsonb_typeof(p->'priceTiers') = 'array' THEN p->'priceTiers' ELSE NULL END;
+  END IF;
+  IF p ? 'addOnProductIds' THEN
+    v_after.add_on_product_ids := CASE WHEN jsonb_typeof(p->'addOnProductIds') = 'array' THEN p->'addOnProductIds' ELSE NULL END;
+  END IF;
 
   -- category / categoryId: nếu category đổi thì resolve lại category_id (trừ khi client gửi categoryId).
   IF p ? 'category' THEN
@@ -171,7 +182,10 @@ BEGIN
     cakes_per_product = v_after.cakes_per_product,
     flavors = v_after.flavors,
     sizes = v_after.sizes,
-    flavor_variants = v_after.flavor_variants
+    flavor_variants = v_after.flavor_variants,
+    type = v_after.type,
+    price_tiers = v_after.price_tiers,
+    add_on_product_ids = v_after.add_on_product_ids
   WHERE id = p_id;
 
   -- Tạo bản version + diff từng field thay đổi.
@@ -198,7 +212,10 @@ BEGIN
       ('cakesPerProduct', v_before.cakes_per_product::text,           v_after.cakes_per_product::text),
       ('flavors',         array_to_string(v_before.flavors, ','),     array_to_string(v_after.flavors, ',')),
       ('sizes',           v_before.sizes::text,                       v_after.sizes::text),
-      ('flavorVariants',  v_before.flavor_variants::text,             v_after.flavor_variants::text)
+      ('flavorVariants',  v_before.flavor_variants::text,             v_after.flavor_variants::text),
+      ('type',            v_before.type,                              v_after.type),
+      ('priceTiers',      v_before.price_tiers::text,                 v_after.price_tiers::text),
+      ('addOnProductIds', v_before.add_on_product_ids::text,          v_after.add_on_product_ids::text)
   ) AS d(field, before_value, after_value)
   WHERE d.before_value IS DISTINCT FROM d.after_value;
 
