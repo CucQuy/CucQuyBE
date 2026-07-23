@@ -65,6 +65,7 @@ export type ReceiptRow = {
   receipt_time: string | null;
   subtotal: string | number | null;
   tax: string | number | null;
+  shipping_fee: string | number | null;
   discount: string | number | null;
   total_amount: string | number | null;
   currency: string | null;

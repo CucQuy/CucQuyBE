@@ -44,8 +44,11 @@ export interface StockReceiptStructured {
   productLineCount: number;
   subtotal: number | null;
   tax: number | null;
+  /** Phí vận chuyển gốc (dương). Bill sàn TMĐT hay có. */
+  shippingFee: number | null;
+  /** Tổng giảm (gồm ưu đãi phí vận chuyển), số dương. */
   discount: number | null;
-  /** Tổng thanh toán */
+  /** Tổng thanh toán = subtotal + tax + shippingFee − discount */
   totalAmount: number | null;
   currency: string;
   paymentMethod: string | null;

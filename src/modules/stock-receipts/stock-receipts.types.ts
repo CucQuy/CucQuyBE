@@ -29,6 +29,7 @@ export interface StockReceiptStructured {
   productLineCount: number;
   subtotal: number | null;
   tax: number | null;
+  shippingFee: number | null;
   discount: number | null;
   totalAmount: number | null;
   currency: string;
@@ -79,6 +80,7 @@ export interface SavedStockReceiptSummary {
 export interface SavedStockReceiptDetail extends SavedStockReceiptSummary {
   subtotal: number | null;
   tax: number | null;
+  shippingFee: number | null;
   discount: number | null;
   paymentMethod: string | null;
   notes: string | null;

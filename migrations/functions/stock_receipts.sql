@@ -466,7 +466,7 @@ BEGIN
   INSERT INTO stock_receipts (
     id, supplier_id, supplier_name_raw, supplier_name_canonical, store_or_branch,
     invoice_number, supplier_phone, supplier_address, receipt_date, receipt_time,
-    subtotal, tax, discount, total_amount, currency, payment_method, notes,
+    subtotal, tax, shipping_fee, discount, total_amount, currency, payment_method, notes,
     product_line_count, ocr_text, receipt_image_base64, receipt_image_mime_type,
     validation_is_likely_receipt, validation_confidence, validation_reason_vi,
     validation_heuristic_score, validation_heuristic_note_vi,
@@ -485,6 +485,7 @@ BEGIN
     NULLIF(v_struct->>'receiptTime',''),
     NULLIF(v_struct->>'subtotal','')::numeric,
     NULLIF(v_struct->>'tax','')::numeric,
+    NULLIF(v_struct->>'shippingFee','')::numeric,
     NULLIF(v_struct->>'discount','')::numeric,
     NULLIF(v_struct->>'totalAmount','')::numeric,
     COALESCE(NULLIF(v_struct->>'currency',''), 'VND'),

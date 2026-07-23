@@ -163,6 +163,7 @@ export class StockReceiptsService {
       createdAt: toIso(h.created_at),
       subtotal: num(h.subtotal),
       tax: num(h.tax),
+      shippingFee: num(h.shipping_fee),
       discount: num(h.discount),
       paymentMethod: h.payment_method,
       notes: h.notes,

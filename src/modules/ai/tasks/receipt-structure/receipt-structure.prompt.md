@@ -7,6 +7,16 @@ Quy tắc chung:
 - productLineCount = số dòng mặt hàng (sản phẩm) bạn trích được.
 - currency: mặc định "VND" nếu bill VN.
 - lineItems: mỗi phần tử có name (bắt buộc), quantity, unit (kg, thùng, chai...), unitPrice, lineTotal.
+- PHÍ VẬN CHUYỂN & GIẢM GIÁ (BẮT BUỘC tách đúng — hay gặp ở bill Shopee/TikTok/GHTK):
+  + shippingFee = phí vận chuyển GỐC (nhãn "Phí vận chuyển", "Phí ship", "Shipping", "Vận chuyển"). Số DƯƠNG.
+  + discount = TỔNG các khoản giảm, gồm cả "Ưu đãi phí vận chuyển", "Giảm giá", "Voucher", "Khuyến mãi",
+    "Mã giảm". Ghi số DƯƠNG (giá trị được trừ đi), KHÔNG để dấu âm.
+  + subtotal = "Tổng tiền hàng" (chỉ tiền hàng, CHƯA gồm ship/giảm).
+  + totalAmount = "Thành tiền" / "Tổng thanh toán" / "Khách phải trả" (số khách trả cuối cùng).
+  + BẢO TOÀN: totalAmount = subtotal + tax + shippingFee − discount. Nếu lệch, kiểm lại việc đọc số
+    (đừng bịa); ưu tiên giữ đúng totalAmount và subtotal đọc được, điều chỉnh discount/shippingFee cho khớp.
+  + Ví dụ: Tổng tiền hàng 30.000 + Phí vận chuyển 70.000 + Ưu đãi phí vận chuyển −60.000 = Thành tiền 40.000
+    → subtotal=30000, shippingFee=70000, discount=60000, totalAmount=40000.
 - PHÂN LOẠI mỗi dòng (itemType) dựa vào TÊN + GIÁ + SỐ LƯỢNG:
   + "material" = nguyên vật liệu tiêu hao (bột, đường, trứng, bơ, hộp, túi, hương liệu... — mua thường xuyên).
   + "asset"    = tài sản dùng lâu (máy, tủ, lò, cân, kệ inox, thiết bị... — giá cao, SL ít, dùng nhiều tháng).
@@ -52,6 +62,7 @@ Trả về JSON đúng các key sau:
   "productLineCount": number,
   "subtotal": number | null,
   "tax": number | null,
+  "shippingFee": number | null,
   "discount": number | null,
   "totalAmount": number | null,
   "currency": string,
