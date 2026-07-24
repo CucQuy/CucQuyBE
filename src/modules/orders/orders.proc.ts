@@ -140,4 +140,19 @@ export class OrderProc {
       SELECT order_sync_tracking(${this.db.json(rows)}::jsonb, ${apply}) AS result`;
     return row.result;
   }
+
+  // ── Đơn SPX đang chạy (chưa giao/huỷ) để refresh trạng thái VĐ ──
+  async trackedForRefresh(): Promise<{ id: string; tracking_number: string }[]> {
+    return this.db.sql<{ id: string; tracking_number: string }[]>`
+      SELECT id, tracking_number FROM orders
+      WHERE tracking_number ILIKE 'SPXVN%'
+        AND COALESCE(status, '') <> 'CANCELLED'
+        AND COALESCE(tracking_status, '') NOT ILIKE '%giao thành công%'
+      ORDER BY created_at DESC NULLS LAST
+      LIMIT 100`;
+  }
+
+  async setTrackingStatus(id: string, status: string | null): Promise<void> {
+    await this.db.sql`UPDATE orders SET tracking_status = ${status}, updated_at = now() WHERE id = ${id}`;
+  }
 }

@@ -47,6 +47,12 @@ export class OrdersController {
     return this.service.fetchTracking(tn || '');
   }
 
+  /** Refresh trạng thái VĐ (mốc mới nhất) cho các đơn SPX đang chạy → lưu DB, hiện ở list. */
+  @Post('refresh-tracking')
+  refreshTracking() {
+    return this.service.refreshTracking();
+  }
+
   /** Tạo đơn — trả order đã tạo (gồm id + orderNumber) để FE gửi Zalo. */
   @Post()
   addOrder(

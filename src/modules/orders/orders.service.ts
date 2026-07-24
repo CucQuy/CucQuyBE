@@ -252,6 +252,27 @@ export class OrdersService {
       return empty;
     }
   }
+
+  /** Refresh trạng thái VĐ (mốc mới nhất) cho các đơn SPX đang chạy → lưu vào DB. */
+  async refreshTracking(): Promise<{ updated: number; total: number }> {
+    const rows = await this.proc.trackedForRefresh();
+    let updated = 0;
+    const batchSize = 6;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (r) => {
+          const t = await this.fetchTracking(r.tracking_number);
+          const latest = t.events?.[0]?.label ?? t.status ?? null;
+          if (latest) {
+            await this.proc.setTrackingStatus(r.id, latest);
+            updated++;
+          }
+        }),
+      );
+    }
+    return { updated, total: rows.length };
+  }
 }
 
 /** Nhóm trạng thái SPX → tiếng Việt. */
