@@ -214,6 +214,7 @@ LANGUAGE sql STABLE AS $$
     'orderDate',         o.order_date,
     'deliveryDate',      o.delivery_date,
     'deliveryTime',      o.delivery_time,
+    'trackingNumber',    o.tracking_number,
     'note',              COALESCE(o.note, ''),
     'createdByUid',      o.created_by,
     'createdBy',         order_creator_name(o.created_by),
@@ -640,7 +641,7 @@ BEGIN
     deposit_amount, paid_amount,
     surcharge_amount, surcharge_tag, surcharges,
     payment_status, payment_method, status, delivery_type,
-    delivery_date, delivery_time, note, sepay_id,
+    delivery_date, delivery_time, note, tracking_number, sepay_id,
     commission_status, is_test, created_by, created_at
   ) VALUES (
     v_id, v_number, now(), v_cust_id,
@@ -662,6 +663,7 @@ BEGIN
     NULLIF(p_input->>'deliveryDate',''),
     NULLIF(p_input->>'deliveryTime',''),
     COALESCE(p_input->>'note',''),
+    NULLIF(p_input->>'trackingNumber',''),
     NULLIF(p_input->>'sepayId',''),
     NULLIF(p_input->>'commissionStatus',''),
     COALESCE((p_input->>'isTest')::boolean, false),
@@ -891,6 +893,8 @@ BEGIN
                             THEN NULLIF(p_input->>'deliveryDate','') ELSE delivery_date END,
     delivery_time    = CASE WHEN p_input ? 'deliveryTime'
                             THEN NULLIF(p_input->>'deliveryTime','') ELSE delivery_time END,
+    tracking_number  = CASE WHEN p_input ? 'trackingNumber'
+                            THEN NULLIF(p_input->>'trackingNumber','') ELSE tracking_number END,
     -- Cọc: chỉ đổi khi input gửi; nếu không, giữ nguyên (webhook cập nhật paid_amount riêng).
     deposit_amount   = CASE WHEN p_input ? 'depositAmount'
                             THEN COALESCE(NULLIF(p_input->>'depositAmount','')::numeric, 0) ELSE deposit_amount END,
