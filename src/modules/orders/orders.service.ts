@@ -241,7 +241,8 @@ export class OrdersService {
       const group: string | null = data?.order_info?.tracking_code_group_name ?? null;
       const recs: any[] = data?.sls_tracking_info?.records ?? [];
       const events = recs
-        .filter((r) => r?.actual_time)
+        // chỉ mốc SPX hiển thị (display_flag=1); bỏ mốc phụ ẩn (packed/loaded…)
+        .filter((r) => r?.actual_time && Number(r.display_flag) === 1)
         .map((r) => ({
           time: Number(r.actual_time) || 0,
           label: mapSpxLabel(r.tracking_name, r.buyer_description || r.description),
@@ -286,10 +287,10 @@ const SPX_GROUP_VI: Record<string, string> = {
   'Returned': 'Hoàn hàng',
 };
 
-/** Map tên mốc SPX (EN) → tiếng Việt; không khớp → dùng mô tả gốc. */
+/** Map tracking_name SPX (EN) → tiếng Việt; không khớp → dùng mô tả gốc. */
 const SPX_LABEL_VI: Record<string, string> = {
-  'sender is preparing to ship your parcel': 'Người gửi đang chuẩn bị hàng',
-  'parcel has been picked up by courier': 'ĐVVC đã lấy hàng',
+  'manifested': 'Người gửi đang chuẩn bị hàng',
+  'pickup from domestic seller': 'ĐVVC đã lấy hàng',
   'enter domestic first mile hub': 'Đã đến bưu cục',
   'left domestic first mile hub': 'Đã rời bưu cục',
   'enter domestic sorting center': 'Đã đến kho phân loại',
@@ -298,8 +299,7 @@ const SPX_LABEL_VI: Record<string, string> = {
   'left domestic last mile hub': 'Đã rời bưu cục giao',
   'out for delivery': 'Đang giao hàng',
   'delivered': 'Đã giao thành công',
-  'parcel is packed in fm hub and is ready for transit to next station': 'Đã đóng gói tại bưu cục, chờ chuyển tiếp',
-  'parcel is loaded into truck, to leave first mile hub soon': 'Đã lên xe, chuẩn bị rời bưu cục',
+  'return to seller': 'Hoàn về người gửi',
 };
 
 function mapSpxLabel(name: string | undefined, fallback: string | undefined): string {
