@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -38,6 +39,12 @@ export class OrdersController {
   @Get('refunds')
   listRefunds() {
     return this.service.listRefunds();
+  }
+
+  /** Tra cứu LIVE hành trình vận đơn (SPX) theo mã — proxy tránh CORS. */
+  @Get('tracking')
+  fetchTracking(@Query('tn') tn: string) {
+    return this.service.fetchTracking(tn || '');
   }
 
   /** Tạo đơn — trả order đã tạo (gồm id + orderNumber) để FE gửi Zalo. */

@@ -223,6 +223,67 @@ export class OrdersService {
   ): Promise<any> {
     return this.proc.syncTracking(Array.isArray(rows) ? rows : [], !!apply);
   }
+
+  /** Tra cứu LIVE hành trình vận đơn từ 3PL (hiện hỗ trợ SPX). Proxy để tránh CORS. */
+  async fetchTracking(tn: string): Promise<{
+    tn: string;
+    status: string | null;
+    events: { time: number; label: string; location?: string }[];
+  }> {
+    const clean = (tn || '').trim();
+    const empty = { tn: clean, status: null, events: [] as any[] };
+    if (!/^SPXVN/i.test(clean)) return empty; // chỉ SPX (mở rộng 3PL khác sau)
+    try {
+      const url = `https://spx.vn/shipment/order/open/order/get_order_info?spx_tn=${encodeURIComponent(clean)}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j: any = await res.json();
+      const data = j?.data ?? {};
+      const group: string | null = data?.order_info?.tracking_code_group_name ?? null;
+      const recs: any[] = data?.sls_tracking_info?.records ?? [];
+      const events = recs
+        .filter((r) => r?.actual_time)
+        .map((r) => ({
+          time: Number(r.actual_time) || 0,
+          label: mapSpxLabel(r.tracking_name, r.buyer_description || r.description),
+          location: r?.current_location?.location_name || undefined,
+        }));
+      return { tn: clean, status: SPX_GROUP_VI[group ?? ''] ?? group, events };
+    } catch {
+      return empty;
+    }
+  }
+}
+
+/** Nhóm trạng thái SPX → tiếng Việt. */
+const SPX_GROUP_VI: Record<string, string> = {
+  'Pending': 'Chờ lấy hàng',
+  'Picked up': 'Đã lấy hàng',
+  'In Transit': 'Đang vận chuyển',
+  'Out for Delivery': 'Đang giao hàng',
+  'Delivered': 'Đã giao',
+  'Cancelled': 'Đã huỷ',
+  'Returned': 'Hoàn hàng',
+};
+
+/** Map tên mốc SPX (EN) → tiếng Việt; không khớp → dùng mô tả gốc. */
+const SPX_LABEL_VI: Record<string, string> = {
+  'sender is preparing to ship your parcel': 'Người gửi đang chuẩn bị hàng',
+  'parcel has been picked up by courier': 'ĐVVC đã lấy hàng',
+  'enter domestic first mile hub': 'Đã đến bưu cục',
+  'left domestic first mile hub': 'Đã rời bưu cục',
+  'enter domestic sorting center': 'Đã đến kho phân loại',
+  'left domestic sorting center': 'Đã rời kho phân loại',
+  'enter domestic last mile hub': 'Đã đến bưu cục giao',
+  'left domestic last mile hub': 'Đã rời bưu cục giao',
+  'out for delivery': 'Đang giao hàng',
+  'delivered': 'Đã giao thành công',
+  'parcel is packed in fm hub and is ready for transit to next station': 'Đã đóng gói tại bưu cục, chờ chuyển tiếp',
+  'parcel is loaded into truck, to leave first mile hub soon': 'Đã lên xe, chuẩn bị rời bưu cục',
+};
+
+function mapSpxLabel(name: string | undefined, fallback: string | undefined): string {
+  const key = (name || '').trim().toLowerCase();
+  return SPX_LABEL_VI[key] || fallback || name || 'Cập nhật';
 }
 
 /** Chuẩn hoá AuthUser -> jsonb p_user cho stored function. */
