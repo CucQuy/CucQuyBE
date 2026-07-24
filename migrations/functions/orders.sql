@@ -215,6 +215,8 @@ LANGUAGE sql STABLE AS $$
     'deliveryDate',      o.delivery_date,
     'deliveryTime',      o.delivery_time,
     'trackingNumber',    o.tracking_number,
+    'trackingLink',      o.tracking_link,
+    'trackingStatus',    o.tracking_status,
     'note',              COALESCE(o.note, ''),
     'createdByUid',      o.created_by,
     'createdBy',         order_creator_name(o.created_by),
@@ -1118,5 +1120,61 @@ BEGIN
   END IF;
 
   RETURN order_to_json(o);
+END;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- Đồng bộ vận đơn từ file 3PL (SPX/GHTK…). p_rows = [{tracking, link, status, name, phone}].
+-- Match đơn theo 9 SỐ CUỐI của SĐT người nhận (bỏ số 0 đầu), ưu tiên đơn CHƯA có vận đơn +
+-- mới nhất, loại đơn CANCELLED. p_apply=false → chỉ preview; true → ghi tracking_number/link/status.
+-- Trả {matched:[...], unmatched:[...], applied, matchedCount, unmatchedCount}.
+CREATE OR REPLACE FUNCTION order_sync_tracking(p_rows jsonb, p_apply boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  r          jsonb;
+  v_tracking text; v_link text; v_status text; v_name text; v_phone9 text;
+  v_oid text; v_onum text; v_ocust text; v_had text;
+  v_matched   jsonb := '[]'::jsonb;
+  v_unmatched jsonb := '[]'::jsonb;
+BEGIN
+  FOR r IN SELECT * FROM jsonb_array_elements(COALESCE(p_rows, '[]'::jsonb)) LOOP
+    v_tracking := NULLIF(trim(r->>'tracking'), '');
+    v_link     := NULLIF(trim(r->>'link'), '');
+    v_status   := NULLIF(trim(r->>'status'), '');
+    v_name     := NULLIF(trim(r->>'name'), '');
+    v_phone9   := right(regexp_replace(COALESCE(r->>'phone',''), '\D', '', 'g'), 9);
+    v_oid := NULL; v_onum := NULL; v_ocust := NULL; v_had := NULL;
+
+    IF v_tracking IS NOT NULL AND length(v_phone9) >= 8 THEN
+      SELECT o.id, o.order_number, o.customer_name, o.tracking_number
+        INTO v_oid, v_onum, v_ocust, v_had
+      FROM orders o
+      WHERE right(regexp_replace(COALESCE(o.phone,''), '\D', '', 'g'), 9) = v_phone9
+        AND COALESCE(o.status, '') <> 'CANCELLED'
+      ORDER BY (o.tracking_number IS NULL) DESC, o.created_at DESC NULLS LAST
+      LIMIT 1;
+    END IF;
+
+    IF v_oid IS NOT NULL THEN
+      IF p_apply THEN
+        UPDATE orders
+           SET tracking_number = v_tracking, tracking_link = v_link,
+               tracking_status = v_status, updated_at = now()
+         WHERE id = v_oid;
+      END IF;
+      v_matched := v_matched || jsonb_build_object(
+        'tracking', v_tracking, 'link', v_link, 'status', v_status,
+        'orderNumber', v_onum, 'orderCustomer', v_ocust, 'receiverName', v_name,
+        'hadTracking', v_had IS NOT NULL);
+    ELSE
+      v_unmatched := v_unmatched || jsonb_build_object(
+        'tracking', v_tracking, 'receiverName', v_name, 'phone', r->>'phone');
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'matched', v_matched, 'unmatched', v_unmatched, 'applied', p_apply,
+    'matchedCount', jsonb_array_length(v_matched),
+    'unmatchedCount', jsonb_array_length(v_unmatched));
 END;
 $$;

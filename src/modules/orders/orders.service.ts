@@ -215,6 +215,14 @@ export class OrdersService {
       throw mapRefundError(e);
     }
   }
+
+  /** Đồng bộ vận đơn từ file 3PL. apply=false → preview match; true → ghi vào đơn. */
+  async syncTracking(
+    rows: Record<string, any>[],
+    apply: boolean,
+  ): Promise<any> {
+    return this.proc.syncTracking(Array.isArray(rows) ? rows : [], !!apply);
+  }
 }
 
 /** Chuẩn hoá AuthUser -> jsonb p_user cho stored function. */

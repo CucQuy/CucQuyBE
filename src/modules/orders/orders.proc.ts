@@ -130,4 +130,14 @@ export class OrderProc {
       ) AS "order"`;
     return row.order;
   }
+
+  // ── Đồng bộ vận đơn từ file 3PL: match theo SĐT, preview (apply=false) / ghi (apply=true) ──
+  async syncTracking(
+    rows: Record<string, any>[],
+    apply: boolean,
+  ): Promise<any> {
+    const [row] = await this.db.sql<{ result: any }[]>`
+      SELECT order_sync_tracking(${this.db.json(rows)}::jsonb, ${apply}) AS result`;
+    return row.result;
+  }
 }

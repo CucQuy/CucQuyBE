@@ -107,4 +107,10 @@ export class OrdersController {
   ) {
     return this.service.reconcileTransaction(id, dto.transactionId);
   }
+
+  /** Đồng bộ vận đơn từ file 3PL (SPX/GHTK…). body: { rows:[{tracking,link,status,name,phone}], apply }. */
+  @Post('sync-tracking')
+  syncTracking(@Body() body: { rows?: Record<string, any>[]; apply?: boolean }) {
+    return this.service.syncTracking(body?.rows ?? [], body?.apply ?? false);
+  }
 }
