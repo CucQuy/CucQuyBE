@@ -264,7 +264,10 @@ export class OrdersService {
       await Promise.all(
         batch.map(async (r) => {
           const t = await this.fetchTracking(r.tracking_number);
-          const latest = t.events?.[0]?.label ?? t.status ?? null;
+          const e0 = t.events?.[0];
+          const latest = e0
+            ? e0.label + (e0.location ? ` · ${e0.location}` : '')
+            : t.status ?? null;
           if (latest) {
             await this.proc.setTrackingStatus(r.id, latest);
             updated++;
