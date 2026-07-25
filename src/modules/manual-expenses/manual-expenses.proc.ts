@@ -10,6 +10,7 @@ export type ManualExpenseRow = {
   note: string | null;
   created_at: string | Date | null;
   source: string | null;
+  transaction_id: string | null;
 };
 
 @Injectable()

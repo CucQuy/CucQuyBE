@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { TransactionsService } from './transactions.service';
@@ -6,6 +6,8 @@ import { MarkExternalDto } from './dto/mark-external.dto';
 import { MarkSettledDto } from './dto/mark-settled.dto';
 import { LinkOrderDto } from './dto/link-order.dto';
 import { ReconcileApplyDto } from './dto/reconcile-apply.dto';
+import { ExpenseReconcileApplyDto } from './dto/expense-reconcile-apply.dto';
+import { ExpenseLinkDto } from './dto/expense-link.dto';
 import { SetExpenseDto } from './dto/set-expense.dto';
 import { SaveExpenseRulesDto } from './dto/expense-rules.dto';
 
@@ -101,5 +103,29 @@ export class TransactionsController {
   @Post('reconcile/apply')
   reconcileApply(@Body() dto: ReconcileApplyDto) {
     return this.service.reconcileApply(dto.pairs);
+  }
+
+  /** Đối soát CHI PHÍ — preview (dry-run): cặp tiền-ra ↔ chi phí tay sẽ khớp, KHÔNG ghi. */
+  @Post('expense-reconcile/preview')
+  expenseReconcilePreview() {
+    return this.service.expenseReconcilePreview();
+  }
+
+  /** Đối soát CHI PHÍ — apply: gắn danh sách cặp đã confirm (atomic, idempotent). */
+  @Post('expense-reconcile/apply')
+  expenseReconcileApply(@Body() dto: ExpenseReconcileApplyDto) {
+    return this.service.expenseReconcileApply(dto.pairs);
+  }
+
+  /** Khớp tay 1 GD tiền-ra với 1 khoản chi phí có sẵn. */
+  @Post(':id/expense-link')
+  expenseLink(@Param('id') id: string, @Body() dto: ExpenseLinkDto) {
+    return this.service.expenseLink(id, dto.expenseId);
+  }
+
+  /** Bỏ khớp khoản chi khỏi 1 GD tiền-ra (tiền ra quay lại tính OPEX auto). */
+  @Delete(':id/expense-link')
+  expenseUnlink(@Param('id') id: string) {
+    return this.service.expenseUnlink(id);
   }
 }

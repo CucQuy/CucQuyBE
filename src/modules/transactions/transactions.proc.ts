@@ -123,6 +123,30 @@ export class TransactionProc {
     return this.db.sql<{ result: { applied: number; skipped: number } }[]>`
       SELECT transaction_reconcile_apply(${this.db.json(pairs ?? [])}::jsonb) AS result`;
   }
+
+  /** Đối soát CHI PHÍ: preview cặp tiền-ra ↔ chi phí tay (số tiền + gần ngày). */
+  expenseReconcilePreview(): Promise<{ result: ExpenseReconcilePreviewResult }[]> {
+    return this.db.sql<{ result: ExpenseReconcilePreviewResult }[]>`
+      SELECT expense_out_reconcile_preview(3) AS result`;
+  }
+
+  /** Đối soát CHI PHÍ: gắn transaction_id cho từng khoản chi (atomic, idempotent). */
+  expenseReconcileApply(
+    pairs: unknown,
+  ): Promise<{ result: { applied: number; skipped: number } }[]> {
+    return this.db.sql<{ result: { applied: number; skipped: number } }[]>`
+      SELECT expense_out_reconcile_apply(${this.db.json(pairs ?? [])}::jsonb) AS result`;
+  }
+
+  /** Khớp tay 1 GD tiền-ra với 1 khoản chi phí có sẵn. */
+  expenseLink(txId: string, expenseId: string): Promise<unknown> {
+    return this.db.sql`SELECT * FROM expense_out_link(${txId}, ${expenseId}::uuid)`;
+  }
+
+  /** Bỏ khớp khoản chi khỏi 1 GD tiền-ra. */
+  expenseUnlink(txId: string): Promise<{ expense_out_unlink: number }[]> {
+    return this.db.sql<{ expense_out_unlink: number }[]>`SELECT expense_out_unlink(${txId})`;
+  }
 }
 
 /** 1 cặp GD↔đơn khớp tự động (từ preview). */
@@ -141,4 +165,24 @@ export type ReconcilePreviewResult = {
   skippedAmbiguous: number;
   skippedNoMatch: number;
   totalUnmatched: number;
+};
+
+/** 1 cặp GD tiền-ra ↔ chi phí tay khớp tự động (từ preview đối soát chi phí). */
+export type ExpenseReconcileMatch = {
+  transactionId: string;
+  expenseId: string;
+  amount: number | string;
+  transactionDate: string;
+  expenseDate: string;
+  category: string | null;
+  note: string | null;
+  description: string | null;
+};
+
+export type ExpenseReconcilePreviewResult = {
+  matched: ExpenseReconcileMatch[];
+  skippedAmbiguous: number;
+  skippedNoMatch: number;
+  totalUnlinkedTx: number;
+  totalUnlinkedExpense: number;
 };

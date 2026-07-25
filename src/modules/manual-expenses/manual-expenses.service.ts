@@ -20,6 +20,7 @@ const mapRow = (r: ManualExpenseRow): ManualExpense => ({
       ? r.created_at.toISOString()
       : String(r.created_at ?? ''),
   source: r.source === 'receipt' ? 'receipt' : 'manual',
+  transactionId: r.transaction_id ?? null,
 });
 
 @Injectable()

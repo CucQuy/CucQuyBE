@@ -23,4 +23,9 @@ export class UpsertManualExpenseDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  /** Gắn khoản chi này với 1 GD tiền-ra (đối soát chi phí). Rỗng = không gắn. */
+  @IsOptional()
+  @IsString()
+  transactionId?: string | null;
 }

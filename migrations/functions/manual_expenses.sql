@@ -13,13 +13,14 @@ DECLARE v_id uuid;
 BEGIN
   v_id := NULLIF(p->>'id','')::uuid;
   IF v_id IS NULL THEN
-    INSERT INTO manual_expenses (date, amount, category, spread_months, note)
+    INSERT INTO manual_expenses (date, amount, category, spread_months, note, transaction_id)
     VALUES (
       coalesce((p->>'date')::date, current_date),
       greatest(coalesce((p->>'amount')::numeric, 0), 0),
       coalesce(NULLIF(p->>'category',''), 'other'),
       greatest(coalesce((p->>'spreadMonths')::int, 1), 1),
-      NULLIF(p->>'note','')
+      NULLIF(p->>'note',''),
+      NULLIF(p->>'transactionId','')
     )
     RETURNING id INTO v_id;
   ELSE
@@ -28,7 +29,8 @@ BEGIN
       amount = greatest(coalesce((p->>'amount')::numeric, amount), 0),
       category = coalesce(NULLIF(p->>'category',''), category),
       spread_months = greatest(coalesce((p->>'spreadMonths')::int, spread_months), 1),
-      note = NULLIF(p->>'note','')
+      note = NULLIF(p->>'note',''),
+      transaction_id = CASE WHEN p ? 'transactionId' THEN NULLIF(p->>'transactionId','') ELSE transaction_id END
     WHERE id = v_id;
   END IF;
   RETURN QUERY SELECT * FROM manual_expenses WHERE id = v_id;

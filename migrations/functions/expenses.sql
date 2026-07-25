@@ -81,6 +81,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
         AND coalesce(t.settled_out,false) = false
         AND coalesce(t.cost_excluded,false) = false
         AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+        AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
         AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
       GROUP BY coalesce(NULLIF(t.expense_category, ''), 'unclassified')
       UNION ALL

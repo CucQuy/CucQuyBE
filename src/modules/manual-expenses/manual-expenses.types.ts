@@ -7,4 +7,5 @@ export interface ManualExpense {
   note?: string | null;
   createdAt: string;
   source?: 'manual' | 'receipt';
+  transactionId?: string | null; // GD tiền-ra đã gắn (đối soát chi phí), null = chưa gắn
 }

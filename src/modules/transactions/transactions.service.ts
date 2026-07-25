@@ -4,9 +4,11 @@ import {
   TransactionRow,
   ExpenseRuleRow,
   ReconcilePreviewResult,
+  ExpenseReconcilePreviewResult,
 } from './transactions.proc';
 import { Transaction, ExpenseRule } from './transactions.types';
 import { ReconcilePair } from './dto/reconcile-apply.dto';
+import { ExpenseReconcilePair } from './dto/expense-reconcile-apply.dto';
 
 const toIso = (val: string | Date | null): string => {
   if (!val) return new Date().toISOString();
@@ -142,5 +144,38 @@ export class TransactionsService {
   ): Promise<{ applied: number; skipped: number }> {
     const rows = await this.proc.reconcileApply(pairs ?? []);
     return rows[0].result;
+  }
+
+  /** Đối soát CHI PHÍ: preview cặp tiền-ra ↔ chi phí tay. */
+  async expenseReconcilePreview(): Promise<ExpenseReconcilePreviewResult> {
+    const rows = await this.proc.expenseReconcilePreview();
+    const r = rows[0].result;
+    return {
+      ...r,
+      matched: (r.matched ?? []).map((m) => ({
+        ...m,
+        amount: Number(m.amount) || 0,
+      })),
+    };
+  }
+
+  /** Đối soát CHI PHÍ: gắn cho danh sách cặp đã confirm (atomic, idempotent). */
+  async expenseReconcileApply(
+    pairs: ExpenseReconcilePair[],
+  ): Promise<{ applied: number; skipped: number }> {
+    const rows = await this.proc.expenseReconcileApply(pairs ?? []);
+    return rows[0].result;
+  }
+
+  /** Khớp tay 1 GD tiền-ra với 1 khoản chi phí có sẵn. Trả true nếu gắn được. */
+  async expenseLink(txId: string, expenseId: string): Promise<{ ok: boolean }> {
+    const rows = (await this.proc.expenseLink(txId, expenseId)) as unknown[];
+    return { ok: Array.isArray(rows) && rows.length > 0 };
+  }
+
+  /** Bỏ khớp khoản chi khỏi 1 GD tiền-ra. Trả số khoản đã bỏ gắn. */
+  async expenseUnlink(txId: string): Promise<{ unlinked: number }> {
+    const rows = await this.proc.expenseUnlink(txId);
+    return { unlinked: Number(rows[0]?.expense_out_unlink) || 0 };
   }
 }

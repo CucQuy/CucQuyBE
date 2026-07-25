@@ -247,6 +247,8 @@ BEGIN
     AND coalesce(t.settled_out,false) = false
     AND coalesce(t.cost_excluded,false) = false
     AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+    -- đã gắn vào 1 khoản chi phí tay → khoản chi tay đại diện, tránh đếm trùng
+    AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
   -- ── + Chi phí THỦ CÔNG (không qua bank: tiền mặt/đã trả trước), phân bổ rơi trong kỳ.
@@ -341,6 +343,7 @@ BEGIN
       AND coalesce(t.settled_out,false) = false
       AND coalesce(t.cost_excluded,false) = false
       AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
+      AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
       AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
   ),
   cost_depreciation AS (
