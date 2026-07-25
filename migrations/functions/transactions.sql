@@ -145,7 +145,7 @@ $$;
 
 -- ============================================================
 -- Đối soát hàng loạt (nút "Đồng bộ với đơn").
--- Tiêu chí 1 đơn ứng viên: payment_method='BANKING', total = transfer_amount,
+-- Tiêu chí 1 đơn ứng viên: số tiền = total (trả đủ) HOẶC = deposit_amount (đặt cọc),
 -- chưa PAID, chưa có sepay_id, GD xảy ra SAU khi tạo đơn và trong vòng 7 ngày.
 -- Chỉ auto-khớp khi GD có ĐÚNG 1 ứng viên VÀ đơn đó chỉ được 1 GD nhắm tới (không tranh chấp).
 -- ============================================================
@@ -175,7 +175,7 @@ BEGIN
      AND o.sepay_id IS NULL
      AND o.order_number IS NOT NULL
      AND o.created_at IS NOT NULL
-     AND o.total = u.transfer_amount
+     AND (o.total = u.transfer_amount OR COALESCE(o.deposit_amount, 0) = u.transfer_amount)
      AND u.tx_date >= o.created_at
      AND u.tx_date <= o.created_at + interval '7 days'
   ),
@@ -220,6 +220,7 @@ DECLARE
   v_order_id text;
   v_order_number text;
   v_sepay_id text;
+  v_amount numeric;
   v_applied int := 0;
   v_skipped int := 0;
   v_ord_updated int;
@@ -233,17 +234,23 @@ BEGIN
     v_order_id := v_pair->>'orderId';
     v_order_number := v_pair->>'orderNumber';
     v_sepay_id := NULLIF(v_pair->>'sepayId', '');
+    v_amount := 0;
 
-    -- GD phải còn chưa map.
-    PERFORM 1 FROM transactions WHERE id = v_tx_id AND order_number IS NULL;
+    -- GD phải còn chưa map. Lấy luôn số tiền từ DB (không tin amount client).
+    SELECT transfer_amount INTO v_amount
+      FROM transactions WHERE id = v_tx_id AND order_number IS NULL;
     IF NOT FOUND THEN
       v_skipped := v_skipped + 1;
       CONTINUE;
     END IF;
 
     -- Claim đơn: chỉ khi còn eligible (idempotent + không cướp link đơn đã PAID/đã có sepay).
+    -- Cộng dồn paid_amount + suy ra status → cọc (< total) thành DEPOSITED, trả đủ thành PAID.
     UPDATE orders
-      SET sepay_id = v_sepay_id, payment_status = 'PAID'
+      SET sepay_id = v_sepay_id,
+          paid_amount = COALESCE(paid_amount, 0) + COALESCE(v_amount, 0),
+          payment_status = order_derive_pay_status(COALESCE(paid_amount, 0) + COALESCE(v_amount, 0), total, payment_status),
+          updated_at = now()
       WHERE id = v_order_id
         AND sepay_id IS NULL
         AND payment_status IS DISTINCT FROM 'PAID';
