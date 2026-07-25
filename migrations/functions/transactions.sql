@@ -171,8 +171,7 @@ BEGIN
            o.id AS order_id, o.order_number, o.created_at
     FROM unmatched u
     JOIN orders o
-      ON o.payment_method = 'BANKING'
-     AND o.payment_status IS DISTINCT FROM 'PAID'
+      ON o.payment_status IS DISTINCT FROM 'PAID'
      AND o.sepay_id IS NULL
      AND o.order_number IS NOT NULL
      AND o.created_at IS NOT NULL

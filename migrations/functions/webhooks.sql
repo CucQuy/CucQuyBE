@@ -55,12 +55,12 @@ BEGIN
   ELSIF v_transfer_type = 'in' AND v_order_number IS NULL
         AND v_amount > 0 AND v_tx_date IS NOT NULL THEN
     -- (2) Fallback khớp theo SỐ TIỀN. Đơn ứng viên = tiêu chí đối soát:
-    -- BANKING, chưa PAID, chưa có sepay_id, total = số tiền, GD trong [created_at, +7 ngày].
+    -- chưa PAID, chưa có sepay_id, total = số tiền, GD trong [created_at, +7 ngày].
+    -- (KHÔNG lọc payment_method — khách để CASH nhưng vẫn chuyển khoản; ≥2 đơn trùng → review tay.)
     WITH cand AS (
       SELECT o.id, o.order_number
       FROM orders o
-      WHERE o.payment_method = 'BANKING'
-        AND o.payment_status IS DISTINCT FROM 'PAID'
+      WHERE o.payment_status IS DISTINCT FROM 'PAID'
         AND o.sepay_id IS NULL
         AND o.order_number IS NOT NULL
         AND o.created_at IS NOT NULL
