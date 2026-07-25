@@ -245,7 +245,7 @@ export class OrdersService {
         .filter((r) => r?.actual_time && Number(r.display_flag) === 1)
         .map((r) => ({
           time: Number(r.actual_time) || 0,
-          label: mapSpxLabel(r.tracking_name, r.buyer_description || r.description),
+          label: mapSpxLabel(r.tracking_code, r.tracking_name, r.buyer_description || r.description),
           location: r?.current_location?.location_name || undefined,
         }));
       return { tn: clean, status: SPX_GROUP_VI[group ?? ''] ?? group, events };
@@ -290,24 +290,39 @@ const SPX_GROUP_VI: Record<string, string> = {
   'Returned': 'Hoàn hàng',
 };
 
-/** Map tracking_name SPX (EN) → tiếng Việt; không khớp → dùng mô tả gốc. */
-const SPX_LABEL_VI: Record<string, string> = {
-  'manifested': 'Người gửi đang chuẩn bị hàng',
-  'pickup from domestic seller': 'ĐVVC đã lấy hàng',
-  'enter domestic first mile hub': 'Đã đến bưu cục',
-  'left domestic first mile hub': 'Đã rời bưu cục',
-  'enter domestic sorting center': 'Đã đến kho phân loại',
-  'left domestic sorting center': 'Đã rời kho phân loại',
-  'enter domestic last mile hub': 'Đã đến bưu cục giao',
-  'left domestic last mile hub': 'Đã rời bưu cục giao',
-  'out for delivery': 'Đang giao hàng',
-  'delivered': 'Đã giao thành công',
-  'return to seller': 'Hoàn về người gửi',
+/** Bảng dịch theo MÃ MỐC ổn định của SPX (tracking_code) — không phụ thuộc chuỗi tên EN. */
+const SPX_CODE_VI: Record<string, string> = {
+  F000: 'Người gửi đang chuẩn bị hàng',   // Manifested
+  F100: 'ĐVVC đã lấy hàng',                // Pickup From Seller
+  F440: 'Đã đến bưu cục',                  // Enter First Mile Hub
+  F450: 'Đã rời bưu cục',                  // Left First Mile Hub
+  F510: 'Đã đến kho phân loại',            // Enter Sorting Center
+  F540: 'Đã rời kho phân loại',            // Left Sorting Center
+  F599: 'Đã đến bưu cục giao',             // Enter Last Mile Hub
+  F600: 'Đang giao hàng',                  // Out For Delivery
 };
 
-function mapSpxLabel(name: string | undefined, fallback: string | undefined): string {
-  const key = (name || '').trim().toLowerCase();
-  return SPX_LABEL_VI[key] || fallback || name || 'Cập nhật';
+/**
+ * Nhãn mốc → tiếng Việt: ưu tiên MÃ SPX (bền); mã lạ → thử từ khoá tên; cuối cùng mô tả gốc.
+ */
+function mapSpxLabel(code: string | undefined, name: string | undefined, fallback: string | undefined): string {
+  const byCode = SPX_CODE_VI[(code || '').trim().toUpperCase()];
+  if (byCode) return byCode;
+  const n = (name || '').trim().toLowerCase();
+  const has = (...ks: string[]) => ks.every((k) => n.includes(k));
+  if (has('out for delivery')) return 'Đang giao hàng';
+  if (has('delivered')) return 'Đã giao thành công';
+  if (has('fail')) return 'Giao không thành công';
+  if (has('return')) return 'Hoàn hàng';
+  if (has('last mile hub', 'enter')) return 'Đã đến bưu cục giao';
+  if (has('last mile hub', 'left')) return 'Đã rời bưu cục giao';
+  if (has('sorting cent', 'enter')) return 'Đã đến kho phân loại';
+  if (has('sorting cent', 'left')) return 'Đã rời kho phân loại';
+  if (has('first mile hub', 'enter')) return 'Đã đến bưu cục';
+  if (has('first mile hub', 'left')) return 'Đã rời bưu cục';
+  if (has('pickup')) return 'ĐVVC đã lấy hàng';
+  if (has('manifest')) return 'Người gửi đang chuẩn bị hàng';
+  return fallback || name || 'Cập nhật';
 }
 
 /** Chuẩn hoá AuthUser -> jsonb p_user cho stored function. */
