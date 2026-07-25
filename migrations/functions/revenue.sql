@@ -246,6 +246,8 @@ BEGIN
   WHERE t.transfer_type = 'out'
     AND coalesce(t.settled_out,false) = false
     AND coalesce(t.cost_excluded,false) = false
+    -- chỉ tính khi có category chi phí (chưa phân loại / cá nhân / nội bộ → KHÔNG tính)
+    AND expense_category_is_cost(t.expense_category)
     AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
     -- đã gắn vào 1 khoản chi phí tay → khoản chi tay đại diện, tránh đếm trùng
     AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
@@ -342,6 +344,7 @@ BEGIN
     WHERE t.transfer_type = 'out'
       AND coalesce(t.settled_out,false) = false
       AND coalesce(t.cost_excluded,false) = false
+      AND expense_category_is_cost(t.expense_category)
       AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
       AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
       AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to

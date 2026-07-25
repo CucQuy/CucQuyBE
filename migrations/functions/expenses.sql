@@ -1,6 +1,16 @@
 -- Chi phí vận hành: phân loại bank "tiền ra" theo nội dung CK (auto) + set tay (backup).
 -- Xem migrations/011_expense_classification.sql cho schema. Idempotent (CREATE OR REPLACE).
 
+-- ── Category tiền-ra CÓ tính vào chi phí quán (OPEX/P&L) không ──
+-- KHÔNG tính khi: chưa phân loại (NULL/''), hoặc thuộc nhóm PHI-CHI-PHÍ
+-- (cá nhân / rút vốn / nội bộ-nạp ví). Mặc định "chưa phân loại" = KHÔNG tính
+-- (đảo mặc định cũ) → tiền ra chỉ tính chi phí khi được gán 1 category chi phí rõ ràng.
+CREATE OR REPLACE FUNCTION expense_category_is_cost(p_cat text)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT p_cat IS NOT NULL AND p_cat <> ''
+     AND p_cat NOT IN ('personal', 'owner', 'internal');
+$$;
+
 -- ── Rule từ khoá (nội dung CK → category) ──
 CREATE OR REPLACE FUNCTION expense_rules_list()
 RETURNS SETOF expense_rules LANGUAGE sql STABLE AS $$
@@ -80,6 +90,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
       WHERE t.transfer_type = 'out'
         AND coalesce(t.settled_out,false) = false
         AND coalesce(t.cost_excluded,false) = false
+        AND expense_category_is_cost(t.expense_category)
         AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
         AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
         AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
