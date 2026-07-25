@@ -92,13 +92,14 @@ RETURNS void LANGUAGE sql AS $$
 $$;
 
 -- ─────────── Soạn nội dung (khớp format FE) ───────────
--- Sản xuất ngày mai: gom order_items theo tên, tổng số lượng cho đơn giao ngày p_date (yyyy-mm-dd).
+-- Cần giao ngày p_date: 1 dòng / đơn -> "Tên KH - N gói - <breakdown vị> - <note>".
+-- Breakdown vị = đếm số lần mỗi vị trong order_items.flavors của đơn (rỗng thì bỏ). Note = order.note.
 CREATE OR REPLACE FUNCTION notification_compose_production(p_date text)
 RETURNS text LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_disp text := to_char(to_date(p_date, 'YYYY-MM-DD'), 'DD/MM/YYYY');
   v_orders int;
-  v_items int;
+  v_items numeric;
   v_body text;
 BEGIN
   SELECT count(DISTINCT o.id), COALESCE(sum(oi.quantity), 0)
@@ -107,21 +108,34 @@ BEGIN
   WHERE o.delivery_date = p_date AND COALESCE(o.is_test, false) = false;
 
   IF COALESCE(v_orders, 0) = 0 THEN
-    RETURN '✅ Mai (' || v_disp || ') chưa có đơn nào cần làm.';
+    RETURN '✅ Ngày ' || v_disp || ' chưa có đơn nào cần giao.';
   END IF;
 
-  SELECT string_agg('• ' || name || ' × ' || qty, E'\n' ORDER BY qty DESC)
+  SELECT string_agg(
+           '• ' || t.customer_name || ' - ' || t.qty::int || ' gói'
+             || COALESCE(' - ' || t.flavors, '')
+             || COALESCE(' - ' || t.note, ''),
+           E'\n' ORDER BY t.customer_name)
   INTO v_body
   FROM (
-    SELECT COALESCE(NULLIF(oi.product_name,''), '(?)') AS name, sum(oi.quantity) AS qty
+    SELECT o.id,
+      COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
+      sum(oi.quantity) AS qty,
+      -- gộp vị: "11 matcha, 10 socola, ..." (nhiều nhất trước)
+      (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
+       FROM (SELECT f AS fl, count(*) AS cnt
+             FROM order_items x, unnest(x.flavors) f
+             WHERE x.order_id = o.id AND NULLIF(f, '') IS NOT NULL
+             GROUP BY f) fb) AS flavors,
+      NULLIF(trim(o.note), '') AS note
     FROM orders o JOIN order_items oi ON oi.order_id = o.id
     WHERE o.delivery_date = p_date AND COALESCE(o.is_test, false) = false
-    GROUP BY 1
+    GROUP BY o.id, o.customer_name, o.note
   ) t;
 
-  RETURN '🍰 SẢN XUẤT NGÀY MAI · ' || v_disp || E'\n' ||
+  RETURN '🚚 CẦN GIAO · ' || v_disp || E'\n' ||
          '─────────────────────────' || E'\n' ||
-         '📊 ' || v_orders || ' đơn · ' || v_items || ' sản phẩm' || E'\n\n' ||
+         '📊 ' || v_orders || ' đơn · ' || v_items::int || ' gói' || E'\n\n' ||
          v_body;
 END;
 $$;
