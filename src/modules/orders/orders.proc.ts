@@ -141,6 +141,13 @@ export class OrderProc {
     return row.result;
   }
 
+  // ── Đồng bộ tiền thu hộ (COD) từ file ví SPX: match theo tracking_number ──
+  async syncCod(rows: Record<string, any>[], apply: boolean): Promise<any> {
+    const [row] = await this.db.sql<{ result: any }[]>`
+      SELECT order_sync_cod(${this.db.json(rows)}::jsonb, ${apply}) AS result`;
+    return row.result;
+  }
+
   // ── Đơn SPX đang chạy (chưa giao/huỷ) để refresh trạng thái VĐ ──
   async trackedForRefresh(): Promise<{ id: string; tracking_number: string }[]> {
     return this.db.sql<{ id: string; tracking_number: string }[]>`

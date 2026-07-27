@@ -224,6 +224,14 @@ export class OrdersService {
     return this.proc.syncTracking(Array.isArray(rows) ? rows : [], !!apply);
   }
 
+  /** Đồng bộ tiền thu hộ (COD) từ file ví SPX. apply=false → preview; true → tạo GD + cộng paid_amount. */
+  async syncCod(
+    rows: Record<string, any>[],
+    apply: boolean,
+  ): Promise<any> {
+    return this.proc.syncCod(Array.isArray(rows) ? rows : [], !!apply);
+  }
+
   /** Tra cứu LIVE hành trình vận đơn từ 3PL (hiện hỗ trợ SPX). Proxy để tránh CORS. */
   async fetchTracking(tn: string): Promise<{
     tn: string;

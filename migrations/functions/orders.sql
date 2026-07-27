@@ -1178,3 +1178,94 @@ BEGIN
     'unmatchedCount', jsonb_array_length(v_unmatched));
 END;
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- Đồng bộ TIỀN THU HỘ (COD) từ file giao dịch ví SPX.
+-- p_rows = [{txId, tracking, amount, date}] — chỉ các dòng "Tiền thu hộ" có mã SPXVN (FE đã lọc).
+--   txId    = "Mã giao dịch" ví SPX (duy nhất) → dùng làm transactions.id ⇒ chống ghi trùng qua PK.
+--   tracking= "Mã vận đơn" SPXVN → khớp orders.tracking_number (loại đơn CANCELLED).
+--   amount  = "Số tiền" thu hộ (VND, > 0) → cộng vào orders.paid_amount.
+-- p_apply=false → chỉ preview; true → tạo 1 transaction (gateway='spx', in) + cộng paid_amount +
+--   suy lại payment_status (order_derive_pay_status) ⇒ đơn "cọc trước + ship COD" tự chuyển sang PAID.
+-- Trả {matched[], unmatched[], duplicate[], applied, matchedCount, unmatchedCount, duplicateCount}.
+CREATE OR REPLACE FUNCTION order_sync_cod(p_rows jsonb, p_apply boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  r jsonb;
+  v_txid text; v_tracking text; v_amount numeric; v_date text;
+  v_oid text; v_onum text; v_ocust text; v_total numeric; v_paid numeric; v_pstatus text;
+  v_paid_new numeric; v_status_new text;
+  v_dup_order text;
+  v_now timestamptz := now();
+  v_matched   jsonb := '[]'::jsonb;
+  v_unmatched jsonb := '[]'::jsonb;
+  v_duplicate jsonb := '[]'::jsonb;
+BEGIN
+  FOR r IN SELECT * FROM jsonb_array_elements(COALESCE(p_rows, '[]'::jsonb)) LOOP
+    v_txid     := NULLIF(trim(r->>'txId'), '');
+    v_tracking := NULLIF(trim(r->>'tracking'), '');
+    v_amount   := COALESCE(NULLIF(regexp_replace(COALESCE(r->>'amount', ''), '[^0-9.-]', '', 'g'), '')::numeric, 0);
+    v_date     := NULLIF(trim(r->>'date'), '');
+
+    -- Bỏ dòng thiếu dữ liệu / số tiền không hợp lệ.
+    CONTINUE WHEN v_txid IS NULL OR v_tracking IS NULL OR v_amount <= 0;
+
+    -- Chống ghi trùng: đã import txId này rồi (kể cả lần upload trước) → không cộng lại.
+    v_dup_order := NULL;
+    SELECT order_number INTO v_dup_order FROM transactions WHERE id = v_txid LIMIT 1;
+    IF FOUND THEN
+      v_duplicate := v_duplicate || jsonb_build_object(
+        'txId', v_txid, 'tracking', v_tracking, 'amount', v_amount, 'orderNumber', v_dup_order);
+      CONTINUE;
+    END IF;
+
+    -- Khớp đơn theo mã vận đơn (loại CANCELLED), ưu tiên đơn mới nhất.
+    v_oid := NULL; v_onum := NULL; v_ocust := NULL; v_total := NULL; v_paid := NULL; v_pstatus := NULL;
+    SELECT o.id, o.order_number, o.customer_name, o.total, o.paid_amount, o.payment_status
+      INTO v_oid, v_onum, v_ocust, v_total, v_paid, v_pstatus
+    FROM orders o
+    WHERE o.tracking_number = v_tracking
+      AND COALESCE(o.status, '') <> 'CANCELLED'
+    ORDER BY o.created_at DESC NULLS LAST
+    LIMIT 1;
+
+    IF v_oid IS NOT NULL THEN
+      v_paid_new := COALESCE(v_paid, 0) + v_amount;
+      -- Giữ REFUNDED nếu đơn đã hoàn; còn lại suy từ paid vs total.
+      v_status_new := order_derive_pay_status(
+        v_paid_new, v_total, CASE WHEN v_pstatus = 'REFUNDED' THEN 'REFUNDED' ELSE NULL END);
+
+      IF p_apply THEN
+        INSERT INTO transactions (
+          id, gateway, transaction_date, content, transfer_type, transfer_amount,
+          reference_code, description, order_number, is_external, received_at, created_at
+        ) VALUES (
+          v_txid, 'spx', COALESCE(v_date, to_char(v_now, 'YYYY/MM/DD HH24:MI:SS')),
+          'COD SPX ' || v_tracking, 'in', v_amount,
+          v_tracking, 'Tiền thu hộ SPX (' || v_tracking || ')', v_onum, false, v_now, v_now
+        );
+        UPDATE orders
+           SET paid_amount = v_paid_new, payment_status = v_status_new, updated_at = v_now
+         WHERE id = v_oid;
+      END IF;
+
+      v_matched := v_matched || jsonb_build_object(
+        'txId', v_txid, 'tracking', v_tracking, 'amount', v_amount,
+        'orderNumber', v_onum, 'orderCustomer', v_ocust,
+        'total', v_total, 'paidBefore', COALESCE(v_paid, 0), 'paidAfter', v_paid_new,
+        'remainingAfter', GREATEST(COALESCE(v_total, 0) - v_paid_new, 0),
+        'statusAfter', v_status_new);
+    ELSE
+      v_unmatched := v_unmatched || jsonb_build_object(
+        'txId', v_txid, 'tracking', v_tracking, 'amount', v_amount);
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'matched', v_matched, 'unmatched', v_unmatched, 'duplicate', v_duplicate,
+    'applied', p_apply,
+    'matchedCount', jsonb_array_length(v_matched),
+    'unmatchedCount', jsonb_array_length(v_unmatched),
+    'duplicateCount', jsonb_array_length(v_duplicate));
+END;
+$$;

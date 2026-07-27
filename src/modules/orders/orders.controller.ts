@@ -126,4 +126,10 @@ export class OrdersController {
   syncTracking(@Body() body: { rows?: Record<string, any>[]; apply?: boolean }) {
     return this.service.syncTracking(body?.rows ?? [], body?.apply ?? false);
   }
+
+  /** Đồng bộ tiền thu hộ (COD) từ file ví SPX. body: { rows:[{txId,tracking,amount,date}], apply }. */
+  @Post('sync-cod')
+  syncCod(@Body() body: { rows?: Record<string, any>[]; apply?: boolean }) {
+    return this.service.syncCod(body?.rows ?? [], body?.apply ?? false);
+  }
 }
