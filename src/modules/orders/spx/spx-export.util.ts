@@ -93,6 +93,12 @@ export async function buildSpxFile(
     zip.file(SHARED_STRINGS, ss);
   }
 
+  // Ghi zip.file() làm JSZip tự tạo entry thư mục (xl/, xl/worksheets/) — file nền không có,
+  // parser SPX có thể loại. Xoá hết entry thư mục để khớp cấu trúc file gốc.
+  for (const k of Object.keys(zip.files)) {
+    if (zip.files[k].dir) delete zip.files[k];
+  }
+
   return zip.generateAsync({
     type: 'nodebuffer',
     compression: 'DEFLATE',
