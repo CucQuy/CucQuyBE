@@ -69,13 +69,17 @@ export async function buildSpxFile(
     dataRows.forEach((vals, ri) => {
       const r = ri + 2;
       let cells = '';
+      // Ghi cell cho MỌI cột (kể cả rỗng = <c/>) để dòng liền mạch A..cuối — file upload-OK
+      // luôn có đủ cell; bỏ cell rỗng làm "nhảy cột" khiến parser SPX đọc lệch → loại.
       vals.forEach((v, c) => {
-        if (v === '' || v === null || v === undefined) return;
         const ref = `${colLetter(c)}${r}`;
-        cells +=
-          typeof v === 'number'
-            ? `<c r="${ref}"><v>${v}</v></c>`
-            : `<c r="${ref}" t="s"><v>${(refsAdded++, internString(String(v)))}</v></c>`;
+        if (v === '' || v === null || v === undefined) {
+          cells += `<c r="${ref}"/>`;
+        } else if (typeof v === 'number') {
+          cells += `<c r="${ref}"><v>${v}</v></c>`;
+        } else {
+          cells += `<c r="${ref}" t="s"><v>${(refsAdded++, internString(String(v)))}</v></c>`;
+        }
       });
       body += `<row r="${r}">${cells}</row>`;
     });
