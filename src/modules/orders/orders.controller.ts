@@ -146,7 +146,8 @@ export class OrdersController {
     @Res() res: Response,
   ): Promise<void> {
     const rows = Array.isArray(body?.rows) ? body.rows : [];
-    const mode: SpxAddressMode = body?.addressMode === 'new' ? 'new' : 'old';
+    // Địa chỉ đơn là hệ MỚI (post-sáp-nhập) → mặc định điền sheet "địa chỉ mới".
+    const mode: SpxAddressMode = body?.addressMode === 'old' ? 'old' : 'new';
     const buf = await buildSpxFile(rows, mode);
     res.setHeader(
       'Content-Type',
