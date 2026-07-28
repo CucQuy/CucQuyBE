@@ -6,6 +6,7 @@ import { ReceiptStructureService } from './tasks/receipt-structure/receipt-struc
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
 import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
 import { SpxWardInput } from './tasks/spx-ward/spx-ward.types';
+import { SpxAddressOldService } from './tasks/spx-address-old/spx-address-old.service';
 
 @ApiTags('AI')
 @Controller('ai')
@@ -16,6 +17,7 @@ export class AiController {
     private readonly receiptStructure: ReceiptStructureService,
     private readonly spxAddress: SpxAddressService,
     private readonly spxWard: SpxWardService,
+    private readonly spxAddressOld: SpxAddressOldService,
   ) {}
 
   /** Kiểm tra OCR text có phải bill mua/bán hàng không. */
@@ -42,5 +44,15 @@ export class AiController {
   async pickSpxWard(@Body('items') items: SpxWardInput[]) {
     const wards = await this.spxWard.run(Array.isArray(items) ? items : []);
     return { wards };
+  }
+
+  /** Tách địa chỉ → Tỉnh/Quận/Xã hệ CŨ 3 cấp (danh mục spx_*_old) để xuất file SPX "địa chỉ cũ". */
+  @Post('spx-address-old')
+  async extractSpxAddressOld(
+    @Body() body: { addresses?: string[]; useAi?: boolean },
+  ) {
+    const addresses = Array.isArray(body?.addresses) ? body.addresses : [];
+    const items = await this.spxAddressOld.run(addresses, body?.useAi !== false);
+    return { items };
   }
 }
