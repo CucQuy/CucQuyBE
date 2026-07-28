@@ -4,6 +4,8 @@ import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { ReceiptValidateService } from './tasks/receipt-validate/receipt-validate.service';
 import { ReceiptStructureService } from './tasks/receipt-structure/receipt-structure.service';
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
+import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
+import { SpxWardInput } from './tasks/spx-ward/spx-ward.types';
 
 @ApiTags('AI')
 @Controller('ai')
@@ -13,6 +15,7 @@ export class AiController {
     private readonly receiptValidate: ReceiptValidateService,
     private readonly receiptStructure: ReceiptStructureService,
     private readonly spxAddress: SpxAddressService,
+    private readonly spxWard: SpxWardService,
   ) {}
 
   /** Kiểm tra OCR text có phải bill mua/bán hàng không. */
@@ -32,5 +35,12 @@ export class AiController {
   async extractSpxAddress(@Body('addresses') addresses: string[]) {
     const items = await this.spxAddress.run(Array.isArray(addresses) ? addresses : []);
     return { items };
+  }
+
+  /** Chọn Xã chuẩn 2025 từ danh mục hợp lệ của tỉnh (grounded) cho đơn còn thiếu Xã. */
+  @Post('spx-ward')
+  async pickSpxWard(@Body('items') items: SpxWardInput[]) {
+    const wards = await this.spxWard.run(Array.isArray(items) ? items : []);
+    return { wards };
   }
 }

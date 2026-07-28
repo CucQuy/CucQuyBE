@@ -5,6 +5,7 @@ import { ReceiptValidateService } from './tasks/receipt-validate/receipt-validat
 import { ReceiptStructureService } from './tasks/receipt-structure/receipt-structure.service';
 import { MaterialMergeService } from './tasks/material-merge/material-merge.service';
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
+import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
 
 /**
  * Module AI: mỗi nghiệp vụ 1 service riêng trong tasks/<nghiệp-vụ>/ (service +
@@ -19,12 +20,14 @@ import { SpxAddressService } from './tasks/spx-address/spx-address.service';
     ReceiptStructureService,
     MaterialMergeService,
     SpxAddressService,
+    SpxWardService,
   ],
   exports: [
     ReceiptValidateService,
     ReceiptStructureService,
     MaterialMergeService,
     SpxAddressService,
+    SpxWardService,
   ],
 })
 export class AiModule {}
