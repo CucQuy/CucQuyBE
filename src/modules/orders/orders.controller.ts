@@ -7,8 +7,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
@@ -16,6 +18,7 @@ import { AuthUser } from '../../auth/user.types';
 import { OrdersService } from './orders.service';
 import { ReconcileRefundDto } from './dto/reconcile-refund.dto';
 import { ReconcileTransactionDto } from './dto/reconcile-transaction.dto';
+import { buildSpxFile, SpxAddressMode } from './spx/spx-export.util';
 
 @ApiTags('Đơn hàng')
 @Controller('orders')
@@ -131,5 +134,26 @@ export class OrdersController {
   @Post('sync-cod')
   syncCod(@Body() body: { rows?: Record<string, any>[]; apply?: boolean }) {
     return this.service.syncCod(body?.rows ?? [], body?.apply ?? false);
+  }
+
+  /**
+   * Tạo file .xlsx tạo đơn hàng loạt SPX (mổ file nền đã upload-OK, nén DEFLATE <5MB).
+   * body: { rows: (string|number)[][], addressMode: 'old'|'new' }. Trả file binary để FE tải.
+   */
+  @Post('spx-file')
+  async spxFile(
+    @Body() body: { rows?: (string | number)[][]; addressMode?: SpxAddressMode },
+    @Res() res: Response,
+  ): Promise<void> {
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    const mode: SpxAddressMode = body?.addressMode === 'new' ? 'new' : 'old';
+    const buf = await buildSpxFile(rows, mode);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="SPX_TaoDon.xlsx"');
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
   }
 }
