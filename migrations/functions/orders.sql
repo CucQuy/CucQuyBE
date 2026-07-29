@@ -1167,6 +1167,7 @@ DECLARE
   v_oid text; v_onum text; v_ocust text; v_had text;
   v_matched   jsonb := '[]'::jsonb;
   v_unmatched jsonb := '[]'::jsonb;
+  v_skipped   jsonb := '[]'::jsonb;
 BEGIN
   FOR r IN SELECT * FROM jsonb_array_elements(COALESCE(p_rows, '[]'::jsonb)) LOOP
     v_tracking := NULLIF(trim(r->>'tracking'), '');
@@ -1187,16 +1188,23 @@ BEGIN
     END IF;
 
     IF v_oid IS NOT NULL THEN
-      IF p_apply THEN
-        UPDATE orders
-           SET tracking_number = v_tracking, tracking_link = v_link,
-               tracking_status = v_status, updated_at = now()
-         WHERE id = v_oid;
+      IF v_had IS NOT NULL THEN
+        -- Đơn khớp đã CÓ mã vận đơn → SKIP, KHÔNG ghi đè.
+        v_skipped := v_skipped || jsonb_build_object(
+          'tracking', v_tracking, 'orderNumber', v_onum, 'orderCustomer', v_ocust,
+          'receiverName', v_name, 'existingTracking', v_had);
+      ELSE
+        IF p_apply THEN
+          UPDATE orders
+             SET tracking_number = v_tracking, tracking_link = v_link,
+                 tracking_status = v_status, updated_at = now()
+           WHERE id = v_oid;
+        END IF;
+        v_matched := v_matched || jsonb_build_object(
+          'tracking', v_tracking, 'link', v_link, 'status', v_status,
+          'orderNumber', v_onum, 'orderCustomer', v_ocust, 'receiverName', v_name,
+          'hadTracking', false);
       END IF;
-      v_matched := v_matched || jsonb_build_object(
-        'tracking', v_tracking, 'link', v_link, 'status', v_status,
-        'orderNumber', v_onum, 'orderCustomer', v_ocust, 'receiverName', v_name,
-        'hadTracking', v_had IS NOT NULL);
     ELSE
       v_unmatched := v_unmatched || jsonb_build_object(
         'tracking', v_tracking, 'receiverName', v_name, 'phone', r->>'phone');
@@ -1204,9 +1212,10 @@ BEGIN
   END LOOP;
 
   RETURN jsonb_build_object(
-    'matched', v_matched, 'unmatched', v_unmatched, 'applied', p_apply,
+    'matched', v_matched, 'unmatched', v_unmatched, 'skipped', v_skipped, 'applied', p_apply,
     'matchedCount', jsonb_array_length(v_matched),
-    'unmatchedCount', jsonb_array_length(v_unmatched));
+    'unmatchedCount', jsonb_array_length(v_unmatched),
+    'skippedCount', jsonb_array_length(v_skipped));
 END;
 $$;
 
