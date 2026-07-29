@@ -56,13 +56,21 @@ export async function buildSpxFile(
     return idx;
   };
 
-  // Công thức 2 cột CUỐI (giống template gốc, đã bỏ #REF! do Google export làm hỏng):
-  //  AB = nhắc nhở số tiền COD; AC = "Đủ điều kiện" khi đủ 14 ô bắt buộc (Giao 1 phần = N).
-  // Ghi lại dạng công thức để Excel tự tính + cập nhật khi user sửa dropdown Tỉnh/Quận-Huyện.
-  const abFormula = (r: number): string =>
-    `IF(R${r}="Y",IF(ISBLANK(X${r}),"Khi chọn Giao hàng 1 phần --> Vui lòng điền số tiền COD = Số lượng x giá tiền",""),IF(AND(W${r}="Y",ISBLANK(X${r})),"Vui lòng điền số tiền COD",""))`;
-  const acFormula = (r: number): string =>
-    `IF(COUNTA(A${r},B${r},C${r},D${r},E${r},F${r},I${r},L${r},Q${r},R${r},S${r},T${r},W${r},Z${r})=14,"Đủ điều kiện","Chưa đủ điều kiện")`;
+  // Công thức 2 cột CUỐI (giống template gốc, bỏ #REF! do Google export làm hỏng), KHÁC nhau
+  // giữa 2 sheet: cột Giao-1-phần / Thu-COD / Số-COD lệch vị trí, và tập ô "Đủ điều kiện" khác.
+  //  - new (2 cấp): cuối = AB(nhắc COD) + AC(đủ điều kiện). Giao1phần=R, ThuCOD=W, SốCOD=X.
+  //  - old (3 cấp): cuối = AC(nhắc COD) + AD(đủ điều kiện). Giao1phần=S, ThuCOD=X, SốCOD=Y.
+  const isOld = mode === 'old';
+  const cG1 = isOld ? 'S' : 'R'; // Giao hàng một phần
+  const cCodFlag = isOld ? 'X' : 'W'; // Thu COD
+  const cCodAmt = isOld ? 'Y' : 'X'; // Số tiền COD
+  const eligibleCols = isOld
+    ? ['A', 'B', 'C', 'D', 'E', 'G', 'J', 'M', 'R', 'S', 'T', 'U', 'X', 'AA'] // 3 cấp (Giao1phần=N)
+    : ['A', 'B', 'C', 'D', 'E', 'F', 'I', 'L', 'Q', 'R', 'S', 'T', 'W', 'Z']; // 2 cấp (Giao1phần=N)
+  const reminderFormula = (r: number): string =>
+    `IF(${cG1}${r}="Y",IF(ISBLANK(${cCodAmt}${r}),"Khi chọn Giao hàng 1 phần --> Vui lòng điền số tiền COD = Số lượng x giá tiền",""),IF(AND(${cCodFlag}${r}="Y",ISBLANK(${cCodAmt}${r})),"Vui lòng điền số tiền COD",""))`;
+  const eligibleFormula = (r: number): string =>
+    `IF(COUNTA(${eligibleCols.map((c) => c + r).join(',')})=14,"Đủ điều kiện","Chưa đủ điều kiện")`;
   const formulaCell = (ref: string, formula: string, cached: string): string =>
     `<c r="${ref}" t="str"><f>${escapeXml(formula)}</f><v>${escapeXml(cached)}</v></c>`;
 
@@ -78,19 +86,19 @@ export async function buildSpxFile(
     let body = '';
     dataRows.forEach((vals, ri) => {
       const r = ri + 2;
-      const abIdx = vals.length - 2; // cột AB (nhắc COD)
-      const acIdx = vals.length - 1; // cột AC (Đủ điều kiện)
+      const remIdx = vals.length - 2; // cột nhắc COD (AB new / AC old)
+      const eligIdx = vals.length - 1; // cột Đủ điều kiện (AC new / AD old)
       let cells = '';
       // Ghi cell cho MỌI cột (kể cả rỗng = <c/>) để dòng liền mạch A..cuối — file upload-OK
       // luôn có đủ cell; bỏ cell rỗng làm "nhảy cột" khiến parser SPX đọc lệch → loại.
       vals.forEach((v, c) => {
         const ref = `${colLetter(c)}${r}`;
-        if (c === abIdx) {
-          cells += formulaCell(ref, abFormula(r), '');
-        } else if (c === acIdx) {
+        if (c === remIdx) {
+          cells += formulaCell(ref, reminderFormula(r), '');
+        } else if (c === eligIdx) {
           // Cached = trạng thái theo Tỉnh(D)+Quận/Huyện(E); các ô còn lại buildRow luôn điền.
           const ok = String(vals[3] ?? '').trim() !== '' && String(vals[4] ?? '').trim() !== '';
-          cells += formulaCell(ref, acFormula(r), ok ? 'Đủ điều kiện' : 'Chưa đủ điều kiện');
+          cells += formulaCell(ref, eligibleFormula(r), ok ? 'Đủ điều kiện' : 'Chưa đủ điều kiện');
         } else if (v === '' || v === null || v === undefined) {
           cells += `<c r="${ref}"/>`;
         } else if (typeof v === 'number') {
