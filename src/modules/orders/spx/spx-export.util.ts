@@ -71,8 +71,9 @@ export async function buildSpxFile(
     `IF(${cG1}${r}="Y",IF(ISBLANK(${cCodAmt}${r}),"Khi chọn Giao hàng 1 phần --> Vui lòng điền số tiền COD = Số lượng x giá tiền",""),IF(AND(${cCodFlag}${r}="Y",ISBLANK(${cCodAmt}${r})),"Vui lòng điền số tiền COD",""))`;
   const eligibleFormula = (r: number): string =>
     `IF(COUNTA(${eligibleCols.map((c) => c + r).join(',')})=14,"Đủ điều kiện","Chưa đủ điều kiện")`;
-  const formulaCell = (ref: string, formula: string, cached: string): string =>
-    `<c r="${ref}" t="str"><f>${escapeXml(formula)}</f><v>${escapeXml(cached)}</v></c>`;
+  const fmtStyle = (s?: string): string => (s ? ` s="${s}"` : '');
+  const formulaCell = (ref: string, sAttr: string, formula: string, cached: string): string =>
+    `<c r="${ref}"${sAttr} t="str"><f>${escapeXml(formula)}</f><v>${escapeXml(cached)}</v></c>`;
 
   const fillSheet = async (path: string, dataRows: (string | number)[][]): Promise<void> => {
     const f = zip.file(path);
@@ -83,31 +84,50 @@ export async function buildSpxFile(
     const r1End = xml.indexOf('</row>', sd) + '</row>'.length;
     const sdClose = xml.indexOf('</sheetData>', r1End);
     if (r1End < 6 || sdClose < 0) return;
+
+    // CLONE dòng mẫu (row 2) của template: giữ NGUYÊN thứ tự cột + style (s=) + thuộc tính row +
+    // các ô filler — chỉ thay VALUE. SPX importer nhận diện ô data theo style của template; ô "trần"
+    // (không s=) bị bỏ qua → parse ra rỗng. Vì thế phải bám style mẫu.
+    const tmpl = xml.slice(r1End, sdClose).match(/<row r="2"([^>]*)>(.*?)<\/row>/s);
+    const rowAttr = tmpl?.[1] ?? '';
+    const tmplCols: { col: string; s: string }[] = [];
+    if (tmpl) {
+      for (const cm of tmpl[2].matchAll(/<c r="([A-Z]+)2"([^>]*?)(?:\/>|>[\s\S]*?<\/c>)/g)) {
+        tmplCols.push({ col: cm[1], s: (cm[2].match(/s="(\d+)"/) ?? [])[1] ?? '' });
+      }
+    }
+
     let body = '';
     dataRows.forEach((vals, ri) => {
       const r = ri + 2;
-      const remIdx = vals.length - 2; // cột nhắc COD (AB new / AC old)
-      const eligIdx = vals.length - 1; // cột Đủ điều kiện (AC new / AD old)
+      const remIdx = vals.length - 2; // cột nhắc COD
+      const eligIdx = vals.length - 1; // cột Đủ điều kiện
+      // Danh sách cột = template (gồm filler); nếu template thiếu, fallback theo vals.
+      const seq =
+        tmplCols.length >= vals.length
+          ? tmplCols
+          : vals.map((_v, i) => ({ col: colLetter(i), s: '' }));
       let cells = '';
-      // Ghi cell cho MỌI cột (kể cả rỗng = <c/>) để dòng liền mạch A..cuối — file upload-OK
-      // luôn có đủ cell; bỏ cell rỗng làm "nhảy cột" khiến parser SPX đọc lệch → loại.
-      vals.forEach((v, c) => {
-        const ref = `${colLetter(c)}${r}`;
+      seq.forEach((tc, c) => {
+        const ref = `${tc.col}${r}`;
+        const sAttr = fmtStyle(tc.s);
         if (c === remIdx) {
-          cells += formulaCell(ref, reminderFormula(r), '');
+          cells += formulaCell(ref, sAttr, reminderFormula(r), '');
         } else if (c === eligIdx) {
-          // Cached = trạng thái theo Tỉnh(D)+Quận/Huyện(E); các ô còn lại buildRow luôn điền.
           const ok = String(vals[3] ?? '').trim() !== '' && String(vals[4] ?? '').trim() !== '';
-          cells += formulaCell(ref, eligibleFormula(r), ok ? 'Đủ điều kiện' : 'Chưa đủ điều kiện');
-        } else if (v === '' || v === null || v === undefined) {
-          cells += `<c r="${ref}"/>`;
-        } else if (typeof v === 'number') {
-          cells += `<c r="${ref}"><v>${v}</v></c>`;
+          cells += formulaCell(ref, sAttr, eligibleFormula(r), ok ? 'Đủ điều kiện' : 'Chưa đủ điều kiện');
         } else {
-          cells += `<c r="${ref}" t="s"><v>${(refsAdded++, internString(String(v)))}</v></c>`;
+          const v = c < vals.length ? vals[c] : ''; // cột filler > vals → rỗng
+          if (v === '' || v === null || v === undefined) {
+            cells += `<c r="${ref}"${sAttr}/>`;
+          } else if (typeof v === 'number') {
+            cells += `<c r="${ref}"${sAttr}><v>${v}</v></c>`;
+          } else {
+            cells += `<c r="${ref}"${sAttr} t="s"><v>${(refsAdded++, internString(String(v)))}</v></c>`;
+          }
         }
       });
-      body += `<row r="${r}">${cells}</row>`;
+      body += `<row r="${r}"${rowAttr}>${cells}</row>`;
     });
     zip.file(path, xml.slice(0, r1End) + body + xml.slice(sdClose));
   };
