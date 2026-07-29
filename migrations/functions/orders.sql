@@ -200,9 +200,6 @@ LANGUAGE sql STABLE AS $$
                                 ELSE '[]'::jsonb END),
     'subtotal',          COALESCE(o.subtotal, 0),
     'discountAmount',    COALESCE(o.discount_amount, 0),
-    -- Giảm giá TAY nhiều dòng {note, amount} + tổng (trừ vào total sau KM).
-    'discounts',         COALESCE(o.discounts, '[]'::jsonb),
-    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
     'appliedPromotions', order_applied_promotions_json(o.id),
     'giftItems',         order_gift_items_json(o.id),
     'total',             COALESCE(o.total, 0),
@@ -238,6 +235,12 @@ LANGUAGE sql STABLE AS $$
     'cancelledAt',       o.cancelled_at,
     'cancelledBy',       o.cancelled_by,
     'refunds',           order_refunds_json(o.id)
+  )
+  -- Giảm giá TAY {note, amount} + tổng. Tách jsonb_build_object riêng vì object chính đã
+  -- chạm trần 100 args (50 cặp) của jsonb_build_object — gộp thêm cặp sẽ vỡ.
+  || jsonb_build_object(
+    'discounts',            COALESCE(o.discounts, '[]'::jsonb),
+    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0)
   );
 $$;
 
