@@ -56,6 +56,16 @@ export async function buildSpxFile(
     return idx;
   };
 
+  // Công thức 2 cột CUỐI (giống template gốc, đã bỏ #REF! do Google export làm hỏng):
+  //  AB = nhắc nhở số tiền COD; AC = "Đủ điều kiện" khi đủ 14 ô bắt buộc (Giao 1 phần = N).
+  // Ghi lại dạng công thức để Excel tự tính + cập nhật khi user sửa dropdown Tỉnh/Quận-Huyện.
+  const abFormula = (r: number): string =>
+    `IF(R${r}="Y",IF(ISBLANK(X${r}),"Khi chọn Giao hàng 1 phần --> Vui lòng điền số tiền COD = Số lượng x giá tiền",""),IF(AND(W${r}="Y",ISBLANK(X${r})),"Vui lòng điền số tiền COD",""))`;
+  const acFormula = (r: number): string =>
+    `IF(COUNTA(A${r},B${r},C${r},D${r},E${r},F${r},I${r},L${r},Q${r},R${r},S${r},T${r},W${r},Z${r})=14,"Đủ điều kiện","Chưa đủ điều kiện")`;
+  const formulaCell = (ref: string, formula: string, cached: string): string =>
+    `<c r="${ref}" t="str"><f>${escapeXml(formula)}</f><v>${escapeXml(cached)}</v></c>`;
+
   const fillSheet = async (path: string, dataRows: (string | number)[][]): Promise<void> => {
     const f = zip.file(path);
     if (!f) return;
@@ -68,12 +78,20 @@ export async function buildSpxFile(
     let body = '';
     dataRows.forEach((vals, ri) => {
       const r = ri + 2;
+      const abIdx = vals.length - 2; // cột AB (nhắc COD)
+      const acIdx = vals.length - 1; // cột AC (Đủ điều kiện)
       let cells = '';
       // Ghi cell cho MỌI cột (kể cả rỗng = <c/>) để dòng liền mạch A..cuối — file upload-OK
       // luôn có đủ cell; bỏ cell rỗng làm "nhảy cột" khiến parser SPX đọc lệch → loại.
       vals.forEach((v, c) => {
         const ref = `${colLetter(c)}${r}`;
-        if (v === '' || v === null || v === undefined) {
+        if (c === abIdx) {
+          cells += formulaCell(ref, abFormula(r), '');
+        } else if (c === acIdx) {
+          // Cached = trạng thái theo Tỉnh(D)+Quận/Huyện(E); các ô còn lại buildRow luôn điền.
+          const ok = String(vals[3] ?? '').trim() !== '' && String(vals[4] ?? '').trim() !== '';
+          cells += formulaCell(ref, acFormula(r), ok ? 'Đủ điều kiện' : 'Chưa đủ điều kiện');
+        } else if (v === '' || v === null || v === undefined) {
           cells += `<c r="${ref}"/>`;
         } else if (typeof v === 'number') {
           cells += `<c r="${ref}"><v>${v}</v></c>`;
