@@ -200,6 +200,9 @@ LANGUAGE sql STABLE AS $$
                                 ELSE '[]'::jsonb END),
     'subtotal',          COALESCE(o.subtotal, 0),
     'discountAmount',    COALESCE(o.discount_amount, 0),
+    -- Giảm giá TAY nhiều dòng {note, amount} + tổng (trừ vào total sau KM).
+    'discounts',         COALESCE(o.discounts, '[]'::jsonb),
+    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
     'appliedPromotions', order_applied_promotions_json(o.id),
     'giftItems',         order_gift_items_json(o.id),
     'total',             COALESCE(o.total, 0),
@@ -566,6 +569,8 @@ DECLARE
   v_surcharge numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
   v_surcharge_tag text := NULLIF(p_input->>'surchargeTag', '');
   v_surcharges jsonb := COALESCE(p_input->'surcharges', '[]'::jsonb);
+  v_discounts jsonb := COALESCE(p_input->'discounts', '[]'::jsonb);
+  v_manual_discount numeric := 0;
   v_has      boolean;
   v_compute_in jsonb;
   v_promo    jsonb;
@@ -630,6 +635,11 @@ BEGIN
     v_gifts    := '[]'::jsonb;
   END IF;
 
+  -- Giảm giá TAY: tổng = sum(discounts.amount), trừ vào total SAU khuyến mãi (floor 0).
+  v_manual_discount := COALESCE((SELECT sum(NULLIF(e->>'amount','')::numeric)
+                                 FROM jsonb_array_elements(v_discounts) e), 0);
+  v_total := GREATEST(0, v_total - v_manual_discount);
+
   -- customer_id chỉ set khi khớp customers.id (FK).
   v_cust_id := NULLIF(v_cust->>'id', '');
   IF v_cust_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM customers WHERE id = v_cust_id) THEN
@@ -642,6 +652,7 @@ BEGIN
     subtotal, shipping_cost, discount_amount, total,
     deposit_amount, paid_amount,
     surcharge_amount, surcharge_tag, surcharges,
+    discounts, manual_discount_amount,
     payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, tracking_number, sepay_id,
     commission_status, is_test, created_by, created_at
@@ -655,6 +666,7 @@ BEGIN
     COALESCE(NULLIF(p_input->>'paidAmount','')::numeric,
              CASE WHEN NULLIF(p_input->>'paymentStatus','') = 'PAID' THEN v_total ELSE 0 END),
     v_surcharge, v_surcharge_tag, v_surcharges,
+    v_discounts, v_manual_discount,
     order_derive_pay_status(
       COALESCE(NULLIF(p_input->>'paidAmount','')::numeric,
                CASE WHEN NULLIF(p_input->>'paymentStatus','') = 'PAID' THEN v_total ELSE 0 END),
@@ -711,6 +723,8 @@ DECLARE
   v_surcharge numeric := COALESCE(NULLIF(p_input->>'surchargeAmount','')::numeric, 0);
   v_surcharge_tag text := NULLIF(p_input->>'surchargeTag', '');
   v_surcharges jsonb := p_input->'surcharges';  -- NULL nếu client không gửi
+  v_discounts jsonb := p_input->'discounts';    -- NULL nếu client không gửi
+  v_manual_discount numeric := 0;
   v_has       boolean;
   v_compute_in jsonb;
   v_promo     jsonb;
@@ -860,6 +874,15 @@ BEGIN
     v_applied  := COALESCE(v_promo->'appliedPromotions', '[]'::jsonb);
   END IF;
 
+  -- Giảm giá TAY: nếu client gửi 'discounts' → tổng mới; else giữ tổng cũ. Trừ vào total (floor 0).
+  IF p_input ? 'discounts' THEN
+    v_manual_discount := COALESCE((SELECT sum(NULLIF(e->>'amount','')::numeric)
+                                   FROM jsonb_array_elements(COALESCE(v_discounts, '[]'::jsonb)) e), 0);
+  ELSE
+    v_manual_discount := COALESCE(v_existing.manual_discount_amount, 0);
+  END IF;
+  v_total := GREATEST(0, v_total - v_manual_discount);
+
   -- editor name (như service: displayName||email||User-uid6||Unknown).
   v_uid_short := CASE WHEN v_uid IS NOT NULL THEN 'User-' || left(v_uid, 6) END;
   v_editor := COALESCE(NULLIF(p_user->>'displayName',''), NULLIF(p_user->>'email',''),
@@ -889,6 +912,11 @@ BEGIN
                             THEN v_surcharge_tag ELSE surcharge_tag END,
     surcharges       = CASE WHEN p_input ? 'surcharges'
                             THEN v_surcharges ELSE surcharges END,
+    -- Giảm giá tay: chỉ cập nhật khi client gửi 'discounts'.
+    discounts        = CASE WHEN p_input ? 'discounts'
+                            THEN COALESCE(v_discounts, '[]'::jsonb) ELSE discounts END,
+    manual_discount_amount = CASE WHEN p_input ? 'discounts'
+                            THEN v_manual_discount ELSE manual_discount_amount END,
     note             = COALESCE(p_input->>'note',''),
     status           = p_input->>'status',
     delivery_date    = CASE WHEN p_input ? 'deliveryDate'
