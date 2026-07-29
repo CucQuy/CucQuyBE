@@ -7,6 +7,7 @@ import { createOldMatcher, OldAddr } from './spx-old-match';
 
 const SYSTEM_PROMPT = loadPrompt(__dirname, 'spx-address-old.prompt.md');
 const CITY_PROMPT = loadPrompt(__dirname, 'spx-city-grounded.prompt.md');
+const WARD_PROMPT = loadPrompt(__dirname, 'spx-ward-grounded.prompt.md');
 
 /**
  * Tách địa chỉ tự do → Tỉnh/Quận/Xã hệ CŨ (3 cấp) chuẩn danh mục SPX (bảng spx_*_old).
@@ -108,6 +109,35 @@ export class SpxAddressOldService {
         }
       } catch {
         // AI lỗi → để trống cho user chọn dropdown.
+      }
+    }
+
+    // ── Tầng 4 (GROUNDED): đã có TỈNH+QUẬN/HUYỆN nhưng thiếu XÃ/PHƯỜNG → AI chọn từ list của Quận/Huyện ──
+    const wardMiss = resolved
+      .map((r, i) => (r.state && r.city && !r.ward && (matcher.wardsByCity.get(r.city)?.length ?? 0) > 0 ? i : -1))
+      .filter((i) => i >= 0);
+    if (wardMiss.length > 0) {
+      const blocks = wardMiss
+        .map((oi, k) => {
+          const wards = matcher.wardsByCity.get(resolved[oi].city) ?? [];
+          const listStr = wards.map((w) => `- ${w}`).join('\n');
+          return `### ${k + 1}\nĐịa chỉ: ${clean[oi]}\nTỉnh/Thành: ${resolved[oi].state}\nQuận/Huyện: ${resolved[oi].city}\nPhường/Xã hợp lệ:\n${listStr}`;
+        })
+        .join('\n\n');
+      try {
+        const raw = await this.ai.complete(SPX_ADDRESS_OLD_CONFIG, WARD_PROMPT, blocks);
+        const parsed = this.ai.parseJson<{ items?: unknown }>(raw);
+        const items = Array.isArray(parsed.items) ? parsed.items : [];
+        for (const it of items) {
+          const r = (it ?? {}) as Record<string, unknown>;
+          const k = typeof r.i === 'number' ? r.i - 1 : -1;
+          if (k < 0 || k >= wardMiss.length) continue;
+          const oi = wardMiss[k];
+          const ward = matcher.snapWard(this.ai.normalizeStr(r.ward) ?? '', resolved[oi].city);
+          if (ward) resolved[oi] = { ...resolved[oi], ward };
+        }
+      } catch {
+        // AI lỗi → để trống Xã cho user chọn dropdown.
       }
     }
 

@@ -179,5 +179,5 @@ export function createOldMatcher(
     return { state, city, ward };
   };
 
-  return { resolve, snap, snapState, snapCity, snapWard, citiesByState };
+  return { resolve, snap, snapState, snapCity, snapWard, citiesByState, wardsByCity };
 }
