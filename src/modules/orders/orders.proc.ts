@@ -155,22 +155,26 @@ export class OrderProc {
       SELECT id, tracking_number FROM orders
       WHERE tracking_number ILIKE 'SPXVN%'
         AND COALESCE(status, '') <> 'CANCELLED'
-        AND (COALESCE(tracking_status, '') NOT ILIKE '%đã giao%' OR delivered_at IS NULL)
+        AND (COALESCE(tracking_status, '') NOT ILIKE '%đã giao%' OR delivered_at IS NULL OR shipped_at IS NULL)
       ORDER BY created_at DESC NULLS LAST
       LIMIT 100`;
   }
 
-  /** Cập nhật trạng thái VĐ; nếu có mốc giao (unix giây) → lưu delivered_at (không ghi đè). */
-  async setTrackingStatus(id: string, status: string | null, deliveredAtSec?: number | null): Promise<void> {
-    if (deliveredAtSec && deliveredAtSec > 0) {
-      await this.db.sql`
-        UPDATE orders
-           SET tracking_status = ${status},
-               delivered_at = COALESCE(delivered_at, to_timestamp(${deliveredAtSec})),
-               updated_at = now()
-         WHERE id = ${id}`;
-    } else {
-      await this.db.sql`UPDATE orders SET tracking_status = ${status}, updated_at = now() WHERE id = ${id}`;
-    }
+  /** Cập nhật trạng thái VĐ; lưu mốc giao (delivered_at) + mốc bắt đầu VC (shipped_at), không ghi đè. */
+  async setTrackingStatus(
+    id: string,
+    status: string | null,
+    deliveredAtSec?: number | null,
+    shippedAtSec?: number | null,
+  ): Promise<void> {
+    const del = deliveredAtSec && deliveredAtSec > 0 ? deliveredAtSec : null;
+    const ship = shippedAtSec && shippedAtSec > 0 ? shippedAtSec : null;
+    await this.db.sql`
+      UPDATE orders
+         SET tracking_status = ${status},
+             delivered_at = COALESCE(delivered_at, CASE WHEN ${del}::bigint IS NULL THEN NULL ELSE to_timestamp(${del}) END),
+             shipped_at = COALESCE(shipped_at, CASE WHEN ${ship}::bigint IS NULL THEN NULL ELSE to_timestamp(${ship}) END),
+             updated_at = now()
+       WHERE id = ${id}`;
   }
 }

@@ -238,9 +238,10 @@ export class OrdersService {
     status: string | null;
     events: { time: number; label: string; location?: string }[];
     deliveredAt: number | null;
+    shippedAt: number | null;
   }> {
     const clean = (tn || '').trim();
-    const empty = { tn: clean, status: null, events: [] as any[], deliveredAt: null };
+    const empty = { tn: clean, status: null, events: [] as any[], deliveredAt: null, shippedAt: null };
     if (!/^SPXVN/i.test(clean)) return empty; // chỉ SPX (mở rộng 3PL khác sau)
     try {
       const url = `https://spx.vn/shipment/order/open/order/get_order_info?spx_tn=${encodeURIComponent(clean)}`;
@@ -254,6 +255,9 @@ export class OrdersService {
         (r) => (r?.tracking_code || '').toString().trim().toUpperCase() === 'F980' && r?.actual_time,
       );
       const deliveredAt = del ? Number(del.actual_time) || null : null;
+      // Mốc bắt đầu vận chuyển = lần scan sớm nhất (SPX nhận hàng vào mạng lưới).
+      const times = recs.map((r) => Number(r?.actual_time) || 0).filter((n) => n > 0);
+      const shippedAt = times.length ? Math.min(...times) : null;
       const events = recs
         // chỉ mốc SPX hiển thị (display_flag=1); bỏ mốc phụ ẩn (packed/loaded…)
         .filter((r) => r?.actual_time && Number(r.display_flag) === 1)
@@ -262,7 +266,7 @@ export class OrdersService {
           label: mapSpxLabel(r.tracking_code, r.tracking_name, r.buyer_description || r.description),
           location: r?.current_location?.location_name || undefined,
         }));
-      return { tn: clean, status: SPX_GROUP_VI[group ?? ''] ?? group, events, deliveredAt };
+      return { tn: clean, status: SPX_GROUP_VI[group ?? ''] ?? group, events, deliveredAt, shippedAt };
     } catch {
       return empty;
     }
@@ -283,7 +287,7 @@ export class OrdersService {
             ? e0.label + (e0.location ? ` · ${e0.location}` : '')
             : t.status ?? null;
           if (latest) {
-            await this.proc.setTrackingStatus(r.id, latest, t.deliveredAt);
+            await this.proc.setTrackingStatus(r.id, latest, t.deliveredAt, t.shippedAt);
             updated++;
           }
         }),
