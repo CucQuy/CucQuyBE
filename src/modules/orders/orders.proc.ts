@@ -149,17 +149,28 @@ export class OrderProc {
   }
 
   // ── Đơn SPX đang chạy (chưa giao/huỷ) để refresh trạng thái VĐ ──
+  // Bao gồm CẢ đơn đã giao nhưng CHƯA có delivered_at (backfill mốc giao 1 lần).
   async trackedForRefresh(): Promise<{ id: string; tracking_number: string }[]> {
     return this.db.sql<{ id: string; tracking_number: string }[]>`
       SELECT id, tracking_number FROM orders
       WHERE tracking_number ILIKE 'SPXVN%'
-        AND COALESCE(status, '') NOT IN ('CANCELLED', 'DELIVERED')
-        AND COALESCE(tracking_status, '') NOT ILIKE '%đã giao%'
+        AND COALESCE(status, '') <> 'CANCELLED'
+        AND (COALESCE(tracking_status, '') NOT ILIKE '%đã giao%' OR delivered_at IS NULL)
       ORDER BY created_at DESC NULLS LAST
       LIMIT 100`;
   }
 
-  async setTrackingStatus(id: string, status: string | null): Promise<void> {
-    await this.db.sql`UPDATE orders SET tracking_status = ${status}, updated_at = now() WHERE id = ${id}`;
+  /** Cập nhật trạng thái VĐ; nếu có mốc giao (unix giây) → lưu delivered_at (không ghi đè). */
+  async setTrackingStatus(id: string, status: string | null, deliveredAtSec?: number | null): Promise<void> {
+    if (deliveredAtSec && deliveredAtSec > 0) {
+      await this.db.sql`
+        UPDATE orders
+           SET tracking_status = ${status},
+               delivered_at = COALESCE(delivered_at, to_timestamp(${deliveredAtSec})),
+               updated_at = now()
+         WHERE id = ${id}`;
+    } else {
+      await this.db.sql`UPDATE orders SET tracking_status = ${status}, updated_at = now() WHERE id = ${id}`;
+    }
   }
 }

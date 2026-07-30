@@ -68,6 +68,31 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
         GROUP BY 1 ORDER BY qty DESC LIMIT 15
       ) t
     ),
+    -- Đơn TỈNH: so ngày SPX giao thực (delivered_at) với ngày CẦN giao (delivery_date).
+    -- delta (ngày) = ngày giao − ngày cần giao. <0 sớm, =0 đúng, >0 trễ.
+    'shipTimeliness', (
+      WITH tl AS (
+        SELECT order_number,
+               to_date(left(delivery_date::text, 10), 'YYYY-MM-DD') AS need_date,
+               (delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS delivered_date,
+               ((delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+                 - to_date(left(delivery_date::text, 10), 'YYYY-MM-DD')) AS delta
+        FROM orders
+        WHERE delivery_type = 'SHIP_PROVINCE' AND COALESCE(is_test, false) = false
+          AND delivered_at IS NOT NULL AND NULLIF(delivery_date::text, '') IS NOT NULL
+      )
+      SELECT jsonb_build_object(
+        'count', (SELECT count(*) FROM tl),
+        'avgDelta', (SELECT COALESCE(round(avg(delta)::numeric, 1), 0) FROM tl),
+        'early', (SELECT count(*) FROM tl WHERE delta < 0),
+        'onTime', (SELECT count(*) FROM tl WHERE delta = 0),
+        'late', (SELECT count(*) FROM tl WHERE delta > 0),
+        'maxLate', (SELECT COALESCE(max(delta), 0) FROM tl),
+        'orders', (SELECT COALESCE(jsonb_agg(o ORDER BY o.delta DESC), '[]'::jsonb) FROM (
+          SELECT order_number, need_date, delivered_date, delta FROM tl
+        ) o)
+      )
+    ),
     'generatedAt', now()
   );
 $$;
