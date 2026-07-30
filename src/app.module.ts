@@ -35,6 +35,7 @@ import { SurchargeTagsModule } from './modules/surcharge-tags/surcharge-tags.mod
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PosModule } from './modules/pos/pos.module';
 import { NotificationSchedulesModule } from './modules/notification-schedules/notification-schedules.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
     NotificationsModule,
     PosModule,
     NotificationSchedulesModule,
+    AnalyticsModule,
   ],
   controllers: [HealthController, SsoLoginController],
 })
