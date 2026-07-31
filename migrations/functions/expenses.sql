@@ -32,7 +32,7 @@ $$;
 
 -- ── Set tay 1 giao dịch: gán category + cờ loại khỏi chi phí (backup khi rule sai) ──
 CREATE OR REPLACE FUNCTION transaction_set_expense(
-  p_id uuid, p_category text, p_excluded boolean
+  p_id text, p_category text, p_excluded boolean
 )
 RETURNS SETOF transactions LANGUAGE plpgsql AS $$
 BEGIN
