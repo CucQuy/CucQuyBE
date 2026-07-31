@@ -60,6 +60,7 @@ export interface RefundListItem {
   orderNumber?: string | null;
   amount: number; // VND
   reason?: string | null;
+  category?: string | null;
   createdAt?: unknown; // ISO timestamptz
   transactionId?: string | null;
   reconciled: boolean;

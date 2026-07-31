@@ -76,6 +76,27 @@ export class OrderProc {
     return row?.list ?? [];
   }
 
+  // ── Tạo phiếu hoàn TAY theo hạng mục (tuỳ chọn gắn luôn GD tiền ra) — trả order ──
+  async createRefund(
+    orderId: string,
+    amount: number,
+    category: string | null,
+    reason: string | null,
+    transactionId: string | null,
+    userJson: Record<string, any>,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_refund_create(
+        ${orderId},
+        ${amount},
+        ${category},
+        ${reason},
+        ${transactionId},
+        ${this.db.json(userJson)}::jsonb
+      ) AS "order"`;
+    return row.order;
+  }
+
   // ── Đối soát phiếu hoàn ↔ giao dịch SePay 'out' — trả order đầy đủ ──
   async reconcileRefund(
     refundId: string,

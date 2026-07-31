@@ -165,6 +165,26 @@ export class OrdersService {
     return this.proc.refundList();
   }
 
+  /** Tạo phiếu hoàn TAY theo hạng mục cho 1 đơn (tuỳ chọn gắn luôn GD tiền ra). */
+  async createRefund(
+    orderId: string,
+    dto: { amount: number; category?: string; reason?: string; transactionId?: string },
+    currentUser: AuthUser,
+  ): Promise<Order> {
+    try {
+      return await this.proc.createRefund(
+        orderId,
+        dto.amount,
+        dto.category ?? null,
+        dto.reason ?? null,
+        dto.transactionId ?? null,
+        userJson(currentUser),
+      );
+    } catch (e) {
+      throw mapRefundError(e);
+    }
+  }
+
   /** Đối soát 1 phiếu hoàn với 1 giao dịch SePay 'out'. Trả order đầy đủ. */
   async reconcileRefund(
     refundId: string,
@@ -357,10 +377,21 @@ function userJson(u: AuthUser): Record<string, any> {
 /** Map exception raw từ Postgres (đối soát) sang HTTP status có nghĩa cho FE. */
 function mapRefundError(e: unknown): Error {
   const msg = (e as { message?: string })?.message ?? '';
-  if (msg.includes('REFUND_NOT_FOUND') || msg.includes('TRANSACTION_NOT_FOUND')) {
+  if (
+    msg.includes('REFUND_NOT_FOUND') ||
+    msg.includes('TRANSACTION_NOT_FOUND') ||
+    msg.includes('ORDER_NOT_FOUND')
+  ) {
     return new NotFoundException(
-      msg.includes('TRANSACTION') ? 'TRANSACTION_NOT_FOUND' : 'REFUND_NOT_FOUND',
+      msg.includes('TRANSACTION')
+        ? 'TRANSACTION_NOT_FOUND'
+        : msg.includes('ORDER')
+          ? 'ORDER_NOT_FOUND'
+          : 'REFUND_NOT_FOUND',
     );
+  }
+  if (msg.includes('ORDER_REFUND_AMOUNT_INVALID')) {
+    return new BadRequestException('ORDER_REFUND_AMOUNT_INVALID');
   }
   if (msg.includes('TRANSACTION_ALREADY_LINKED')) {
     return new ConflictException('TRANSACTION_ALREADY_LINKED');

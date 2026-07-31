@@ -161,6 +161,7 @@ LANGUAGE sql STABLE AS $$
       'id',             r.id,
       'amount',         COALESCE(r.amount, 0),
       'reason',         COALESCE(r.reason, ''),
+      'category',       COALESCE(r.category, ''),
       'items',          COALESCE(r.items, '[]'::jsonb),
       'createdAt',      r.created_at,
       'createdBy',      COALESCE(r.created_by, ''),
@@ -420,6 +421,87 @@ BEGIN
 END;
 $$;
 
+-- Tạo phiếu hoàn TAY cho 1 đơn theo HẠNG MỤC (đối soát tiền ra): thu hộ trùng,
+-- hoàn phí ship (đổi qua tới lấy), huỷ đơn… KHÔNG gắn item. Cập nhật refunded_amount
+-- (SELF-HEAL = tổng mọi phiếu) + ghi history. Nếu truyền p_transaction_id (GD tiền ra)
+-- → GẮN + đối soát luôn (sepay) trong 1 lần. Trả order_to_json(order_id).
+CREATE OR REPLACE FUNCTION order_refund_create(
+  p_order_id       text,
+  p_amount         numeric,
+  p_category       text,
+  p_reason         text,
+  p_transaction_id text,
+  p_user           jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_actor     text := refund_actor_name(p_user);
+  v_uid       text := NULLIF(p_user->>'uid','');
+  v_refund_id text;
+  v_tx_type   text;
+  v_tx_amount numeric;
+  v_used_by   text;
+BEGIN
+  -- Đơn tồn tại?
+  PERFORM 1 FROM orders WHERE id = p_order_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ORDER_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+  -- Số tiền hoàn hợp lệ?
+  IF COALESCE(p_amount, 0) <= 0 THEN
+    RAISE EXCEPTION 'ORDER_REFUND_AMOUNT_INVALID' USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- Nếu gắn GD ngay: validate GD là tiền RA + chưa gắn phiếu khác.
+  IF NULLIF(p_transaction_id, '') IS NOT NULL THEN
+    SELECT transfer_type, transfer_amount INTO v_tx_type, v_tx_amount
+    FROM transactions WHERE id = p_transaction_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'TRANSACTION_NOT_FOUND' USING ERRCODE = 'no_data_found';
+    END IF;
+    IF COALESCE(v_tx_type,'') <> 'out' THEN
+      RAISE EXCEPTION 'TRANSACTION_NOT_OUTGOING' USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT id INTO v_used_by FROM order_refunds
+    WHERE transaction_id = p_transaction_id LIMIT 1;
+    IF FOUND THEN
+      RAISE EXCEPTION 'TRANSACTION_ALREADY_LINKED' USING ERRCODE = 'unique_violation';
+    END IF;
+  END IF;
+
+  INSERT INTO order_refunds (
+    order_id, amount, reason, items, created_by, category,
+    transaction_id, reconciled, reconcile_method, reconciled_at, reconciled_by)
+  VALUES (
+    p_order_id, p_amount, NULLIF(p_reason,''), '[]'::jsonb, v_actor, NULLIF(p_category,''),
+    NULLIF(p_transaction_id,''),
+    NULLIF(p_transaction_id,'') IS NOT NULL,
+    CASE WHEN NULLIF(p_transaction_id,'') IS NOT NULL THEN 'sepay' END,
+    CASE WHEN NULLIF(p_transaction_id,'') IS NOT NULL THEN now() END,
+    CASE WHEN NULLIF(p_transaction_id,'') IS NOT NULL THEN v_actor END)
+  RETURNING id INTO v_refund_id;
+
+  -- refunded_amount = TỔNG mọi phiếu (không cộng dồn) → luôn khớp, không phình.
+  UPDATE orders SET
+    refunded_amount = COALESCE(
+      (SELECT SUM(amount) FROM order_refunds WHERE order_id = p_order_id), 0),
+    refunded_at   = now(),
+    refund_reason = COALESCE(NULLIF(p_reason,''), refund_reason),
+    refunded_by   = v_actor
+  WHERE id = p_order_id;
+
+  PERFORM order_add_history(p_order_id, v_actor, v_uid, jsonb_build_array(
+    jsonb_build_object(
+      'field', 'refunded_amount', 'label', 'Hoàn tiền',
+      'oldValue', '—',
+      'newValue', '+' || p_amount::text
+        || COALESCE(' · ' || NULLIF(p_category,''), ''))));
+
+  RETURN order_get(p_order_id);
+END;
+$$;
+
 -- Danh sách TOÀN BỘ phiếu hoàn (mọi đơn) kèm ngữ cảnh đơn — phục vụ đối soát
 -- TỪ PHÍA giao dịch tiền ra (tab "Tiền ra"): map 1 GD out ↔ 1 phiếu hoàn.
 -- transactionId != NULL => phiếu đã gắn GD đó; reconciled/method cho biết trạng thái.
@@ -432,6 +514,7 @@ LANGUAGE sql STABLE AS $$
     'orderNumber',     o.order_number,
     'amount',          r.amount,
     'reason',          r.reason,
+    'category',        r.category,
     'createdAt',       r.created_at,
     'transactionId',   r.transaction_id,
     'reconciled',      COALESCE(r.reconciled, false),
@@ -994,8 +1077,8 @@ BEGIN
       END IF;
       v_refund_reason := NULLIF(v_refund_in->>'reason','');
 
-      INSERT INTO order_refunds (order_id, amount, reason, items, created_by)
-      VALUES (p_id, v_refund_amount, v_refund_reason, v_refund_items, v_editor);
+      INSERT INTO order_refunds (order_id, amount, reason, items, created_by, category)
+      VALUES (p_id, v_refund_amount, v_refund_reason, v_refund_items, v_editor, 'reduce_qty');
 
       -- SELF-HEAL: refunded_amount = TỔNG mọi phiếu (không cộng dồn) → luôn khớp, không phình.
       UPDATE orders SET

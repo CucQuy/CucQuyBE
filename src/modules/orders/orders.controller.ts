@@ -16,6 +16,7 @@ import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { OrdersService } from './orders.service';
+import { CreateRefundDto } from './dto/create-refund.dto';
 import { ReconcileRefundDto } from './dto/reconcile-refund.dto';
 import { ReconcileTransactionDto } from './dto/reconcile-transaction.dto';
 import { buildSpxFile, SpxAddressMode } from './spx/spx-export.util';
@@ -79,6 +80,19 @@ export class OrdersController {
   @Delete(':id')
   deleteOrder(@Param('id') id: string) {
     return this.service.deleteOrder(id);
+  }
+
+  /**
+   * Tạo phiếu hoàn TAY theo hạng mục cho 1 đơn (đối soát tiền ra). Nếu body có
+   * transactionId (GD tiền ra) → gắn + đối soát luôn. Trả order đầy đủ.
+   */
+  @Post(':id/refunds')
+  createRefund(
+    @Param('id') id: string,
+    @Body() dto: CreateRefundDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.createRefund(id, dto, user);
   }
 
   /**
