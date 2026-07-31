@@ -303,4 +303,9 @@ export class StockReceiptsService {
   async unreconcileReceipt(receiptId: string): Promise<{ ok: boolean }> {
     return this.proc.unreconcile(receiptId);
   }
+
+  /** Tồn kho NVL theo đơn nhập từ mốc (mặc định 13/7/2026). */
+  async fetchInventory(from?: string): Promise<any> {
+    return this.proc.inventoryOverview(from || '2026-07-13');
+  }
 }

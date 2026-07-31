@@ -125,6 +125,13 @@ export class StockReceiptProc {
     return this.db.sql<ReceiptRow[]>`SELECT * FROM stock_receipt_list()`;
   }
 
+  // ── Tồn kho NVL theo đơn nhập từ mốc (mặc định 13/7); trước đó = 0 ──
+  async inventoryOverview(from: string): Promise<any> {
+    const [row] = await this.db.sql<{ result: any }[]>`
+      SELECT inventory_overview(${from}::timestamptz) AS result`;
+    return row?.result ?? null;
+  }
+
   // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────
   async listForReconcile(): Promise<ReconcileReceiptItem[]> {
     const [row] = await this.db.sql<{ list: ReconcileReceiptItem[] }[]>`

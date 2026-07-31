@@ -77,6 +77,12 @@ export class StockReceiptsController {
     return this.service.listReceiptsForReconcile();
   }
 
+  /** Tồn kho NVL theo đơn nhập từ mốc (mặc định 13/7); trước đó = 0. */
+  @Get('inventory')
+  fetchInventory(@Query('from') from?: string) {
+    return this.service.fetchInventory(from);
+  }
+
   /** Danh sách phiếu nhập (summary). */
   @Get()
   fetchStockReceiptSummaries() {
