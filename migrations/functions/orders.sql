@@ -1242,63 +1242,108 @@ $$;
 -- Match đơn theo 9 SỐ CUỐI của SĐT người nhận (bỏ số 0 đầu), ưu tiên đơn CHƯA có vận đơn +
 -- mới nhất, loại đơn CANCELLED. p_apply=false → chỉ preview; true → ghi tracking_number/link/status.
 -- Trả {matched:[...], unmatched:[...], applied, matchedCount, unmatchedCount}.
+-- Đồng bộ VẬN ĐƠN từ file SPX. Xử lý mã bị HUỶ + tạo lại:
+--   • Khớp đơn theo "Mã khách hàng" (orderRef = order_number) TRƯỚC, rồi mới theo SĐT.
+--   • Gộp mọi dòng cùng 1 đơn: chọn mã ACTIVE (không huỷ) MỚI NHẤT theo createTime.
+--   • Mã cũ của đơn đã HUỶ mà file có mã mới active → THAY mã mới (dù đơn đã có mã).
+--   • Đơn đang giữ đúng 1 mã đã huỷ, chưa có mã mới → đánh dấu tracking_status='Đã hủy' (bucket cancelled).
+--   • Đơn đã có mã ACTIVE khác (không nằm trong danh sách huỷ) → SKIP, không ghi đè (an toàn).
+-- Buckets trả: matched[] (assign/replace), skipped[], cancelled[], unmatched[].
 CREATE OR REPLACE FUNCTION order_sync_tracking(p_rows jsonb, p_apply boolean DEFAULT false)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
-  r          jsonb;
-  v_tracking text; v_link text; v_status text; v_name text; v_phone9 text;
-  v_oid text; v_onum text; v_ocust text; v_had text;
-  v_matched   jsonb := '[]'::jsonb;
-  v_unmatched jsonb := '[]'::jsonb;
-  v_skipped   jsonb := '[]'::jsonb;
+  v_result jsonb;
 BEGIN
-  FOR r IN SELECT * FROM jsonb_array_elements(COALESCE(p_rows, '[]'::jsonb)) LOOP
-    v_tracking := NULLIF(trim(r->>'tracking'), '');
-    v_link     := NULLIF(trim(r->>'link'), '');
-    v_status   := NULLIF(trim(r->>'status'), '');
-    v_name     := NULLIF(trim(r->>'name'), '');
-    v_phone9   := right(regexp_replace(COALESCE(r->>'phone',''), '\D', '', 'g'), 9);
-    v_oid := NULL; v_onum := NULL; v_ocust := NULL; v_had := NULL;
+  -- (1) Chuẩn hoá + khớp đơn (ORD trước, SĐT sau) — pre-state, dùng cho cả report & apply.
+  DROP TABLE IF EXISTS _sync_res;
+  CREATE TEMP TABLE _sync_res ON COMMIT DROP AS
+  WITH rws AS (
+    SELECT
+      NULLIF(trim(e->>'tracking'),'') AS tracking,
+      NULLIF(trim(e->>'link'),'')     AS link,
+      NULLIF(trim(e->>'status'),'')   AS status,
+      NULLIF(trim(e->>'name'),'')     AS name,
+      right(regexp_replace(coalesce(e->>'phone',''),'\D','','g'),9) AS phone9,
+      CASE WHEN upper(trim(coalesce(e->>'orderRef',''))) ~ '^ORD' THEN upper(trim(e->>'orderRef')) END AS order_ref,
+      NULLIF(trim(e->>'createTime'),'') AS create_time,
+      -- huỷ: khớp "huy" như 1 TỪ (ranh giới) để tránh nuốt "chuyển"→"chuyen" (chứa 'huy').
+      (unaccent(lower(coalesce(e->>'status',''))) ~ '(\mhuy\M|cancel)') AS is_cancel
+    FROM jsonb_array_elements(coalesce(p_rows,'[]'::jsonb)) e
+    WHERE NULLIF(trim(e->>'tracking'),'') IS NOT NULL
+  )
+  SELECT rws.*, o.id AS oid, o.order_number AS onum, o.customer_name AS ocust, o.tracking_number AS had
+  FROM rws
+  LEFT JOIN LATERAL (
+    SELECT o2.id, o2.order_number, o2.customer_name, o2.tracking_number
+    FROM orders o2
+    WHERE coalesce(o2.status,'')<>'CANCELLED' AND (
+      (rws.order_ref IS NOT NULL AND upper(o2.order_number)=rws.order_ref)
+      OR (rws.order_ref IS NULL AND length(rws.phone9)>=8
+          AND right(regexp_replace(coalesce(o2.phone,''),'\D','','g'),9)=rws.phone9))
+    ORDER BY (o2.order_number IS NOT NULL) DESC, o2.created_at DESC NULLS LAST
+    LIMIT 1
+  ) o ON true;
 
-    IF v_tracking IS NOT NULL AND length(v_phone9) >= 8 THEN
-      SELECT o.id, o.order_number, o.customer_name, o.tracking_number
-        INTO v_oid, v_onum, v_ocust, v_had
-      FROM orders o
-      WHERE right(regexp_replace(COALESCE(o.phone,''), '\D', '', 'g'), 9) = v_phone9
-        AND COALESCE(o.status, '') <> 'CANCELLED'
-      ORDER BY (o.tracking_number IS NULL) DESC, o.created_at DESC NULLS LAST
-      LIMIT 1;
-    END IF;
+  -- (2) Gộp theo đơn + quyết định hành động (từ pre-state 'had').
+  DROP TABLE IF EXISTS _sync_dec;
+  CREATE TEMP TABLE _sync_dec ON COMMIT DROP AS
+  WITH per_order AS (
+    SELECT oid, max(onum) AS onum, max(ocust) AS ocust, max(had) AS had,
+      (array_remove(array_agg(tracking ORDER BY create_time DESC NULLS LAST) FILTER (WHERE NOT is_cancel), NULL))[1] AS best_tk,
+      (array_remove(array_agg(link     ORDER BY create_time DESC NULLS LAST) FILTER (WHERE NOT is_cancel), NULL))[1] AS best_link,
+      (array_remove(array_agg(status   ORDER BY create_time DESC NULLS LAST) FILTER (WHERE NOT is_cancel), NULL))[1] AS best_status,
+      (array_agg(name ORDER BY create_time DESC NULLS LAST))[1] AS name,
+      array_remove(array_agg(tracking) FILTER (WHERE is_cancel), NULL) AS cancelled_tks
+    FROM _sync_res WHERE oid IS NOT NULL GROUP BY oid
+  )
+  SELECT *, CASE
+    WHEN best_tk IS NULL THEN
+      CASE WHEN had IS NOT NULL AND had = ANY(coalesce(cancelled_tks,'{}')) THEN 'cancelled' ELSE 'noop' END
+    WHEN had IS NULL THEN 'assign'
+    WHEN had = best_tk THEN 'skip_same'
+    WHEN had = ANY(coalesce(cancelled_tks,'{}')) THEN 'replace'
+    ELSE 'skip_existing' END AS action
+  FROM per_order;
 
-    IF v_oid IS NOT NULL THEN
-      IF v_had IS NOT NULL THEN
-        -- Đơn khớp đã CÓ mã vận đơn → SKIP, KHÔNG ghi đè.
-        v_skipped := v_skipped || jsonb_build_object(
-          'tracking', v_tracking, 'orderNumber', v_onum, 'orderCustomer', v_ocust,
-          'receiverName', v_name, 'existingTracking', v_had);
-      ELSE
-        IF p_apply THEN
-          UPDATE orders
-             SET tracking_number = v_tracking, tracking_link = v_link,
-                 tracking_status = v_status, updated_at = now()
-           WHERE id = v_oid;
-        END IF;
-        v_matched := v_matched || jsonb_build_object(
-          'tracking', v_tracking, 'link', v_link, 'status', v_status,
-          'orderNumber', v_onum, 'orderCustomer', v_ocust, 'receiverName', v_name,
-          'hadTracking', false);
-      END IF;
-    ELSE
-      v_unmatched := v_unmatched || jsonb_build_object(
-        'tracking', v_tracking, 'receiverName', v_name, 'phone', r->>'phone');
-    END IF;
-  END LOOP;
+  -- (3) Ghi (chỉ khi apply): assign/replace mã mới; đơn giữ mã huỷ → đánh dấu 'Đã hủy'.
+  IF p_apply THEN
+    UPDATE orders o SET
+      tracking_number = CASE WHEN d.action IN ('assign','replace') THEN d.best_tk ELSE o.tracking_number END,
+      tracking_link   = CASE WHEN d.action IN ('assign','replace') THEN d.best_link ELSE o.tracking_link END,
+      tracking_status = CASE WHEN d.action IN ('assign','replace') THEN d.best_status
+                             WHEN d.action = 'cancelled' THEN 'Đã hủy'
+                             ELSE o.tracking_status END,
+      updated_at = now()
+    FROM _sync_dec d
+    WHERE o.id = d.oid AND d.action IN ('assign','replace','cancelled');
+  END IF;
 
-  RETURN jsonb_build_object(
-    'matched', v_matched, 'unmatched', v_unmatched, 'skipped', v_skipped, 'applied', p_apply,
-    'matchedCount', jsonb_array_length(v_matched),
-    'unmatchedCount', jsonb_array_length(v_unmatched),
-    'skippedCount', jsonb_array_length(v_skipped));
+  -- (4) Báo cáo (dựa trên _sync_dec = pre-state, phản ánh đúng việc vừa làm).
+  SELECT jsonb_build_object(
+    'applied', p_apply,
+    'matched', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'tracking',best_tk,'link',best_link,'status',best_status,
+        'orderNumber',onum,'orderCustomer',ocust,'receiverName',name,
+        'hadTracking', action='replace', 'replaced', action='replace'))
+      FROM _sync_dec WHERE action IN ('assign','replace')), '[]'::jsonb),
+    'skipped', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'tracking', best_tk, 'orderNumber',onum,'orderCustomer',ocust,'receiverName',name,
+        'existingTracking', had, 'sameTracking', action='skip_same'))
+      FROM _sync_dec WHERE action IN ('skip_same','skip_existing')), '[]'::jsonb),
+    'cancelled', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'orderNumber',onum,'orderCustomer',ocust,'receiverName',name,
+        'cancelledTracking', coalesce(had, (cancelled_tks)[1])))
+      FROM _sync_dec WHERE action='cancelled'), '[]'::jsonb),
+    'unmatched', coalesce((SELECT jsonb_agg(DISTINCT jsonb_build_object(
+        'tracking',tracking,'receiverName',name,'phone',phone9))
+      FROM _sync_res WHERE oid IS NULL AND NOT is_cancel), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result || jsonb_build_object(
+    'matchedCount',   jsonb_array_length(v_result->'matched'),
+    'skippedCount',   jsonb_array_length(v_result->'skipped'),
+    'cancelledCount', jsonb_array_length(v_result->'cancelled'),
+    'unmatchedCount', jsonb_array_length(v_result->'unmatched'));
 END;
 $$;
 
