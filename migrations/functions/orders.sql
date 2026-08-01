@@ -1253,6 +1253,7 @@ CREATE OR REPLACE FUNCTION order_sync_tracking(p_rows jsonb, p_apply boolean DEF
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
   v_result jsonb;
+  h        record;
 BEGIN
   -- (1) Chuẩn hoá + khớp đơn (ORD trước, SĐT sau) — pre-state, dùng cho cả report & apply.
   DROP TABLE IF EXISTS _sync_res;
@@ -1307,6 +1308,25 @@ BEGIN
 
   -- (3) Ghi (chỉ khi apply): assign/replace mã mới; đơn giữ mã huỷ → đánh dấu 'Đã hủy'.
   IF p_apply THEN
+    -- (3a) Ghi LỊCH SỬ đổi mã (dùng trạng thái CŨ, trước khi UPDATE).
+    FOR h IN
+      SELECT dc.oid, dc.action, dc.had, dc.best_tk, o.tracking_status AS cur_status
+      FROM _sync_dec dc JOIN orders o ON o.id = dc.oid
+      WHERE dc.action IN ('assign','replace','cancelled')
+        AND NOT (dc.action = 'cancelled' AND coalesce(o.tracking_status,'') = 'Đã hủy')
+    LOOP
+      PERFORM order_add_history(h.oid, 'Đồng bộ SPX', NULL,
+        CASE h.action
+          WHEN 'assign'  THEN jsonb_build_array(jsonb_build_object(
+            'field','tracking_number','label','Gán mã vận đơn','oldValue','—','newValue', h.best_tk))
+          WHEN 'replace' THEN jsonb_build_array(jsonb_build_object(
+            'field','tracking_number','label','Thay mã vận đơn (mã cũ đã huỷ)','oldValue', coalesce(h.had,'—'),'newValue', h.best_tk))
+          ELSE jsonb_build_array(jsonb_build_object(
+            'field','tracking_number','label','Mã vận đơn bị huỷ','oldValue', coalesce(h.had,'—'),'newValue','Đã hủy'))
+        END);
+    END LOOP;
+
+    -- (3b) Ghi mã mới / đánh dấu huỷ.
     UPDATE orders o SET
       tracking_number = CASE WHEN d.action IN ('assign','replace') THEN d.best_tk ELSE o.tracking_number END,
       tracking_link   = CASE WHEN d.action IN ('assign','replace') THEN d.best_link ELSE o.tracking_link END,
