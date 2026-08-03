@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -168,5 +169,13 @@ export class StockReceiptsController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   unreconcileReceipt(@Param('id') id: string) {
     return this.service.unreconcileReceipt(id);
+  }
+
+  /** Xoá phiếu nhập (cascade: lines + tài sản/chi phí liên kết) + recompute tổng NCC/NVL.
+   *  Dùng cho tính năng SỬA (FE tạo bản mới rồi xoá bản cũ). Chặn nếu phiếu đã đối soát. */
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  deleteReceipt(@Param('id') id: string) {
+    return this.service.deleteReceipt(id);
   }
 }

@@ -1001,3 +1001,66 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'receiptId', p_receipt_id);
 END;
 $$;
+
+-- ── XOÁ phiếu nhập (cascade) — dùng cho tính năng SỬA: FE tạo bản mới rồi xoá bản cũ.
+-- Gỡ downstream theo receipt_line_id (manual_expenses, assets), xoá lines + header,
+-- rồi RECOMPUTE tổng NVL (material_recompute) + tổng NCC (từ receipts thật, khớp
+-- công thức create: COALESCE(total_amount, tổng line)). Chặn nếu phiếu đã đối soát.
+CREATE OR REPLACE FUNCTION stock_receipt_delete(p_id text)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_supplier_id text;
+  v_reconciled boolean;
+  v_mat_ids text[];
+  v_mat text;
+BEGIN
+  SELECT supplier_id, COALESCE(reconciled, false)
+    INTO v_supplier_id, v_reconciled
+    FROM stock_receipts WHERE id = p_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_found');
+  END IF;
+  IF v_reconciled THEN
+    RAISE EXCEPTION 'Phiếu đã đối soát — gỡ đối soát trước khi xoá/sửa';
+  END IF;
+
+  -- NVL bị ảnh hưởng (gom TRƯỚC khi xoá dòng để recompute sau)
+  SELECT array_agg(DISTINCT material_id) INTO v_mat_ids
+    FROM stock_receipt_lines WHERE receipt_id = p_id AND material_id IS NOT NULL;
+
+  -- downstream theo dòng (chi phí vận hành + tài sản)
+  DELETE FROM manual_expenses
+    WHERE receipt_line_id IN (SELECT id FROM stock_receipt_lines WHERE receipt_id = p_id);
+  DELETE FROM assets
+    WHERE receipt_line_id IN (SELECT id FROM stock_receipt_lines WHERE receipt_id = p_id);
+
+  DELETE FROM stock_receipt_lines WHERE receipt_id = p_id;
+  DELETE FROM stock_receipts WHERE id = p_id;
+
+  -- recompute tổng NVL còn lại
+  IF v_mat_ids IS NOT NULL THEN
+    FOREACH v_mat IN ARRAY v_mat_ids LOOP
+      PERFORM material_recompute(v_mat);
+    END LOOP;
+  END IF;
+
+  -- recompute tổng NCC từ nguồn thật
+  IF v_supplier_id IS NOT NULL THEN
+    UPDATE suppliers s SET
+      receipt_count = (SELECT count(*) FROM stock_receipts WHERE supplier_id = s.id),
+      total_amount = (
+        SELECT COALESCE(SUM(COALESCE(sr.total_amount, ls.s)), 0)
+        FROM stock_receipts sr
+        LEFT JOIN (
+          SELECT receipt_id, SUM(COALESCE(line_total, 0)) AS s
+          FROM stock_receipt_lines GROUP BY receipt_id
+        ) ls ON ls.receipt_id = sr.id
+        WHERE sr.supplier_id = s.id
+      ),
+      updated_at = now()
+    WHERE s.id = v_supplier_id;
+  END IF;
+
+  RETURN jsonb_build_object('ok', true, 'id', p_id);
+END;
+$$;

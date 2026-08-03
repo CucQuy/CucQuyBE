@@ -144,6 +144,12 @@ export class StockReceiptProc {
     return row.result;
   }
 
+  async delete(receiptId: string): Promise<{ ok: boolean; reason?: string; id?: string }> {
+    const rows = await this.db.sql<{ result: { ok: boolean; reason?: string; id?: string } }[]>`
+      SELECT stock_receipt_delete(${receiptId}) AS result`;
+    return rows[0].result;
+  }
+
   async unreconcile(receiptId: string): Promise<{ ok: boolean }> {
     const [row] = await this.db.sql<{ result: { ok: boolean } }[]>`
       SELECT stock_receipt_unreconcile(${receiptId}) AS result`;

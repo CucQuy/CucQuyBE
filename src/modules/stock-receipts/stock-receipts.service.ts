@@ -303,4 +303,11 @@ export class StockReceiptsService {
   async unreconcileReceipt(receiptId: string): Promise<{ ok: boolean }> {
     return this.proc.unreconcile(receiptId);
   }
+
+  /** Xoá phiếu nhập (cascade + recompute). Dùng cho SỬA: FE tạo bản mới rồi xoá bản cũ. */
+  async deleteReceipt(
+    receiptId: string,
+  ): Promise<{ ok: boolean; reason?: string; id?: string }> {
+    return this.proc.delete(receiptId);
+  }
 }
