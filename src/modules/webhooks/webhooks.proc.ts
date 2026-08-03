@@ -14,7 +14,6 @@ export type SepayResult = {
   ambiguousCount?: number;
   transaction?: unknown;
 };
-export type FacebookResult = { duplicate: boolean; id: string };
 export type OrderPaidItem = {
   name: string;
   quantity: number;
@@ -44,11 +43,5 @@ export class WebhookProc {
     const rows = await this.db.sql<{ result: OrderPaidSummary | null }[]>`
       SELECT order_paid_noti_summary(${orderNumber}) AS result`;
     return rows[0]?.result ?? null;
-  }
-
-  async facebookMessage(body: unknown): Promise<FacebookResult> {
-    const rows = await this.db.sql<{ result: FacebookResult }[]>`
-      SELECT facebook_message_create(${this.db.json(body ?? {})}::jsonb) AS result`;
-    return rows[0].result;
   }
 }

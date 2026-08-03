@@ -8,7 +8,7 @@ import { WebhooksService } from './webhooks.service';
 import { QUEUE_WEBHOOKS } from '../../queue/queue.constants';
 
 /**
- * Webhook PUBLIC (SePay / Facebook gọi tới, KHÔNG có token đăng nhập).
+ * Webhook PUBLIC (SePay gọi tới, KHÔNG có token đăng nhập).
  * Dùng @Res() để trả ĐÚNG format gốc (bypass envelope toàn cục) — nhà cung
  * cấp webhook kỳ vọng body riêng, không phải {data,message,...}.
  *
@@ -44,14 +44,4 @@ export class WebhooksController {
     }
   }
 
-  @Public()
-  @Post('facebook')
-  async facebook(@Body() body: any, @Res() res: Response) {
-    try {
-      const { status, payload } = await this.service.handleFacebook(body);
-      res.status(status).json(payload);
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error?.message || 'error' });
-    }
-  }
 }

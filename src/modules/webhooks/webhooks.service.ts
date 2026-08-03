@@ -62,31 +62,6 @@ export class WebhooksService {
     };
   }
 
-  /** Facebook/Fanpage inbox: lưu message, idempotent theo id_new_message. */
-  async handleFacebook(body: any): Promise<{ status: number; payload: Record<string, unknown> }> {
-    const idNewMessage =
-      typeof body?.id_new_message === 'string' ? body.id_new_message.trim() : '';
-    if (!body || !idNewMessage) {
-      return {
-        status: 400,
-        payload: { error: 'Invalid webhook data: id_new_message is required' },
-      };
-    }
-
-    const res = await this.proc.facebookMessage(body);
-
-    return {
-      status: 200,
-      payload: {
-        success: true,
-        duplicate: res.duplicate,
-        message: res.duplicate ? 'Message already stored' : 'Webhook received',
-        id_new_message: idNewMessage,
-        docId: res.id,
-      },
-    };
-  }
-
   /** VND kiểu Việt Nam (250.000 ₫) — khớp formatVND của FE để noti đồng nhất. */
   private formatVND(amount: number): string {
     try {
