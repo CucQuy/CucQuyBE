@@ -757,7 +757,7 @@ BEGIN
       COALESCE(NULLIF(p_input->>'paidAmount','')::numeric,
                CASE WHEN NULLIF(p_input->>'paymentStatus','') = 'PAID' THEN v_total ELSE 0 END),
       v_total, NULLIF(p_input->>'paymentStatus','')),
-    COALESCE(NULLIF(p_input->>'paymentMethod',''), 'CASH'),
+    COALESCE(NULLIF(p_input->>'paymentMethod',''), 'BANKING'),  -- mặc định đơn mới: chuyển khoản
     p_input->>'status',
     COALESCE(NULLIF(p_input->>'deliveryType',''), 'SHIP'),
     NULLIF(p_input->>'deliveryDate',''),
