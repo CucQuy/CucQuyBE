@@ -2,13 +2,17 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
+import { Public } from '../../auth/roles.decorator';
+import { verifySsoToken } from '../../auth/sso.util';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { UsersService } from './users.service';
@@ -48,18 +52,28 @@ export class UsersController {
    * Lưu/cập nhật doc của user đang đăng nhập (gọi ngay sau login).
    * uid/email/displayName lấy từ token; body (nếu có) được merge.
    */
+  /**
+   * Upsert user đang đăng nhập — PUBLIC (bypass SsoAuthGuard) vì user MỚI chưa có
+   * trong DB, guard sẽ chặn 401 (chicken-and-egg). Tự verify SSO token ở đây, lấy
+   * uid=sub/email/name/picture từ token (authoritative). User mới → tạo status
+   * 'pending' để admin thấy + duyệt.
+   */
+  @Public()
   @Post('sync')
-  saveUser(
-    @CurrentUser() user: AuthUser,
-    @Body() body: Record<string, unknown>,
-  ) {
+  saveUser(@Headers('authorization') authHeader: string | undefined) {
+    const token = (authHeader ?? '').replace(/^Bearer\s+/i, '').trim();
+    let claims;
+    try {
+      claims = verifySsoToken(token);
+    } catch {
+      throw new UnauthorizedException('Token không hợp lệ hoặc đã hết hạn');
+    }
+    if (!claims.sub) {
+      throw new UnauthorizedException('Token thiếu subject (uid)');
+    }
     return this.service.saveUser(
-      {
-        uid: user.uid,
-        email: user.email ?? null,
-        displayName: user.displayName ?? null,
-      },
-      body || {},
+      { uid: claims.sub, email: claims.email ?? null, displayName: claims.name ?? null },
+      { photoURL: claims.picture ?? null },
     );
   }
 

@@ -45,10 +45,11 @@ BEGIN
     RETURN; -- không có uid → không làm gì
   END IF;
 
-  -- Tìm bản ghi đã tồn tại theo uid trước, rồi tới email.
+  -- Tìm bản ghi đã tồn tại theo uid trước, rồi tới email (case-insensitive để tránh
+  -- tạo trùng user khi email lưu khác hoa/thường với token).
   SELECT * INTO v_existing FROM users WHERE uid = v_uid;
   IF NOT FOUND AND v_email IS NOT NULL THEN
-    SELECT * INTO v_existing FROM users WHERE email = v_email LIMIT 1;
+    SELECT * INTO v_existing FROM users WHERE lower(email) = lower(v_email) LIMIT 1;
   END IF;
 
   IF v_existing.uid IS NOT NULL THEN
