@@ -12,6 +12,8 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT t.transfer_type = 'out'
      AND coalesce(t.settled_out, false) = false
      AND coalesce(t.cost_excluded, false) = false
+     -- Category "không tính" (personal/owner/internal) đã coi như đã xử lý → không cần đối soát.
+     AND (coalesce(t.expense_category, '') = '' OR expense_category_is_cost(t.expense_category))
      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
      AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id);
 $$;
