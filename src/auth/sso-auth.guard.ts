@@ -29,6 +29,7 @@ function normalizeRole(raw: unknown): UserRole | undefined {
   if (s === 'super_admin') return UserRole.SUPER_ADMIN;
   if (s === 'admin') return UserRole.ADMIN;
   if (s === 'colaborator') return UserRole.COLABORATOR;
+  if (s === 'staff') return UserRole.STAFF;
   return undefined;
 }
 

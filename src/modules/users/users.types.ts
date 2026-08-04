@@ -5,7 +5,7 @@
 
 export type UserStatus = 'pending' | 'active' | 'inactive';
 
-export type UserRole = 'super_admin' | 'admin' | 'colaborator';
+export type UserRole = 'super_admin' | 'admin' | 'colaborator' | 'staff';
 
 export interface UserData {
   uid: string;

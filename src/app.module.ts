@@ -21,6 +21,7 @@ import { ConfigurationsModule } from './modules/configurations/configurations.mo
 import { UsersModule } from './modules/users/users.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { StockReceiptsModule } from './modules/stock-receipts/stock-receipts.module';
+import { EmployeesModule } from './modules/employees/employees.module';
 import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
@@ -67,6 +68,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     UsersModule,
     OrdersModule,
     StockReceiptsModule,
+    EmployeesModule,
     ImagesModule,
     WebhooksModule,
     SerpapiModule,

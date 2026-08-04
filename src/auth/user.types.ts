@@ -3,6 +3,7 @@ export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   ADMIN = 'admin',
   COLABORATOR = 'colaborator',
+  STAFF = 'staff',
 }
 
 /** Người dùng đã xác thực, gắn vào request sau khi verify ID token. */

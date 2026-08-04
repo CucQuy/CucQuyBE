@@ -18,7 +18,7 @@ function asStatus(raw: unknown): UserStatus {
 
 /** Chuẩn hoá role thô về UserRole. */
 function asRole(raw: unknown): UserRole {
-  if (raw === 'super_admin' || raw === 'admin' || raw === 'colaborator') {
+  if (raw === 'super_admin' || raw === 'admin' || raw === 'colaborator' || raw === 'staff') {
     return raw;
   }
   return 'colaborator';
