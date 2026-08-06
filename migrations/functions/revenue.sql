@@ -448,3 +448,42 @@ BEGIN
   );
 END;
 $$;
+
+-- ============================================================
+-- Phân tích P&L THEO THÁNG (tách từ analytics_overview cũ). Read-only, STABLE.
+-- Doanh thu − NVL (loại sơn/dụng cụ) − OPEX − hoàn = lãi, gom theo tháng của
+-- các đơn KHÔNG test/huỷ, lọc order_date (p_from/p_to NULL = toàn bộ).
+-- OPEX chỉ có từ khi có dữ liệu SePay. Trả { pnlMonthly }.
+-- ============================================================
+CREATE OR REPLACE FUNCTION revenue_analytics(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  WITH valid AS (
+    SELECT * FROM orders
+    WHERE COALESCE(is_test, false) = false
+      AND COALESCE(status, '') <> 'CANCELLED'
+      AND (p_from IS NULL OR order_date >= p_from)
+      AND (p_to   IS NULL OR order_date <  (p_to + 1))
+  ),
+  rx AS (
+    SELECT id, CASE WHEN receipt_date ~ '^\d{4}-\d{1,2}-\d{1,2}' THEN substring(receipt_date,1,10)::date
+                    WHEN receipt_date ~ '^\d{1,2}/\d{1,2}/\d{4}' THEN to_date(receipt_date,'DD/MM/YYYY')
+                    ELSE created_at::date END AS rdate, COALESCE(status,'') AS st
+    FROM stock_receipts
+  )
+  SELECT jsonb_build_object(
+    'pnlMonthly', (
+      SELECT COALESCE(jsonb_agg(y ORDER BY y.month),'[]'::jsonb) FROM (
+        SELECT mm.month AS month,
+          COALESCE((SELECT sum(total) FROM valid WHERE to_char(order_date,'YYYY-MM')=mm.month),0) AS revenue,
+          COALESCE((SELECT sum(amount) FROM order_refunds WHERE to_char(created_at,'YYYY-MM')=mm.month),0) AS refund,
+          COALESCE((SELECT sum(l.line_total) FROM stock_receipt_lines l JOIN rx ON rx.id=l.receipt_id
+                    WHERE to_char(rx.rdate,'YYYY-MM')=mm.month AND COALESCE(l.item_type,'')='material' AND rx.st<>'void'
+                      AND NOT (unaccent(lower(l.name)) ~ '(son |son$|chong tham|jotun|jotaplast|touchshield|gardex|mica|den led|mang den|ban gaming|ban hoc|khuon|may xay|lo nuong|nhiet ke|keo silicone|tam nhua|tam nhao)')),0) AS material,
+          COALESCE((SELECT sum(transfer_amount) FROM transactions WHERE transfer_type='out'
+                    AND COALESCE(cost_excluded,false)=false AND left(transaction_date,7)=mm.month),0) AS opex
+        FROM (SELECT DISTINCT to_char(order_date,'YYYY-MM') AS month FROM valid WHERE order_date IS NOT NULL) mm
+      ) y
+    ),
+    'generatedAt', now()
+  );
+$$;

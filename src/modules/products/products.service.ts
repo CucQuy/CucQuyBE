@@ -43,6 +43,11 @@ export class ProductsService {
     return (await this.proc.list()).map(mapRow);
   }
 
+  /** Phân tích sản phẩm cho trang "Phân tích" (from/to rỗng = toàn bộ lịch sử). */
+  async analytics(from?: string, to?: string): Promise<Record<string, unknown>> {
+    return this.proc.analytics(from?.trim() || null, to?.trim() || null);
+  }
+
   async addProduct(
     productData: Record<string, unknown>,
   ): Promise<{ id: string }> {

@@ -326,3 +326,32 @@ LANGUAGE sql AS $$
                               ELSE NULL END
   WHERE id = ANY(COALESCE(p_order_ids, ARRAY[]::text[]));
 $$;
+
+-- ============================================================
+-- Phân tích CỘNG TÁC VIÊN (tách từ analytics_overview cũ). Read-only, STABLE.
+-- Đơn + doanh thu theo NGƯỜI TẠO đơn (order_creator_name), đơn KHÔNG test/huỷ,
+-- lọc order_date (p_from/p_to NULL = toàn bộ). Trả { collaborators }.
+-- LANGUAGE plpgsql: hoãn resolve order_creator_name (định nghĩa ở orders.sql, áp
+-- sau commission.sql theo alphabet) → không fail lúc bootstrap DB rỗng.
+-- ============================================================
+CREATE OR REPLACE FUNCTION commission_analytics(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE v_result jsonb;
+BEGIN
+  SELECT jsonb_build_object(
+    'collaborators', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.revenue DESC),'[]'::jsonb) FROM (
+        SELECT order_creator_name(created_by) AS name, count(*) AS orders, COALESCE(sum(total),0) AS revenue
+        FROM orders
+        WHERE COALESCE(is_test,false)=false AND COALESCE(status,'')<>'CANCELLED'
+          AND COALESCE(created_by,'')<>''
+          AND (p_from IS NULL OR order_date >= p_from)
+          AND (p_to   IS NULL OR order_date <  (p_to + 1))
+        GROUP BY order_creator_name(created_by)
+      ) t
+    ),
+    'generatedAt', now()
+  ) INTO v_result;
+  RETURN v_result;
+END;
+$$;

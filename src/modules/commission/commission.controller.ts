@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -20,6 +20,12 @@ export class CommissionController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   getSummaries() {
     return this.service.getAllSummaries();
+  }
+
+  /** Phân tích cộng tác viên (đơn + doanh thu theo người tạo) trong kỳ. ?from&to (rỗng = toàn bộ). */
+  @Get('analytics')
+  analytics(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.analytics(from, to);
   }
 
   /** CTV / admin: hoa hồng của chính mình. */

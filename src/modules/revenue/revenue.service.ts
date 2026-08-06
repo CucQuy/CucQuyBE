@@ -35,4 +35,17 @@ export class RevenueService {
     await this.redis.set(cacheKey, report, REPORT_TTL);
     return report;
   }
+
+  /** Phân tích P&L theo tháng cho trang "Phân tích" (from/to rỗng = toàn bộ lịch sử). */
+  async analytics(from?: string, to?: string): Promise<Record<string, unknown>> {
+    const f = from?.trim() || null;
+    const t = to?.trim() || null;
+    const cacheKey = `report:revenue:analytics:${f ?? 'all'}:${t ?? 'all'}`;
+    const cached = await this.redis.get<Record<string, unknown>>(cacheKey);
+    if (cached) return cached;
+
+    const data = await this.proc.analytics(f, t);
+    await this.redis.set(cacheKey, data, REPORT_TTL);
+    return data;
+  }
 }

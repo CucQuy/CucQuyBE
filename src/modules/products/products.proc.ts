@@ -42,6 +42,13 @@ export class ProductProc {
       SELECT ${this.db.sql.unsafe(COLS)} FROM product_list()`;
   }
 
+  /** Phân tích sản phẩm (top bán chạy) trong kỳ (p_from/p_to NULL = toàn bộ). */
+  async analytics(from: string | null, to: string | null): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> }[]>`
+      SELECT product_analytics(${from}::date, ${to}::date) AS data`;
+    return row?.data ?? {};
+  }
+
   create(productData: Record<string, unknown>): Promise<ProductRow[]> {
     return this.db.sql<ProductRow[]>`
       SELECT ${this.db.sql.unsafe(COLS)}

@@ -50,6 +50,11 @@ export class OrdersService {
     return this.proc.list();
   }
 
+  /** Phân tích đơn hàng cho trang "Phân tích" (from/to rỗng = toàn bộ lịch sử). */
+  async analytics(from?: string, to?: string): Promise<Record<string, unknown>> {
+    return this.proc.analytics(from?.trim() || null, to?.trim() || null);
+  }
+
   // ── Sinh số đơn kế tiếp ─────────────────────────────────────
   async getNextOrderNumber(): Promise<string> {
     return (await this.proc.nextNumber()) ?? 'ORD-000001';
@@ -73,6 +78,23 @@ export class OrdersService {
   }
 
   // ── Cập nhật đơn (check quyền CTV + ghi history qua diff) ────
+  /** Danh sách đơn PHÂN TRANG + lọc + sắp (server-side) — cho trang Orders. */
+  async listOrdersPage(params: Record<string, any>): Promise<{ items: Order[]; total: number }> {
+    return this.proc.listPage(params ?? {});
+  }
+
+  /** Đếm nhanh (total/pending/cancelled/unpaid) cho OrdersStats. */
+  async orderCounts(): Promise<Record<string, number>> {
+    return this.proc.counts();
+  }
+
+  /** 1 đơn đầy đủ theo id (order_get) — cho màn chi tiết/sửa (list trả bản nhẹ). */
+  async getOrder(id: string): Promise<Order> {
+    const order = await this.proc.get(id);
+    if (!order) throw new NotFoundException('ORDER_NOT_FOUND');
+    return order;
+  }
+
   async updateOrder(
     orderId: string,
     orderData: Record<string, any>,
@@ -144,6 +166,90 @@ export class OrdersService {
       triggeredBy: currentUser?.uid,
     });
 
+    return { ...r.order, changes: r.changes, prevOrder: r.prevOrder };
+  }
+
+  /**
+   * Đổi TRẠNG THÁI đơn (NHẸ) — chỉ UPDATE status + 1 history (order_update_status),
+   * KHÔNG tính lại KM / DELETE-INSERT items như updateOrder full. Trả cùng shape
+   * ({...order, changes, prevOrder}) để FE gửi Zalo giữ nguyên.
+   */
+  async updateOrderStatus(
+    orderId: string,
+    status: string,
+    currentUser: AuthUser,
+  ): Promise<OrderUpdateResult> {
+    const existing = await this.proc.get(orderId);
+    if (!existing) throw new NotFoundException('ORDER_NOT_FOUND');
+
+    if (currentUser?.role === UserRole.COLABORATOR) {
+      const creatorUid = existing.createdByUid;
+      if (!currentUser.uid || !creatorUid || creatorUid !== currentUser.uid) {
+        throw new ForbiddenException(ORDER_EDIT_DENIED);
+      }
+    }
+
+    // Không đổi → trả nguyên trạng, không ghi history / noti.
+    if ((existing.status ?? '') === (status ?? '')) {
+      return { ...existing, changes: [], prevOrder: existing } as OrderUpdateResult;
+    }
+
+    const userJson = {
+      uid: currentUser?.uid ?? '',
+      role: currentUser?.role ?? '',
+      displayName: currentUser?.displayName ?? '',
+      email: currentUser?.email ?? '',
+    };
+    const updated = await this.proc.updateStatus(orderId, status, userJson);
+    const changes: OrderFieldChange[] = [
+      { field: 'status', label: 'Trạng thái', oldValue: existing.status ?? '—', newValue: status },
+    ];
+
+    void this.notif.log({
+      kind: 'inapp',
+      category: 'order_status',
+      title: `Cập nhật đơn ${updated.orderNumber ?? orderId} · ${this.who(currentUser)}`,
+      body: `Trạng thái → ${status}`,
+      target: 'admins',
+      triggeredBy: currentUser?.uid,
+    });
+
+    return { ...updated, changes, prevOrder: existing } as OrderUpdateResult;
+  }
+
+  /**
+   * Patch NHẸ các field nhanh (paymentStatus/paymentMethod/deliveryType) — dùng
+   * order_patch_fields (chỉ đụng field gửi lên, không tính lại KM/items). Trả cùng
+   * shape {...order, changes, prevOrder}. CTV check nằm trong SQL (raise ORDER_EDIT_DENIED).
+   */
+  async patchOrderFields(
+    orderId: string,
+    patch: Record<string, any>,
+    currentUser: AuthUser,
+  ): Promise<OrderUpdateResult> {
+    const userJson = {
+      uid: currentUser?.uid ?? '',
+      role: currentUser?.role ?? '',
+      displayName: currentUser?.displayName ?? '',
+      email: currentUser?.email ?? '',
+    };
+    const result = await this.proc.patchFields(orderId, patch, userJson);
+    const r = result as unknown as {
+      order: Order;
+      changes: OrderFieldChange[];
+      prevOrder: Order;
+    };
+    const chg = r.changes ?? [];
+    if (chg.length > 0) {
+      void this.notif.log({
+        kind: 'inapp',
+        category: 'order_update',
+        title: `Cập nhật đơn ${r.order.orderNumber ?? orderId} · ${this.who(currentUser)}`,
+        body: chg.map((x) => `${x.label ?? x.field} → ${x.newValue}`).join(' · '),
+        target: 'admins',
+        triggeredBy: currentUser?.uid,
+      });
+    }
     return { ...r.order, changes: r.changes, prevOrder: r.prevOrder };
   }
 

@@ -30,6 +30,11 @@ export class CustomersService {
     return (await this.proc.list()).map(mapRow);
   }
 
+  /** Phân tích khách hàng cho trang "Phân tích" (from/to rỗng = toàn bộ lịch sử). */
+  async analytics(from?: string, to?: string): Promise<Record<string, unknown>> {
+    return this.proc.analytics(from?.trim() || null, to?.trim() || null);
+  }
+
   async addCustomer(data: Omit<Customer, 'id'>): Promise<{ id: string }> {
     const rows = await this.proc.create(data ?? {});
     return { id: rows[0]?.id };

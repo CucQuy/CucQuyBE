@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -22,6 +23,12 @@ export class CustomersController {
   @Get()
   getAll() {
     return this.service.fetchCustomers();
+  }
+
+  /** Phân tích khách hàng (mới/quay lại/top + công nợ) trong kỳ. ?from&to (YYYY-MM-DD, rỗng = toàn bộ). */
+  @Get('analytics')
+  analytics(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.analytics(from, to);
   }
 
   @Post()

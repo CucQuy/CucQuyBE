@@ -51,6 +51,30 @@ export class OrdersController {
     return this.service.fetchTracking(tn || '');
   }
 
+  /** Danh sách đơn PHÂN TRANG + lọc + sắp (server-side) → { items, total }. */
+  @Get('page')
+  listOrdersPage(@Query() query: Record<string, any>) {
+    return this.service.listOrdersPage(query ?? {});
+  }
+
+  /** Đếm nhanh cho OrdersStats. */
+  @Get('counts')
+  orderCounts() {
+    return this.service.orderCounts();
+  }
+
+  /** Phân tích đơn hàng (kpi/giao/ship...) trong kỳ. ?from=<YYYY-MM-DD>&to=<YYYY-MM-DD> (rỗng = toàn bộ). */
+  @Get('analytics')
+  analytics(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.analytics(from, to);
+  }
+
+  /** 1 đơn ĐẦY ĐỦ theo id (list trả bản nhẹ; chi tiết/sửa fetch cái này). */
+  @Get(':id')
+  getOrder(@Param('id') id: string) {
+    return this.service.getOrder(id);
+  }
+
   /** Refresh trạng thái VĐ (mốc mới nhất) cho các đơn SPX đang chạy → lưu DB, hiện ở list. */
   @Post('refresh-tracking')
   refreshTracking() {
@@ -64,6 +88,26 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.addOrder(body, user);
+  }
+
+  /** Đổi TRẠNG THÁI đơn (nhẹ, nhanh) — chỉ status, không tính lại KM/items. */
+  @Patch(':id/status')
+  updateOrderStatus(
+    @Param('id') id: string,
+    @Body() body: { status: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.updateOrderStatus(id, String(body?.status ?? ''), user);
+  }
+
+  /** Patch nhẹ field nhanh (paymentStatus/paymentMethod/deliveryType) — không tính lại KM/items. */
+  @Patch(':id/fields')
+  patchOrderFields(
+    @Param('id') id: string,
+    @Body() body: Record<string, any>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.patchOrderFields(id, body ?? {}, user);
   }
 
   /** Cập nhật đơn (check quyền CTV + ghi history). */

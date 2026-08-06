@@ -34,6 +34,11 @@ export class CommissionService {
     return this.proc.summary(uid, name);
   }
 
+  /** Phân tích cộng tác viên cho trang "Phân tích" (from/to rỗng = toàn bộ lịch sử). */
+  async analytics(from?: string, to?: string): Promise<Record<string, unknown>> {
+    return this.proc.analytics(from?.trim() || null, to?.trim() || null);
+  }
+
   /** Admin: đánh dấu các đơn đã/chưa trả hoa hồng. */
   async setPaidStatus(orderIds: string[], paid: boolean): Promise<void> {
     if (orderIds.length === 0) return;

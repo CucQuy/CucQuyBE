@@ -31,6 +31,27 @@ export class OrderProc {
     return row?.order ?? null;
   }
 
+  // ── Danh sách PHÂN TRANG + lọc + sắp (server-side) ──────────
+  async listPage(params: Record<string, any>): Promise<{ items: Order[]; total: number }> {
+    const [row] = await this.db.sql<{ result: { items: Order[]; total: number } }[]>`
+      SELECT order_list_page(${this.db.json(params ?? {})}::jsonb) AS result`;
+    return row?.result ?? { items: [], total: 0 };
+  }
+
+  // ── Đếm nhanh cho OrdersStats ───────────────────────────────
+  async counts(): Promise<Record<string, number>> {
+    const [row] = await this.db.sql<{ result: Record<string, number> }[]>`
+      SELECT order_counts() AS result`;
+    return row?.result ?? { total: 0, pending: 0, cancelled: 0, unpaid: 0 };
+  }
+
+  // ── Phân tích đơn hàng (kpi/giao/ship...) trong kỳ (p_from/p_to NULL = toàn bộ) ──
+  async analytics(from: string | null, to: string | null): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> }[]>`
+      SELECT order_analytics(${from}::date, ${to}::date) AS data`;
+    return row?.data ?? {};
+  }
+
   // ── Sinh số đơn kế tiếp ─────────────────────────────────────
   async nextNumber(): Promise<string | undefined> {
     const [row] = await this.db.sql<{ n: string }[]>`
@@ -58,6 +79,30 @@ export class OrderProc {
         ${this.db.json(orderData)}::jsonb,
         ${this.db.json(userJson)}::jsonb,
         ${this.db.json(changes)}::jsonb
+      ) AS result`;
+    return row.result;
+  }
+
+  // ── Đổi TRẠNG THÁI đơn (nhẹ): chỉ UPDATE status + 1 history, không tính lại KM/items ──
+  async updateStatus(
+    id: string,
+    status: string,
+    userJson: Record<string, any>,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_update_status(${id}, ${status}, ${this.db.json(userJson)}::jsonb) AS "order"`;
+    return row.order;
+  }
+
+  // ── Patch field NHẸ (paymentStatus/paymentMethod/deliveryType) — không tính lại KM/items ──
+  async patchFields(
+    id: string,
+    patch: Record<string, any>,
+    userJson: Record<string, any>,
+  ): Promise<OrderUpdateResult> {
+    const [row] = await this.db.sql<{ result: OrderUpdateResult }[]>`
+      SELECT order_patch_fields(
+        ${id}, ${this.db.json(patch)}::jsonb, ${this.db.json(userJson)}::jsonb
       ) AS result`;
     return row.result;
   }

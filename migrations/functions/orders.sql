@@ -275,14 +275,171 @@ $$;
 
 -- ─────────────────────────── Đọc ───────────────────────────
 
--- Danh sách đơn (sắp orderNumber desc như FE), mỗi đơn jsonb đầy đủ.
+-- Bản NHẸ cho DANH SÁCH: bỏ 5 subquery chỉ dùng ở màn CHI TIẾT
+-- (history/refunds/decorations/appliedPromotions/giftItems → []). Màn chi tiết/sửa/share
+-- fetch full qua order_get (GET /orders/:id). Giữ items+customer cho card/tìm kiếm.
+CREATE OR REPLACE FUNCTION order_to_json_light(o orders)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'id',                o.id,
+    'orderNumber',       o.order_number,
+    'sepayId',           o.sepay_id,
+    'customer',          order_customer_json(o),
+    'customerName',      COALESCE(o.customer_name, ''),
+    'phone',             COALESCE(o.phone, ''),
+    'address',           COALESCE(o.address, ''),
+    'email',             COALESCE(o.email, ''),
+    'items',             order_items_json(o.id),
+    'decorations',       '[]'::jsonb,
+    'surchargeAmount',   COALESCE(o.surcharge_amount, 0),
+    'surchargeTag',      o.surcharge_tag,
+    'surcharges',        COALESCE(
+                           NULLIF(o.surcharges, '[]'::jsonb),
+                           CASE WHEN COALESCE(o.surcharge_amount, 0) > 0
+                                THEN jsonb_build_array(jsonb_build_object('tag', o.surcharge_tag, 'amount', o.surcharge_amount))
+                                ELSE '[]'::jsonb END),
+    'subtotal',          COALESCE(o.subtotal, 0),
+    'discountAmount',    COALESCE(o.discount_amount, 0),
+    'appliedPromotions', '[]'::jsonb,
+    'giftItems',         '[]'::jsonb,
+    'total',             COALESCE(o.total, 0),
+    'depositAmount',     COALESCE(o.deposit_amount, 0),
+    'paidAmount',        COALESCE(o.paid_amount, 0),
+    'remaining',         GREATEST(COALESCE(o.total, 0) - COALESCE(o.paid_amount, 0), 0),
+    'shippingCost',      COALESCE(o.shipping_cost, 0),
+    'status',            o.status,
+    'paymentStatus',     o.payment_status,
+    'paymentMethod',     o.payment_method,
+    'deliveryType',      o.delivery_type,
+    'orderDate',         o.order_date,
+    'deliveryDate',      o.delivery_date,
+    'deliveryTime',      o.delivery_time,
+    'trackingNumber',    o.tracking_number,
+    'trackingLink',      o.tracking_link,
+    'trackingStatus',    o.tracking_status,
+    'note',              COALESCE(o.note, ''),
+    'createdByUid',      o.created_by,
+    'createdBy',         order_creator_name(o.created_by),
+    'updatedBy',         o.updated_by,
+    'createdAt',         o.created_at,
+    'updatedAt',         o.updated_at,
+    'history',           '[]'::jsonb,
+    'isTest',            COALESCE(o.is_test, false),
+    'commissionStatus',  o.commission_status,
+    'commissionPaidAt',  o.commission_paid_at,
+    'refundedAmount',    COALESCE(o.refunded_amount, 0),
+    'refundedAt',        o.refunded_at,
+    'refundReason',      o.refund_reason,
+    'refundedBy',        o.refunded_by,
+    'cancelReason',      o.cancel_reason,
+    'cancelledAt',       o.cancelled_at,
+    'cancelledBy',       o.cancelled_by,
+    'refunds',           '[]'::jsonb
+  )
+  || jsonb_build_object(
+    'discounts',            COALESCE(o.discounts, '[]'::jsonb),
+    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0)
+  );
+$$;
+
+-- Danh sách đơn (sắp orderNumber desc như FE) — dùng bản NHẸ (perf).
 CREATE OR REPLACE FUNCTION order_list()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
-    jsonb_agg(order_to_json(o) ORDER BY o.order_number DESC NULLS LAST),
+    jsonb_agg(order_to_json_light(o) ORDER BY o.order_number DESC NULLS LAST),
     '[]'::jsonb)
   FROM orders o;
+$$;
+
+-- Danh sách đơn PHÂN TRANG + LỌC + SẮP (server-side, cho trang Orders). Trả {items[], total}.
+-- p (jsonb): search, status('All'|null=bỏ), paymentStatus, paymentMethod, creator, product,
+--   dateType('orderDate'|'deliveryDate'), dateFrom/dateTo(yyyy-mm-dd), month(yyyy-mm),
+--   hideCompleted, overdue(bool), sortField(date|deliveryDate|total|status|paymentStatus|orderNumber),
+--   sortDir(asc|desc), limit, offset.
+-- Sort 2 lớp: tier trạng thái (active→delivered→cancelled) + (nếu deliveryDate) badge priority theo
+--   ngày VN (Asia/Ho_Chi_Minh) — khớp buildDeliveryBadge ở FE. Search lower() (không unaccent) khớp client.
+CREATE OR REPLACE FUNCTION order_list_page(p jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_q text := NULLIF(lower(trim(p->>'search')),'');
+  v_status text := NULLIF(p->>'status','');
+  v_pay text := NULLIF(p->>'paymentStatus','');
+  v_method text := NULLIF(p->>'paymentMethod','');
+  v_creator text := NULLIF(lower(trim(p->>'creator')),'');
+  v_product text := NULLIF(lower(trim(p->>'product')),'');
+  v_date_type text := COALESCE(NULLIF(p->>'dateType',''),'deliveryDate');
+  v_date_from text := NULLIF(p->>'dateFrom','');
+  v_date_to text := NULLIF(p->>'dateTo','');
+  v_month text := NULLIF(p->>'month','');
+  v_hide boolean := COALESCE((p->>'hideCompleted')::boolean,false);
+  v_overdue boolean := COALESCE((p->>'overdue')::boolean,false);
+  v_sort text := COALESCE(NULLIF(p->>'sortField',''),'date');
+  v_dir text := CASE WHEN lower(COALESCE(p->>'sortDir','desc'))='asc' THEN 'asc' ELSE 'desc' END;
+  v_limit int := LEAST(GREATEST(COALESCE((p->>'limit')::int,10),1),100);
+  v_offset int := GREATEST(COALESCE((p->>'offset')::int,0),0);
+  v_today date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
+  v_total int; v_items jsonb;
+BEGIN
+  WITH flt AS (
+    SELECT o.id,
+      CASE o.status WHEN 'DELIVERED' THEN 1 WHEN 'CANCELLED' THEN 2 WHEN 'RETURNED' THEN 2 ELSE 0 END AS tier,
+      CASE WHEN o.status IN ('CANCELLED','RETURNED') THEN 5 WHEN o.status='DELIVERED' THEN 4
+           WHEN NULLIF(o.delivery_date,'')::date IS NULL THEN 3
+           WHEN NULLIF(o.delivery_date,'')::date <= v_today THEN 0 ELSE 1 END AS badge,
+      NULLIF(o.delivery_date,'')::date AS ddate, o.order_date, o.total, o.order_number, o.status, o.payment_status
+    FROM orders o
+    WHERE (v_status IS NULL OR v_status='All' OR o.status=v_status)
+      AND (NOT v_hide OR o.status NOT IN ('DELIVERED','CANCELLED','RETURNED'))
+      AND (NOT v_overdue OR (o.status IN ('PENDING','PROCESSING') AND NULLIF(o.delivery_date,'')::date < v_today))
+      AND (v_pay IS NULL OR o.payment_status=v_pay)
+      AND (v_method IS NULL OR o.payment_method=v_method)
+      AND (v_creator IS NULL OR lower(COALESCE(order_creator_name(o.created_by),'')) LIKE '%'||v_creator||'%')
+      AND (v_q IS NULL OR lower(COALESCE(o.id,'')) LIKE '%'||v_q||'%' OR lower(COALESCE(o.order_number,'')) LIKE '%'||v_q||'%'
+           OR lower(COALESCE(o.customer_name,'')) LIKE '%'||v_q||'%' OR lower(COALESCE(o.phone,'')) LIKE '%'||v_q||'%')
+      AND (v_product IS NULL OR EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id=o.id AND lower(COALESCE(oi.product_name,'')) LIKE '%'||v_product||'%'))
+      AND (v_month IS NULL OR to_char(CASE WHEN v_date_type='orderDate' THEN (o.order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date ELSE NULLIF(o.delivery_date,'')::date END,'YYYY-MM')=v_month)
+      AND (v_date_from IS NULL OR (CASE WHEN v_date_type='orderDate' THEN (o.order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date ELSE NULLIF(o.delivery_date,'')::date END) >= v_date_from::date)
+      AND (v_date_to IS NULL OR (CASE WHEN v_date_type='orderDate' THEN (o.order_date AT TIME ZONE 'Asia/Ho_Chi_Minh')::date ELSE NULLIF(o.delivery_date,'')::date END) <= v_date_to::date)
+  ),
+  ranked AS (
+    SELECT id, count(*) OVER()::int AS c,
+      row_number() OVER (ORDER BY
+        tier ASC,
+        CASE WHEN v_sort='deliveryDate' THEN badge END ASC NULLS LAST,
+        CASE WHEN v_sort='deliveryDate' AND v_dir='asc' THEN ddate END ASC NULLS LAST,
+        CASE WHEN v_sort='deliveryDate' AND v_dir='desc' THEN ddate END DESC NULLS LAST,
+        CASE WHEN v_sort='total' AND v_dir='asc' THEN total END ASC NULLS LAST,
+        CASE WHEN v_sort='total' AND v_dir='desc' THEN total END DESC NULLS LAST,
+        CASE WHEN v_sort='date' AND v_dir='asc' THEN order_date END ASC NULLS LAST,
+        CASE WHEN v_sort='date' AND v_dir='desc' THEN order_date END DESC NULLS LAST,
+        CASE WHEN v_sort='orderNumber' AND v_dir='asc' THEN order_number END ASC NULLS LAST,
+        CASE WHEN v_sort='orderNumber' AND v_dir='desc' THEN order_number END DESC NULLS LAST,
+        CASE WHEN v_sort='status' THEN status END ASC,
+        CASE WHEN v_sort='paymentStatus' THEN payment_status END ASC,
+        order_number DESC NULLS LAST) AS rn
+    FROM flt
+  )
+  SELECT
+    COALESCE((SELECT max(c) FROM ranked),0),
+    COALESCE((SELECT jsonb_agg(order_to_json_light(o) ORDER BY r.rn)
+              FROM ranked r JOIN orders o ON o.id=r.id
+              WHERE r.rn > v_offset AND r.rn <= v_offset+v_limit),'[]'::jsonb)
+  INTO v_total, v_items;
+
+  RETURN jsonb_build_object('items', v_items, 'total', v_total);
+END; $$;
+
+-- Đếm nhanh cho OrdersStats (không tải toàn bộ đơn): tổng/chờ xử lý/đã huỷ/chưa thanh toán.
+CREATE OR REPLACE FUNCTION order_counts()
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'total',     count(*)::int,
+    'pending',   count(*) FILTER (WHERE status = 'PENDING')::int,
+    'cancelled', count(*) FILTER (WHERE status IN ('CANCELLED','RETURNED'))::int,
+    'unpaid',    count(*) FILTER (WHERE COALESCE(payment_status,'') NOT IN ('PAID','REFUNDED'))::int
+  ) FROM orders;
 $$;
 
 -- 1 đơn theo id (jsonb đầy đủ) hoặc NULL.
@@ -1161,6 +1318,75 @@ BEGIN
 END;
 $$;
 
+-- ─────────────────────── Patch field NHẸ (perf) ───────────────────────
+-- Cập nhật NHANH các field đơn giản (paymentStatus/paymentMethod/deliveryType) —
+-- CHỈ đụng đúng field gửi lên (whitelist), KHÔNG tính lại KM / ghi lại items như
+-- order_update full. Ghi 1 history gộp. Trả order_get(id). Dùng cho các nút nhanh.
+CREATE OR REPLACE FUNCTION order_patch_fields(p_id text, p_patch jsonb, p_user jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_ex       orders%ROWTYPE;
+  v_uid      text := NULLIF(p_user->>'uid','');
+  v_editor   text;
+  v_uid_short text;
+  v_changes  jsonb := '[]'::jsonb;
+BEGIN
+  SELECT * INTO v_ex FROM orders WHERE id = p_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ORDER_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  -- CTV chỉ sửa đơn của mình (giữ chữ ký lỗi như order_update).
+  IF lower(COALESCE(p_user->>'role','')) = 'colaborator' THEN
+    IF v_uid IS NULL OR COALESCE(v_ex.created_by,'') = '' OR v_ex.created_by <> v_uid THEN
+      RAISE EXCEPTION 'ORDER_EDIT_DENIED' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  v_uid_short := CASE WHEN v_uid IS NOT NULL THEN 'User-' || left(v_uid, 6) END;
+  v_editor := COALESCE(NULLIF(p_user->>'displayName',''), NULLIF(p_user->>'email',''),
+                       v_uid_short, 'Unknown');
+
+  IF p_patch ? 'paymentStatus'
+     AND COALESCE(v_ex.payment_status,'') <> COALESCE(p_patch->>'paymentStatus','') THEN
+    UPDATE orders SET payment_status = p_patch->>'paymentStatus' WHERE id = p_id;
+    v_changes := v_changes || jsonb_build_array(jsonb_build_object(
+      'field','paymentStatus','label','Thanh toán',
+      'oldValue',COALESCE(NULLIF(v_ex.payment_status,''),'—'),
+      'newValue',COALESCE(NULLIF(p_patch->>'paymentStatus',''),'—')));
+  END IF;
+
+  IF p_patch ? 'paymentMethod'
+     AND COALESCE(v_ex.payment_method,'') <> COALESCE(p_patch->>'paymentMethod','') THEN
+    UPDATE orders SET payment_method = p_patch->>'paymentMethod' WHERE id = p_id;
+    v_changes := v_changes || jsonb_build_array(jsonb_build_object(
+      'field','paymentMethod','label','Phương thức TT',
+      'oldValue',COALESCE(NULLIF(v_ex.payment_method,''),'—'),
+      'newValue',COALESCE(NULLIF(p_patch->>'paymentMethod',''),'—')));
+  END IF;
+
+  IF p_patch ? 'deliveryType'
+     AND COALESCE(v_ex.delivery_type,'') <> COALESCE(p_patch->>'deliveryType','') THEN
+    UPDATE orders SET delivery_type = p_patch->>'deliveryType' WHERE id = p_id;
+    v_changes := v_changes || jsonb_build_array(jsonb_build_object(
+      'field','deliveryType','label','Kiểu giao',
+      'oldValue',COALESCE(NULLIF(v_ex.delivery_type,''),'—'),
+      'newValue',COALESCE(NULLIF(p_patch->>'deliveryType',''),'—')));
+  END IF;
+
+  IF jsonb_array_length(v_changes) > 0 THEN
+    UPDATE orders SET updated_at = now(), updated_by = v_editor WHERE id = p_id;
+    PERFORM order_add_history(p_id, v_editor, v_uid, v_changes);
+  END IF;
+
+  RETURN jsonb_build_object(
+    'order', order_get(p_id),
+    'changes', v_changes,
+    'prevOrder', order_to_json(v_ex));
+END;
+$$;
+
 -- ─────────────────────────── Xoá đơn ───────────────────────────
 -- Trả snapshot prevOrder (để FE gửi Zalo delete), hoàn lượt KM, xoá (bảng con CASCADE).
 CREATE OR REPLACE FUNCTION order_delete(p_id text)
@@ -1456,4 +1682,141 @@ BEGIN
     'unmatchedCount', jsonb_array_length(v_unmatched),
     'duplicateCount', jsonb_array_length(v_duplicate));
 END;
+$$;
+
+-- ============================================================
+-- Phân tích ĐƠN HÀNG cho trang "Phân tích" (tách từ analytics_overview cũ).
+-- Read-only, STABLE. Loại đơn test; doanh thu chỉ tính đơn KHÔNG huỷ (valid).
+-- p_from/p_to: lọc theo order_date (NULL = toàn bộ lịch sử). Trả 1 jsonb gồm:
+-- kpi, deliveryType, byMonth, byDow, statusBreakdown, paymentBreakdown,
+-- shipDuration, shipByProvince, provinceSales, shipOps.
+-- ============================================================
+CREATE OR REPLACE FUNCTION order_analytics(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  WITH base AS (
+    SELECT * FROM orders
+    WHERE COALESCE(is_test, false) = false
+      AND (p_from IS NULL OR order_date >= p_from)
+      AND (p_to   IS NULL OR order_date <  (p_to + 1))
+  ),
+  valid AS (
+    SELECT * FROM base WHERE COALESCE(status, '') <> 'CANCELLED'
+  )
+  SELECT jsonb_build_object(
+    'kpi', (
+      SELECT jsonb_build_object(
+        'orders', count(*),
+        'revenue', COALESCE(sum(total), 0),
+        'aov', CASE WHEN count(*) > 0 THEN round(COALESCE(sum(total), 0) / count(*)) ELSE 0 END,
+        'shipProvinceOrders', count(*) FILTER (WHERE delivery_type = 'SHIP_PROVINCE'),
+        'shipOrders', count(*) FILTER (WHERE delivery_type = 'SHIP'),
+        'pickupOrders', count(*) FILTER (WHERE delivery_type = 'PICKUP'),
+        'deliveredOrders', count(*) FILTER (WHERE status = 'DELIVERED'),
+        'paidRevenue', COALESCE(sum(paid_amount), 0)
+      ) FROM valid
+    ),
+    'deliveryType', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.orders DESC), '[]'::jsonb) FROM (
+        SELECT COALESCE(NULLIF(delivery_type, ''), 'UNKNOWN') AS type,
+               count(*) AS orders, COALESCE(sum(total), 0) AS revenue
+        FROM valid GROUP BY 1
+      ) t
+    ),
+    'byMonth', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.month), '[]'::jsonb) FROM (
+        SELECT to_char(order_date, 'YYYY-MM') AS month,
+               count(*) AS orders, COALESCE(sum(total), 0) AS revenue
+        FROM valid WHERE order_date IS NOT NULL GROUP BY 1
+      ) t
+    ),
+    'byDow', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.dow), '[]'::jsonb) FROM (
+        SELECT extract(dow FROM order_date)::int AS dow,
+               count(*) AS orders, COALESCE(sum(total), 0) AS revenue
+        FROM valid WHERE order_date IS NOT NULL GROUP BY 1
+      ) t
+    ),
+    'statusBreakdown', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.orders DESC), '[]'::jsonb) FROM (
+        SELECT COALESCE(NULLIF(status, ''), 'UNKNOWN') AS status, count(*) AS orders
+        FROM base GROUP BY 1
+      ) t
+    ),
+    'paymentBreakdown', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.orders DESC), '[]'::jsonb) FROM (
+        SELECT COALESCE(NULLIF(payment_status, ''), 'UNKNOWN') AS status, count(*) AS orders
+        FROM valid GROUP BY 1
+      ) t
+    ),
+    -- Đơn TỈNH: thời gian SPX giao THỰC = từ lúc nhận hàng (shipped_at) đến lúc giao (delivered_at).
+    'shipDuration', (
+      WITH tl AS (
+        SELECT order_number,
+               (shipped_at   AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS shipped_date,
+               (delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS delivered_date,
+               ((delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+                 - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS days
+        FROM base
+        WHERE delivery_type = 'SHIP_PROVINCE'
+          AND delivered_at IS NOT NULL AND shipped_at IS NOT NULL
+      )
+      SELECT jsonb_build_object(
+        'count', (SELECT count(*) FROM tl),
+        'avgDays', (SELECT COALESCE(round(avg(days)::numeric, 1), 0) FROM tl),
+        'minDays', (SELECT COALESCE(min(days), 0) FROM tl),
+        'maxDays', (SELECT COALESCE(max(days), 0) FROM tl),
+        'orders', (SELECT COALESCE(jsonb_agg(o ORDER BY o.days DESC), '[]'::jsonb) FROM (
+          SELECT order_number, shipped_date, delivered_date, days FROM tl
+        ) o)
+      )
+    ),
+    -- Đơn TỈNH gộp theo TỈNH/THÀNH (từ address): số đơn, số đã giao, TB ngày giao.
+    'shipByProvince', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY (t.avg_days IS NULL), t.avg_days DESC, t.orders DESC), '[]'::jsonb)
+      FROM (
+        SELECT order_province(address) AS province,
+               count(*) AS orders,
+               count(*) FILTER (WHERE delivered_at IS NOT NULL AND shipped_at IS NOT NULL) AS delivered,
+               round(avg(((delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+                          - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
+                     FILTER (WHERE delivered_at IS NOT NULL AND shipped_at IS NOT NULL)::numeric, 1) AS avg_days
+        FROM base
+        WHERE delivery_type = 'SHIP_PROVINCE'
+        GROUP BY 1
+      ) t
+    ),
+    -- Doanh thu theo tỉnh (đơn ship tỉnh): số đơn, doanh thu, AOV, phí ship TB.
+    'provinceSales', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.revenue DESC), '[]'::jsonb) FROM (
+        SELECT order_province(address) AS province, count(*) AS orders,
+               COALESCE(sum(total),0) AS revenue,
+               CASE WHEN count(*)>0 THEN round(COALESCE(sum(total),0)/count(*)) ELSE 0 END AS aov,
+               COALESCE(round(avg(NULLIF(shipping_cost,0))),0) AS ship_avg
+        FROM valid WHERE delivery_type='SHIP_PROVINCE' GROUP BY 1
+      ) t
+    ),
+    -- Vận hành giao SPX: cơ cấu trạng thái + histogram thời gian giao + đơn kẹt.
+    'shipOps', (
+      SELECT jsonb_build_object(
+        'trackingStatus', (SELECT COALESCE(jsonb_agg(t ORDER BY t.n DESC),'[]'::jsonb) FROM (
+          SELECT COALESCE(NULLIF(tracking_status,''),'(chưa có)') AS status, count(*) AS n
+          FROM valid WHERE delivery_type='SHIP_PROVINCE' AND COALESCE(tracking_number,'')<>'' GROUP BY 1) t),
+        'histogram', (SELECT jsonb_build_object(
+            'd1', count(*) FILTER (WHERE dd<=1), 'd2', count(*) FILTER (WHERE dd=2),
+            'd3', count(*) FILTER (WHERE dd=3), 'd4', count(*) FILTER (WHERE dd=4),
+            'd5p', count(*) FILTER (WHERE dd>=5))
+          FROM (SELECT ((delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+                        - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS dd
+                FROM valid WHERE delivery_type='SHIP_PROVINCE' AND delivered_at IS NOT NULL AND shipped_at IS NOT NULL) h),
+        'stuck', (SELECT COALESCE(jsonb_agg(x ORDER BY x.age_days DESC),'[]'::jsonb) FROM (
+          SELECT order_number, customer_name,
+                 (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS shipped_date,
+                 (CURRENT_DATE - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS age_days
+          FROM valid WHERE delivery_type='SHIP_PROVINCE' AND shipped_at IS NOT NULL AND delivered_at IS NULL
+            AND (CURRENT_DATE - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) >= 4
+          ORDER BY age_days DESC LIMIT 30) x)
+      )
+    ),
+    'generatedAt', now()
+  );
 $$;
