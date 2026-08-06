@@ -376,9 +376,18 @@ export class OrdersService {
         (r) => (r?.tracking_code || '').toString().trim().toUpperCase() === 'F980' && r?.actual_time,
       );
       const deliveredAt = del ? Number(del.actual_time) || null : null;
-      // Mốc bắt đầu vận chuyển = lần scan sớm nhất (SPX nhận hàng vào mạng lưới).
-      const times = recs.map((r) => Number(r?.actual_time) || 0).filter((n) => n > 0);
-      const shippedAt = times.length ? Math.min(...times) : null;
+      // Mốc BẮT ĐẦU tính thời gian giao = lúc ĐVVC LẤY HÀNG (F100 "Pickup From Seller"),
+      // KHÔNG phải lúc người gửi tạo đơn/chuẩn bị (F000 "Manifested" = mốc sớm nhất).
+      const codeOf = (r: any) => (r?.tracking_code || '').toString().trim().toUpperCase();
+      const pickup = recs.find((r) => codeOf(r) === 'F100' && r?.actual_time);
+      let shippedAt: number | null = pickup ? Number(pickup.actual_time) || null : null;
+      if (!shippedAt) {
+        // Thiếu mốc F100 → mốc scan sớm nhất KHÁC F000 (đã vào mạng lưới ĐVVC).
+        const inNetwork = recs
+          .filter((r) => codeOf(r) !== 'F000' && Number(r?.actual_time) > 0)
+          .map((r) => Number(r.actual_time));
+        shippedAt = inNetwork.length ? Math.min(...inNetwork) : null;
+      }
       const events = recs
         // chỉ mốc SPX hiển thị (display_flag=1); bỏ mốc phụ ẩn (packed/loaded…)
         .filter((r) => r?.actual_time && Number(r.display_flag) === 1)

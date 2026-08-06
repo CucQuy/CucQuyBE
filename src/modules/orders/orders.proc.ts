@@ -232,7 +232,9 @@ export class OrderProc {
       UPDATE orders
          SET tracking_status = ${status},
              delivered_at = COALESCE(delivered_at, CASE WHEN ${del}::bigint IS NULL THEN NULL ELSE to_timestamp(${del}) END),
-             shipped_at = COALESCE(shipped_at, CASE WHEN ${ship}::bigint IS NULL THEN NULL ELSE to_timestamp(${ship}) END),
+             -- shipped_at = mốc ĐVVC lấy hàng (F100). Ưu tiên giá trị mới để re-sync sửa
+             -- được mốc cũ (F000) đã lưu; giữ giá trị cũ nếu lần này chưa có mốc.
+             shipped_at = COALESCE(CASE WHEN ${ship}::bigint IS NULL THEN NULL ELSE to_timestamp(${ship}) END, shipped_at),
              updated_at = now()
        WHERE id = ${id}`;
   }
