@@ -50,11 +50,6 @@ export class OrdersService {
     return this.proc.list();
   }
 
-  /** Phân tích đơn hàng cho trang "Phân tích" (from/to rỗng = toàn bộ lịch sử). */
-  async analytics(from?: string, to?: string): Promise<Record<string, unknown>> {
-    return this.proc.analytics(from?.trim() || null, to?.trim() || null);
-  }
-
   // ── Sinh số đơn kế tiếp ─────────────────────────────────────
   async getNextOrderNumber(): Promise<string> {
     return (await this.proc.nextNumber()) ?? 'ORD-000001';

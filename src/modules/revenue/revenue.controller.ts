@@ -15,9 +15,4 @@ export class RevenueController {
     return this.service.getReport(from ?? '', to ?? '');
   }
 
-  /** GET /revenue/analytics?from&to → P&L theo tháng cho trang "Phân tích" (rỗng = toàn bộ). */
-  @Get('analytics')
-  analytics(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.service.analytics(from, to);
-  }
 }

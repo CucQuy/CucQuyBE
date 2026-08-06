@@ -6,7 +6,6 @@ import {
   Param,
   Patch,
   Post,
-  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -23,12 +22,6 @@ export class ProductsController {
   @Get()
   fetchProducts() {
     return this.service.fetchProducts();
-  }
-
-  /** Phân tích sản phẩm (top bán chạy) trong kỳ. ?from&to (YYYY-MM-DD, rỗng = toàn bộ). */
-  @Get('analytics')
-  analytics(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.service.analytics(from, to);
   }
 
   /** Tạo sản phẩm — trả { id }. */

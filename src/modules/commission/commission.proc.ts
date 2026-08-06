@@ -24,13 +24,6 @@ export class CommissionProc {
     return rows[0]!.data;
   }
 
-  /** Phân tích cộng tác viên (đơn + doanh thu theo người tạo) trong kỳ (p_from/p_to NULL = toàn bộ). */
-  async analytics(from: string | null, to: string | null): Promise<Record<string, unknown>> {
-    const [row] = await this.db.sql<{ data: Record<string, unknown> }[]>`
-      SELECT commission_analytics(${from}::date, ${to}::date) AS data`;
-    return row?.data ?? {};
-  }
-
   /** Đánh dấu các đơn đã/chưa trả hoa hồng. */
   async setPaid(orderIds: string[], paid: boolean): Promise<void> {
     await this.db.sql`SELECT commission_set_paid(${this.db.sql.array(orderIds)}, ${paid})`;

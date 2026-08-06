@@ -302,32 +302,3 @@ LANGUAGE sql STABLE AS $$
   FROM product_versions v
   WHERE v.product_id = p_product_id;
 $$;
-
--- ============================================================
--- Phân tích SẢN PHẨM (tách từ analytics_overview cũ). Read-only, STABLE.
--- Top sản phẩm bán chạy theo SỐ LƯỢNG, tính trên đơn KHÔNG test + KHÔNG huỷ,
--- lọc theo order_date (p_from/p_to NULL = toàn bộ). Trả { topProducts }.
--- ============================================================
-CREATE OR REPLACE FUNCTION product_analytics(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
-RETURNS jsonb LANGUAGE sql STABLE AS $$
-  WITH valid AS (
-    SELECT * FROM orders
-    WHERE COALESCE(is_test, false) = false
-      AND COALESCE(status, '') <> 'CANCELLED'
-      AND (p_from IS NULL OR order_date >= p_from)
-      AND (p_to   IS NULL OR order_date <  (p_to + 1))
-  )
-  SELECT jsonb_build_object(
-    'topProducts', (
-      SELECT COALESCE(jsonb_agg(t ORDER BY t.qty DESC), '[]'::jsonb) FROM (
-        SELECT oi.product_name AS name,
-               sum(COALESCE(oi.quantity, 0)) AS qty,
-               sum(COALESCE(oi.quantity, 0) * COALESCE(oi.unit_price, 0)) AS revenue
-        FROM order_items oi JOIN valid v ON v.id = oi.order_id
-        WHERE COALESCE(oi.product_name, '') <> ''
-        GROUP BY 1 ORDER BY qty DESC LIMIT 15
-      ) t
-    ),
-    'generatedAt', now()
-  );
-$$;

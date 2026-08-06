@@ -63,12 +63,6 @@ export class OrdersController {
     return this.service.orderCounts();
   }
 
-  /** Phân tích đơn hàng (kpi/giao/ship...) trong kỳ. ?from=<YYYY-MM-DD>&to=<YYYY-MM-DD> (rỗng = toàn bộ). */
-  @Get('analytics')
-  analytics(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.service.analytics(from, to);
-  }
-
   /** 1 đơn ĐẦY ĐỦ theo id (list trả bản nhẹ; chi tiết/sửa fetch cái này). */
   @Get(':id')
   getOrder(@Param('id') id: string) {

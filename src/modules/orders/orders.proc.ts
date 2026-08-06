@@ -45,13 +45,6 @@ export class OrderProc {
     return row?.result ?? { total: 0, pending: 0, cancelled: 0, unpaid: 0 };
   }
 
-  // ── Phân tích đơn hàng (kpi/giao/ship...) trong kỳ (p_from/p_to NULL = toàn bộ) ──
-  async analytics(from: string | null, to: string | null): Promise<Record<string, unknown>> {
-    const [row] = await this.db.sql<{ data: Record<string, unknown> }[]>`
-      SELECT order_analytics(${from}::date, ${to}::date) AS data`;
-    return row?.data ?? {};
-  }
-
   // ── Sinh số đơn kế tiếp ─────────────────────────────────────
   async nextNumber(): Promise<string | undefined> {
     const [row] = await this.db.sql<{ n: string }[]>`

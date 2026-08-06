@@ -24,13 +24,6 @@ export class CustomerProc {
       .sql<CustomerRow[]>`SELECT ${this.db.sql.unsafe(COLS)} FROM customer_list()`;
   }
 
-  /** Phân tích khách hàng (mới/quay lại/top + công nợ) trong kỳ (p_from/p_to NULL = toàn bộ). */
-  async analytics(from: string | null, to: string | null): Promise<Record<string, unknown>> {
-    const [row] = await this.db.sql<{ data: Record<string, unknown> }[]>`
-      SELECT customer_analytics(${from}::date, ${to}::date) AS data`;
-    return row?.data ?? {};
-  }
-
   create(data: unknown): Promise<CustomerRow[]> {
     return this.db.sql<CustomerRow[]>`
       SELECT ${this.db.sql.unsafe(COLS)}

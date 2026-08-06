@@ -18,11 +18,4 @@ export class RevenueProc {
     return this.db.sql<RevenueReportRow[]>`
       SELECT revenue_report(${fromISO}, ${toISO}) AS report`;
   }
-
-  /** Phân tích P&L theo tháng trong kỳ (p_from/p_to NULL = toàn bộ). */
-  async analytics(from: string | null, to: string | null): Promise<Record<string, unknown>> {
-    const [row] = await this.db.sql<{ data: Record<string, unknown> }[]>`
-      SELECT revenue_analytics(${from}::date, ${to}::date) AS data`;
-    return row?.data ?? {};
-  }
 }
