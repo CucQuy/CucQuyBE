@@ -119,6 +119,21 @@ export interface MaterialPriceOption {
   unitPrice: number;
 }
 
+/** Tồn dư 1 nguyên liệu — NEO theo kiểm kê (chưa kiểm kê → remaining null). */
+export interface MaterialStock {
+  materialId: string;
+  unit: string | null;
+  hasStocktake: boolean;
+  stocktakeDate: string | null;
+  stocktakeQty: number | null;
+  importedAfter: number | null;
+  consumedAfter: number | null;
+  remainingUnit: number | null;
+  remainingGrams: number | null;
+}
+
+
+
 /** Patch sửa nguyên liệu (NVL) — partial update qua jsonb. */
 export interface MaterialUpdatePatch {
   name?: string;

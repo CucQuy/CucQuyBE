@@ -12,6 +12,7 @@ import { MaterialMergeService } from '../ai/tasks/material-merge/material-merge.
 import {
   BillLineItem,
   ImportedMaterialSummary,
+  MaterialStock,
   ImportedSupplierSummary,
   MaterialMergeAiGroup,
   MaterialMergeSuggestion,
@@ -116,6 +117,31 @@ export class StockReceiptsService {
     const rows = await this.proc.materialList();
     return rows.map(mapMaterial);
   }
+
+  /** Tồn dư (neo kiểm kê). Coerce số cho chắc. */
+  async fetchMaterialStock(): Promise<MaterialStock[]> {
+    const rows = await this.proc.materialStockEstimate();
+    const arr = rows[0]?.result ?? [];
+    const numOrNull = (v: unknown): number | null =>
+      v === null || v === undefined ? null : Number(v);
+    return arr.map((r) => ({
+      materialId: String(r.materialId),
+      unit: r.unit ?? null,
+      hasStocktake: r.hasStocktake === true,
+      stocktakeDate: r.stocktakeDate ?? null,
+      stocktakeQty: numOrNull(r.stocktakeQty),
+      importedAfter: numOrNull(r.importedAfter),
+      consumedAfter: numOrNull(r.consumedAfter),
+      remainingUnit: numOrNull(r.remainingUnit),
+      remainingGrams: numOrNull(r.remainingGrams),
+    }));
+  }
+
+  /** Ghi 1 lần kiểm kê NVL. */
+  async recordStocktake(materialId: string, countedQty: number, countDate?: string, note?: string): Promise<void> {
+    await this.proc.stocktakeUpsert({ materialId, countedQty, countDate: countDate || null, note: note || null });
+  }
+
 
   async fetchMaterialPriceOptions(): Promise<MaterialPriceOption[]> {
     const materials = await this.fetchImportedMaterials();

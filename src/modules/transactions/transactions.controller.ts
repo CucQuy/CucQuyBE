@@ -23,6 +23,38 @@ export class TransactionsController {
     return this.service.fetchTransactions();
   }
 
+  /** Sổ giao dịch thống nhất: list phân trang + total + summary (thu+chi 1 sổ). */
+  @Get('ledger')
+  fetchLedger(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('type') type?: string,
+    @Query('status') status?: string,
+    @Query('category') category?: string,
+    @Query('gateway') gateway?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.service.fetchLedger({
+      from: from || null,
+      to: to || null,
+      type: type || null,
+      status: status || null,
+      category: category || null,
+      gateway: gateway || null,
+      search: search || null,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  /** Chuỗi thu/chi theo ngày trong kỳ (biểu đồ sổ). */
+  @Get('ledger/series')
+  fetchLedgerSeries(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.fetchLedgerSeries(from || null, to || null);
+  }
+
   /** Giao dịch theo mã đơn (đối soát). */
   @Get('by-order')
   fetchByOrderNumber(@Query('orderNumber') orderNumber: string) {

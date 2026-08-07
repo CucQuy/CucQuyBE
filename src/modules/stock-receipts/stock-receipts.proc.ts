@@ -52,6 +52,21 @@ export type MaterialRow = {
   last_receipt_date: string | null;
 };
 
+/** 1 dòng tồn dư ước tính (neo kiểm kê) — camelCase từ material_stock_estimate. */
+export type MaterialStockRow = {
+  materialId: string;
+  unit: string | null;
+  gramsPerUnit: number | null;
+  hasStocktake: boolean;
+  stocktakeDate: string | null;
+  stocktakeQty: number | null;
+  importedAfter: number | null;
+  consumedAfter: number | null;
+  remainingUnit: number | null;
+  remainingGrams: number | null;
+};
+
+
 export type ReceiptRow = {
   id: string;
   supplier_id: string | null;
@@ -119,6 +134,17 @@ export class StockReceiptProc {
   materialList(): Promise<MaterialRow[]> {
     return this.db
       .sql<MaterialRow[]>`SELECT * FROM stock_receipt_material_list()`;
+  }
+
+  /** Tồn dư ước tính (neo kiểm kê). */
+  materialStockEstimate(): Promise<{ result: MaterialStockRow[] }[]> {
+    return this.db
+      .sql<{ result: MaterialStockRow[] }[]>`SELECT material_stock_estimate() AS result`;
+  }
+
+  /** Ghi 1 lần kiểm kê NVL (đếm tay). */
+  stocktakeUpsert(body: unknown): Promise<unknown> {
+    return this.db.sql`SELECT * FROM material_stocktake_upsert(${this.db.json(body ?? {})}::jsonb)`;
   }
 
   list(): Promise<ReceiptRow[]> {

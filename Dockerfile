@@ -19,6 +19,8 @@ RUN npm install --omit=dev
 COPY --from=build /app/dist ./dist
 # SQL nguồn cho bộ migrate lúc khởi động (dist/migrate.js đọc /app/migrations).
 COPY --from=build /app/migrations ./migrations
+# Model nhận diện khuôn mặt (face-api) cho tính năng chấm công — FaceService đọc /app/models/face.
+COPY --from=build /app/models ./models
 EXPOSE 3000
 # Tự đồng bộ DB (migration đánh số + stored function) TRƯỚC khi app boot.
 CMD ["sh", "-c", "node dist/migrate.js && node dist/main.js"]

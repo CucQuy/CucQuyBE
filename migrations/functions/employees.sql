@@ -9,6 +9,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT jsonb_build_object(
     'id',         e.id,
     'name',       e.name,
+    'email',      e.email,
     'position',   e.position,
     'phone',      e.phone,
     'startDate',  to_char(e.start_date, 'YYYY-MM-DD'),
@@ -42,10 +43,11 @@ BEGIN
   IF v_name IS NULL THEN
     RAISE EXCEPTION 'Tên nhân viên là bắt buộc';
   END IF;
-  INSERT INTO employees (id, name, position, phone, start_date, base_salary, status, note)
+  INSERT INTO employees (id, name, email, position, phone, start_date, base_salary, status, note)
   VALUES (
     v_id,
     v_name,
+    NULLIF(trim(COALESCE(p_input->>'email','')), ''),
     NULLIF(trim(COALESCE(p_input->>'position','')), ''),
     NULLIF(trim(COALESCE(p_input->>'phone','')), ''),
     NULLIF(p_input->>'startDate','')::date,
@@ -67,6 +69,7 @@ BEGIN
   UPDATE employees SET
     name        = CASE WHEN p_input ? 'name' AND NULLIF(trim(p_input->>'name'),'') IS NOT NULL
                        THEN trim(p_input->>'name') ELSE name END,
+    email       = CASE WHEN p_input ? 'email'      THEN NULLIF(trim(COALESCE(p_input->>'email','')),'') ELSE email END,
     position    = CASE WHEN p_input ? 'position'   THEN NULLIF(trim(COALESCE(p_input->>'position','')),'') ELSE position END,
     phone       = CASE WHEN p_input ? 'phone'      THEN NULLIF(trim(COALESCE(p_input->>'phone','')),'') ELSE phone END,
     start_date  = CASE WHEN p_input ? 'startDate'  THEN NULLIF(p_input->>'startDate','')::date ELSE start_date END,

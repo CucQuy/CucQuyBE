@@ -5,7 +5,13 @@ import {
   ExpenseRuleRow,
   ReconcilePreviewResult,
   ExpenseReconcilePreviewResult,
+  LedgerFilters,
+  LedgerResult,
+  LedgerItem,
 } from './transactions.proc';
+
+/** 1 điểm chuỗi thu/chi theo ngày (đã coerce số). */
+export type LedgerSeriesItem = { day: string; in: number; out: number };
 import { Transaction, ExpenseRule } from './transactions.types';
 import { ReconcilePair } from './dto/reconcile-apply.dto';
 import { ExpenseReconcilePair } from './dto/expense-reconcile-apply.dto';
@@ -53,6 +59,54 @@ export class TransactionsService {
 
   async fetchTransactions(): Promise<Transaction[]> {
     return (await this.proc.list()).map(mapRow);
+  }
+
+  /**
+   * Sổ giao dịch thống nhất (thu+chi 1 sổ): list phân trang + total + summary.
+   * SQL đã trả camelCase + status; ở đây chỉ coerce số cho chắc (untrusted jsonb).
+   */
+  async fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
+    const rows = await this.proc.ledger(filters);
+    const r = rows[0]?.result;
+    const emptySummary = {
+      totalIn: 0, totalOut: 0, net: 0, count: 0, inCount: 0, outCount: 0,
+      reconciledCount: 0, unreconciledCount: 0, reconciledPct: 100,
+    };
+    if (!r) return { items: [], total: 0, summary: emptySummary };
+    const s = r.summary ?? emptySummary;
+    return {
+      items: (r.items ?? []).map(
+        (it): LedgerItem => ({
+          ...it,
+          sepayId: Number(it.sepayId) || 0,
+          transferAmount: Number(it.transferAmount) || 0,
+          accumulated: Number(it.accumulated) || 0,
+        }),
+      ),
+      total: Number(r.total) || 0,
+      summary: {
+        totalIn: Number(s.totalIn) || 0,
+        totalOut: Number(s.totalOut) || 0,
+        net: Number(s.net) || 0,
+        count: Number(s.count) || 0,
+        inCount: Number(s.inCount) || 0,
+        outCount: Number(s.outCount) || 0,
+        reconciledCount: Number(s.reconciledCount) || 0,
+        unreconciledCount: Number(s.unreconciledCount) || 0,
+        reconciledPct: Number(s.reconciledPct) || 0,
+      },
+    };
+  }
+
+  /** Chuỗi thu/chi theo ngày (biểu đồ sổ) — null out/in → 0. */
+  async fetchLedgerSeries(from: string | null, to: string | null): Promise<LedgerSeriesItem[]> {
+    const rows = await this.proc.ledgerSeries(from, to);
+    const arr = rows[0]?.result ?? [];
+    return arr.map((p) => ({
+      day: String(p.day),
+      in: Number(p.in) || 0,
+      out: Number(p.out) || 0,
+    }));
   }
 
   async fetchTransactionsByOrderNumber(orderNumber: string): Promise<Transaction[]> {

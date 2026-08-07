@@ -27,6 +27,76 @@ export type TransactionRow = {
   created_at: string | Date | null;
 };
 
+/** Trạng thái thống nhất 1 giao dịch (BE derive). */
+export type LedgerStatus =
+  | 'matched' | 'external' | 'unmatched' // tiền vào
+  | 'refund' | 'settled' | 'excluded' | 'expense'; // tiền ra
+
+/** 1 dòng sổ giao dịch (đã camelCase từ SQL, kèm status). */
+export type LedgerItem = {
+  id: string;
+  sepayId: number | null;
+  gateway: string | null;
+  transactionDate: string | null;
+  accountNumber: string | null;
+  code: string | null;
+  content: string | null;
+  transferType: 'in' | 'out' | string;
+  transferAmount: number;
+  accumulated: number;
+  subAccount: string | null;
+  referenceCode: string | null;
+  description: string | null;
+  orderNumber: string | null;
+  isExternal: boolean;
+  settledOut: boolean;
+  expenseCategory: string | null;
+  costExcluded: boolean;
+  needsReview: boolean;
+  reviewNote: string | null;
+  receivedAt: string | null;
+  createdAt: string | null;
+  status: LedgerStatus;
+};
+
+export type LedgerSummary = {
+  totalIn: number;
+  totalOut: number;
+  net: number;
+  count: number;
+  inCount: number;
+  outCount: number;
+  reconciledCount: number;
+  unreconciledCount: number;
+  reconciledPct: number;
+};
+
+export type LedgerResult = {
+  items: LedgerItem[];
+  total: number;
+  summary: LedgerSummary;
+};
+
+/** 1 điểm chuỗi thu/chi theo ngày (biểu đồ). out có thể null nếu không có GD ra. */
+export type LedgerSeriesPoint = {
+  day: string;
+  in: number | null;
+  out: number | null;
+};
+
+/** Bộ lọc sổ giao dịch (tất cả optional). */
+export type LedgerFilters = {
+  from?: string | null;
+  to?: string | null;
+  type?: string | null;
+  status?: string | null;
+  category?: string | null;
+  gateway?: string | null;
+  search?: string | null;
+  limit?: number;
+  offset?: number;
+};
+
 /** Rule phân loại chi phí (nội dung CK → category). */
 export type ExpenseRuleRow = {
   id: string;
@@ -45,6 +115,25 @@ export class TransactionProc {
 
   list(): Promise<TransactionRow[]> {
     return this.db.sql<TransactionRow[]>`SELECT * FROM transaction_list()`;
+  }
+
+  /**
+   * Sổ giao dịch thống nhất: list (phân trang) + total + summary trong 1 lần gọi.
+   * SQL đã trả camelCase + cột `status` derive sẵn → service trả thẳng, không cần map.
+   */
+  ledger(f: LedgerFilters): Promise<{ result: LedgerResult }[]> {
+    return this.db.sql<{ result: LedgerResult }[]>`
+      SELECT transaction_ledger(
+        ${f.from ?? null}, ${f.to ?? null}, ${f.type ?? null}, ${f.status ?? null},
+        ${f.category ?? null}, ${f.gateway ?? null}, ${f.search ?? null},
+        ${f.limit ?? 50}, ${f.offset ?? 0}
+      ) AS result`;
+  }
+
+  /** Chuỗi thu/chi theo ngày (biểu đồ sổ). */
+  ledgerSeries(from: string | null, to: string | null): Promise<{ result: LedgerSeriesPoint[] }[]> {
+    return this.db.sql<{ result: LedgerSeriesPoint[] }[]>`
+      SELECT transaction_ledger_series(${from}, ${to}) AS result`;
   }
 
   listByOrder(orderNumber: string): Promise<TransactionRow[]> {

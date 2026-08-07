@@ -52,6 +52,22 @@ export class StockReceiptsController {
     return this.service.fetchImportedMaterials();
   }
 
+  /** Tồn dư (neo kiểm kê). */
+  @Get('materials/stock-estimate')
+  fetchMaterialStock() {
+    return this.service.fetchMaterialStock();
+  }
+
+  /** Ghi 1 lần kiểm kê NVL (đếm tay). */
+  @Post('materials/:id/stocktake')
+  async recordStocktake(
+    @Param('id') id: string,
+    @Body() dto: { countedQty: number; countDate?: string; note?: string },
+  ) {
+    await this.service.recordStocktake(id, Number(dto?.countedQty) || 0, dto?.countDate, dto?.note);
+    return { ok: true };
+  }
+
   /** Gợi ý các cặp nguyên liệu nghi trùng (Phase 1). threshold optional (mặc định 0.4). */
   @Get('materials/merge-suggestions')
   getMaterialMergeSuggestions(@Query('threshold') threshold?: string) {
