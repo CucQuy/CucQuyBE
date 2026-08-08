@@ -330,6 +330,21 @@ export class StockReceiptsService {
     return this.proc.unreconcile(receiptId);
   }
 
+  /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run). */
+  async reconcilePreview(windowDays = 3) {
+    return this.proc.reconcilePreview(Math.min(Math.max(windowDays, 0), 30));
+  }
+
+  /** Áp danh sách cặp {receiptId, transactionId} đã confirm. */
+  async reconcileApply(pairs: unknown) {
+    return this.proc.reconcileApply(pairs);
+  }
+
+  /** GD tiền ra chưa gắn phiếu (cho màn khớp tay). */
+  async listUnlinkedOutTxns() {
+    return this.proc.unlinkedOutTxns();
+  }
+
   /** Xoá phiếu nhập (cascade + recompute). Dùng cho SỬA: FE tạo bản mới rồi xoá bản cũ. */
   async deleteReceipt(
     receiptId: string,

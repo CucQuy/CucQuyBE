@@ -18,6 +18,7 @@ import { AuthUser, UserRole } from '../../auth/user.types';
 import { StockReceiptsService } from './stock-receipts.service';
 import { BillPipelineService } from './bill-pipeline.service';
 import { ProcessBillDto } from './dto/process-bill.dto';
+import { ReceiptReconcileApplyDto } from './dto/reconcile-apply.dto';
 import {
   MaterialUpdatePatch,
   MaterialCreateInput,
@@ -94,6 +95,13 @@ export class StockReceiptsController {
     return this.service.listReceiptsForReconcile();
   }
 
+  /** GD tiền ra chưa gắn phiếu — cho màn khớp tay chọn thủ công. */
+  @Get('unlinked-out-txns')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  listUnlinkedOutTxns() {
+    return this.service.listUnlinkedOutTxns();
+  }
+
   /** Danh sách phiếu nhập (summary). */
   @Get()
   fetchStockReceiptSummaries() {
@@ -167,6 +175,20 @@ export class StockReceiptsController {
   ) {
     await this.service.mergeMaterials(body.rootId, body.duplicateIds ?? []);
     return { ok: true };
+  }
+
+  /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run, không ghi). */
+  @Post('reconcile/preview')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  reconcilePreview(@Body() body: { windowDays?: number }) {
+    return this.service.reconcilePreview(Number(body?.windowDays) || 3);
+  }
+
+  /** Áp danh sách cặp {receiptId, transactionId} đã confirm. */
+  @Post('reconcile/apply')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  reconcileApply(@Body() dto: ReceiptReconcileApplyDto) {
+    return this.service.reconcileApply(dto.pairs);
   }
 
   /** Gắn 1 giao dịch SePay tiền ra cho 1 phiếu nhập (đối soát thanh toán tổng kho). */

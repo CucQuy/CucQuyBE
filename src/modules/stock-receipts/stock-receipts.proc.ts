@@ -21,6 +21,36 @@ export type ReconcileReceiptItem = {
   reconciled: boolean;
 };
 
+/** 1 cặp gợi ý đối soát (tiền ra ↔ phiếu nhập). */
+export type ReceiptReconcileMatch = {
+  transactionId: string;
+  receiptId: string;
+  amount: number;
+  transactionDate: string | null;
+  receiptDate: string | null;
+  gateway: string | null;
+  supplier: string | null;
+  invoiceNumber: string | null;
+  description: string | null;
+};
+
+export type ReceiptReconcilePreview = {
+  matched: ReceiptReconcileMatch[];
+  skippedAmbiguous: number;
+  skippedNoMatch: number;
+  totalUnlinkedTx: number;
+  totalUnlinkedReceipt: number;
+};
+
+/** 1 giao dịch tiền ra chưa gắn phiếu (cho màn khớp tay). */
+export type UnlinkedOutTxn = {
+  id: string;
+  amount: number;
+  transactionDate: string | null;
+  gateway: string | null;
+  content: string | null;
+};
+
 export type SupplierRow = {
   id: string;
   name: string | null;
@@ -180,6 +210,29 @@ export class StockReceiptProc {
     const [row] = await this.db.sql<{ result: { ok: boolean } }[]>`
       SELECT stock_receipt_unreconcile(${receiptId}) AS result`;
     return row.result;
+  }
+
+  /** Gợi ý cặp khớp tự động (dry-run). */
+  async reconcilePreview(windowDays: number): Promise<ReceiptReconcilePreview> {
+    const [row] = await this.db.sql<{ result: ReceiptReconcilePreview }[]>`
+      SELECT stock_receipt_reconcile_preview(${windowDays}) AS result`;
+    return row.result;
+  }
+
+  /** Áp danh sách cặp đã confirm. */
+  async reconcileApply(
+    pairs: unknown,
+  ): Promise<{ applied: number; skipped: number }> {
+    const [row] = await this.db.sql<{ result: { applied: number; skipped: number } }[]>`
+      SELECT stock_receipt_reconcile_apply(${this.db.json(pairs ?? [])}::jsonb) AS result`;
+    return row.result;
+  }
+
+  /** GD tiền ra chưa gắn phiếu (khớp tay). */
+  async unlinkedOutTxns(): Promise<UnlinkedOutTxn[]> {
+    const [row] = await this.db.sql<{ list: UnlinkedOutTxn[] }[]>`
+      SELECT stock_receipt_unlinked_out_txns() AS list`;
+    return row?.list ?? [];
   }
 
   get(
