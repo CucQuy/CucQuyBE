@@ -28,6 +28,9 @@ export type ReceiptReconcileMatch = {
   amount: number;
   transactionDate: string | null;
   receiptDate: string | null;
+  dateGap: number | null; // số ngày lệch (null nếu thiếu ngày)
+  txCand: number; // số phiếu cùng số tiền mà GD này khớp
+  receiptCand: number; // số GD cùng số tiền mà phiếu này khớp
   gateway: string | null;
   supplier: string | null;
   invoiceNumber: string | null;
@@ -36,8 +39,8 @@ export type ReceiptReconcileMatch = {
 
 export type ReceiptReconcilePreview = {
   matched: ReceiptReconcileMatch[];
-  skippedAmbiguous: number;
-  skippedNoMatch: number;
+  uniqueCount: number; // số cặp 1-1 (txCand=1 & receiptCand=1) — an toàn tự chọn
+  ambiguousCount: number; // số cặp có nhiều ứng viên
   totalUnlinkedTx: number;
   totalUnlinkedReceipt: number;
 };

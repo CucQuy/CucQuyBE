@@ -330,9 +330,9 @@ export class StockReceiptsService {
     return this.proc.unreconcile(receiptId);
   }
 
-  /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run). */
-  async reconcilePreview(windowDays = 3) {
-    return this.proc.reconcilePreview(Math.min(Math.max(windowDays, 0), 30));
+  /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run). windowDays=0 → chỉ theo số tiền. */
+  async reconcilePreview(windowDays = 0) {
+    return this.proc.reconcilePreview(Math.min(Math.max(windowDays, 0), 3650));
   }
 
   /** Áp danh sách cặp {receiptId, transactionId} đã confirm. */

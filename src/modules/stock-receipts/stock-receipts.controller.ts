@@ -181,7 +181,9 @@ export class StockReceiptsController {
   @Post('reconcile/preview')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   reconcilePreview(@Body() body: { windowDays?: number }) {
-    return this.service.reconcilePreview(Number(body?.windowDays) || 3);
+    // Mặc định 0 = chỉ khớp theo SỐ TIỀN bằng nhau (không giới hạn ngày).
+    const w = typeof body?.windowDays === 'number' ? body.windowDays : 0;
+    return this.service.reconcilePreview(w);
   }
 
   /** Áp danh sách cặp {receiptId, transactionId} đã confirm. */

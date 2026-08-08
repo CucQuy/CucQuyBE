@@ -22,10 +22,12 @@ RETURNS date LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE WHEN p_text ~ '^\d{4}-\d{2}-\d{2}' THEN substring(p_text, 1, 10)::date END;
 $$;
 
--- PREVIEW (dry-run, KHÔNG ghi): gợi ý cặp tiền-ra ↔ phiếu-nhập trùng SỐ TIỀN (total_amount)
--- + gần NGÀY (|ngày| <= p_window_days). Chỉ auto khi 1-1 (GD đúng 1 phiếu, phiếu đúng 1 GD).
--- Trả { matched[], skippedAmbiguous, skippedNoMatch, totalUnlinkedTx, totalUnlinkedReceipt }.
-CREATE OR REPLACE FUNCTION stock_receipt_reconcile_preview(p_window_days int DEFAULT 3)
+-- PREVIEW (dry-run, KHÔNG ghi): gợi ý MỌI cặp tiền-ra ↔ phiếu-nhập trùng SỐ TIỀN (total_amount).
+-- Ngày KHÔNG còn là điều kiện lọc — chỉ dùng để tính dateGap (số ngày lệch) + sắp gần trước.
+-- p_window_days > 0: giới hạn thêm trong ±ngày (tùy chọn); <= 0: chỉ theo số tiền (mặc định).
+-- Mỗi cặp kèm txCand/receiptCand (số ứng viên) để FE biết cặp nào 1-1 (an toàn) vs mập mờ.
+-- Trả { matched[], uniqueCount, ambiguousCount, totalUnlinkedTx, totalUnlinkedReceipt }.
+CREATE OR REPLACE FUNCTION stock_receipt_reconcile_preview(p_window_days int DEFAULT 0)
 RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_result jsonb;
@@ -36,7 +38,6 @@ BEGIN
            left(coalesce(NULLIF(t.content,''), t.description, ''), 80) AS descr
     FROM transactions t
     WHERE stock_receipt_out_reconcilable(t)
-      AND stock_receipt_safe_date(t.transaction_date) IS NOT NULL
   ),
   sr AS (
     SELECT s.id AS receipt_id, s.total_amount,
@@ -49,18 +50,22 @@ BEGIN
   ),
   pairs AS (
     SELECT tx.tx_id, tx.transfer_amount, tx.tx_date, tx.descr, tx.gateway,
-           sr.receipt_id, sr.total_amount, sr.rc_date, sr.supplier, sr.invoice_number
+           sr.receipt_id, sr.total_amount, sr.rc_date, sr.supplier, sr.invoice_number,
+           CASE WHEN tx.tx_date IS NOT NULL AND sr.rc_date IS NOT NULL
+                THEN abs(tx.tx_date - sr.rc_date) END AS date_gap
     FROM tx JOIN sr
       ON sr.total_amount = tx.transfer_amount
-     AND sr.rc_date IS NOT NULL
-     AND sr.rc_date BETWEEN (tx.tx_date - p_window_days) AND (tx.tx_date + p_window_days)
+     AND (p_window_days <= 0
+          OR (tx.tx_date IS NOT NULL AND sr.rc_date IS NOT NULL
+              AND sr.rc_date BETWEEN (tx.tx_date - p_window_days) AND (tx.tx_date + p_window_days)))
   ),
   tx_counts AS (SELECT tx_id, count(*) AS cand FROM pairs GROUP BY tx_id),
   rc_counts AS (SELECT receipt_id, count(*) AS claims FROM pairs GROUP BY receipt_id),
-  clean AS (
-    SELECT p.* FROM pairs p
-    JOIN tx_counts tc ON tc.tx_id = p.tx_id AND tc.cand = 1
-    JOIN rc_counts rc ON rc.receipt_id = p.receipt_id AND rc.claims = 1
+  enriched AS (
+    SELECT p.*, tc.cand AS tx_cand, rc.claims AS receipt_cand
+    FROM pairs p
+    JOIN tx_counts tc ON tc.tx_id = p.tx_id
+    JOIN rc_counts rc ON rc.receipt_id = p.receipt_id
   )
   SELECT jsonb_build_object(
     'matched', COALESCE((SELECT jsonb_agg(jsonb_build_object(
@@ -69,16 +74,16 @@ BEGIN
         'amount', transfer_amount,
         'transactionDate', tx_date,
         'receiptDate', rc_date,
+        'dateGap', date_gap,
+        'txCand', tx_cand,
+        'receiptCand', receipt_cand,
         'gateway', gateway,
         'supplier', supplier,
         'invoiceNumber', invoice_number,
         'description', descr
-      ) ORDER BY tx_date DESC) FROM clean), '[]'::jsonb),
-    'skippedAmbiguous', (SELECT count(*)::int FROM tx
-        WHERE EXISTS (SELECT 1 FROM pairs p WHERE p.tx_id = tx.tx_id)
-          AND NOT EXISTS (SELECT 1 FROM clean c WHERE c.tx_id = tx.tx_id)),
-    'skippedNoMatch', (SELECT count(*)::int FROM tx
-        WHERE NOT EXISTS (SELECT 1 FROM pairs p WHERE p.tx_id = tx.tx_id)),
+      ) ORDER BY date_gap ASC NULLS LAST, transfer_amount DESC) FROM enriched), '[]'::jsonb),
+    'uniqueCount', (SELECT count(*)::int FROM enriched WHERE tx_cand = 1 AND receipt_cand = 1),
+    'ambiguousCount', (SELECT count(*)::int FROM enriched WHERE tx_cand > 1 OR receipt_cand > 1),
     'totalUnlinkedTx', (SELECT count(*)::int FROM tx),
     'totalUnlinkedReceipt', (SELECT count(*)::int FROM sr)
   ) INTO v_result;
