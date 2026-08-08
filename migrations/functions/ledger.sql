@@ -8,7 +8,7 @@
 -- server-side trong MỘT lần gọi.
 --
 -- status:
---   Tiền VÀO (in):   matched | external | unmatched
+--   Tiền VÀO (in):   matched | shopee | external | unmatched
 --   Tiền RA  (out):  refund | settled | excluded | expense | unmatched
 --
 -- Ngày lọc dùng revenue_try_ts() (parse text an toàn, né bug iOS Invalid Date) —
@@ -22,8 +22,14 @@ RETURNS text LANGUAGE sql STABLE AS $$
   SELECT CASE
     WHEN t.transfer_type = 'in' THEN
       CASE
+        -- Khớp 1 đơn cụ thể = mạnh nhất (đối soát chính xác).
         WHEN t.order_number IS NOT NULL AND t.order_number <> '' THEN 'matched'
+        -- Đánh dấu tay "Shopee thanh toán" (set expense_category='shopee').
+        WHEN t.expense_category = 'shopee' THEN 'shopee'
+        -- User chủ động đánh dấu ngoài hệ thống → override auto-detect bên dưới.
         WHEN COALESCE(t.is_external, false) THEN 'external'
+        -- Auto-detect: nội dung CK chứa "shopee" → tiền Shopee đổ về (settlement).
+        WHEN t.content ILIKE '%shopee%' THEN 'shopee'
         ELSE 'unmatched'
       END
     ELSE -- out
