@@ -231,6 +231,14 @@ export class StockReceiptProc {
     return row.result;
   }
 
+  /** Kiểm tra bill đang up đã có trong hệ thống chưa (theo bill_hash). */
+  async findDuplicate(input: unknown): Promise<
+    { result: { duplicate: boolean; receipt?: unknown } }[]
+  > {
+    return this.db.sql<{ result: { duplicate: boolean; receipt?: unknown } }[]>`
+      SELECT stock_receipt_find_duplicate(${this.db.json(input ?? {})}::jsonb) AS result`;
+  }
+
   /** GD tiền ra chưa gắn phiếu (khớp tay). */
   async unlinkedOutTxns(): Promise<UnlinkedOutTxn[]> {
     const [row] = await this.db.sql<{ list: UnlinkedOutTxn[] }[]>`

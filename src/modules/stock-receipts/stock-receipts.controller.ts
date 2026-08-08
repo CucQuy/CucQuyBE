@@ -144,6 +144,13 @@ export class StockReceiptsController {
     return { id };
   }
 
+  /** Kiểm tra bill đang up đã có trong hệ thống chưa (trước khi lưu). */
+  @Post('find-duplicate')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  findDuplicate(@Body() body: unknown) {
+    return this.service.findDuplicate(body);
+  }
+
   /** Lưu phiếu nhập (tạo receipt + lines + upsert supplier/materials). */
   @Post('draft')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)

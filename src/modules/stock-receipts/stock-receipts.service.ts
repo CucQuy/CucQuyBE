@@ -345,6 +345,12 @@ export class StockReceiptsService {
     return this.proc.unlinkedOutTxns();
   }
 
+  /** Kiểm tra bill đang up đã có trong hệ thống chưa (trước khi lưu). */
+  async findDuplicate(input: unknown) {
+    const rows = await this.proc.findDuplicate(input);
+    return rows[0]?.result ?? { duplicate: false };
+  }
+
   /** Xoá phiếu nhập (cascade + recompute). Dùng cho SỬA: FE tạo bản mới rồi xoá bản cũ. */
   async deleteReceipt(
     receiptId: string,
