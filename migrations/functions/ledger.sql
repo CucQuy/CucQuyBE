@@ -9,7 +9,7 @@
 --
 -- status:
 --   Tiền VÀO (in):   matched | shopee | external | unmatched
---   Tiền RA  (out):  refund | settled | excluded | expense | unmatched
+--   Tiền RA  (out):  refund | settled | excluded | expense | stock | unmatched
 --
 -- Ngày lọc dùng revenue_try_ts() (parse text an toàn, né bug iOS Invalid Date) —
 -- KHÔNG cần migrate transaction_date sang timestamptz.
@@ -40,6 +40,9 @@ RETURNS text LANGUAGE sql STABLE AS $$
           OR t.expense_category IN ('personal', 'owner', 'internal') THEN 'excluded'
         WHEN EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
           OR expense_category_is_cost(t.expense_category) THEN 'expense'
+        -- Đã gắn phiếu nhập (tiền phiếu tính riêng ở stock_in → KHÔNG cộng OPEX):
+        -- chỉ để hiển thị "đã đối soát", đặt SAU expense/excluded để không lấn.
+        WHEN EXISTS (SELECT 1 FROM stock_receipts sr WHERE sr.transaction_id = t.id) THEN 'stock'
         ELSE 'unmatched'
       END
   END;
