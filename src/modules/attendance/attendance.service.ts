@@ -65,29 +65,17 @@ export class AttendanceService {
   }
 
   /**
-   * Đăng ký 1 mẫu khuôn mặt. self = NV tự đăng ký; admin có thể truyền employeeId để đăng ký hộ.
-   * reset = xoá mẫu cũ trước.
+   * Đăng ký 1 mẫu khuôn mặt CHO 1 nhân viên. CHỈ super_admin (guard chặn ở controller).
+   * Gọi nhiều lần cho nhiều góc mặt; reset=true ở lần đầu để xoá mẫu cũ.
    */
   async registerFace(
-    actorEmail: string | undefined,
-    actorRole: UserRole | undefined,
     file: UploadFile | undefined,
-    employeeId?: string,
+    employeeId: string | undefined,
     reset?: boolean,
   ): Promise<{ employeeId: string; faceCount: number }> {
     if (!file?.buffer?.length) throw new BadRequestException('Thiếu ảnh khuôn mặt');
-
-    let targetId: string;
-    if (employeeId) {
-      const isAdmin =
-        actorRole === UserRole.ADMIN || actorRole === UserRole.SUPER_ADMIN;
-      if (!isAdmin) {
-        throw new ForbiddenException('Chỉ quản lý mới đăng ký hộ nhân viên khác');
-      }
-      targetId = employeeId;
-    } else {
-      targetId = (await this.requireEmployee(actorEmail)).id;
-    }
+    const targetId = (employeeId ?? '').trim();
+    if (!targetId) throw new BadRequestException('Thiếu nhân viên cần đăng ký khuôn mặt');
 
     const detected = await this.face.detect(file.buffer);
     if (!detected) {

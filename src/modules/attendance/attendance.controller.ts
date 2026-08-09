@@ -59,16 +59,12 @@ export class AttendanceController {
     return this.service.me(user.email, this.clientIp(req));
   }
 
+  /** Đăng ký khuôn mặt cho 1 nhân viên — CHỈ super_admin. */
   @Post('register-face')
+  @Roles(UserRole.SUPER_ADMIN)
   @UseInterceptors(FileInterceptor('file'))
-  registerFace(
-    @CurrentUser() user: AuthUser,
-    @UploadedFile() file: UploadFile,
-    @Body() dto: RegisterFaceDto,
-  ) {
+  registerFace(@UploadedFile() file: UploadFile, @Body() dto: RegisterFaceDto) {
     return this.service.registerFace(
-      user.email,
-      user.role,
       file,
       dto.employeeId,
       dto.reset === 'true' || dto.reset === '1',
