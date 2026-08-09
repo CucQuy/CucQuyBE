@@ -91,7 +91,8 @@ export class AttendanceController {
   @Get('current-ip')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   currentIp(@Req() req: Request) {
-    return { ip: this.clientIp(req) };
+    // Trả IP + dải gợi ý (IPv6 → /56) vì IPv6 đổi /128 theo từng thiết bị.
+    return this.service.currentIpInfo(this.clientIp(req));
   }
 
   @Get('overview')

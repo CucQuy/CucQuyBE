@@ -194,6 +194,12 @@ export class AttendanceService {
 
   // ---- Quản lý (admin) ----
 
+  /** IP hiện tại + dải gợi ý để whitelist (IPv6 → /56, IPv4 → /32). */
+  async currentIpInfo(ip: string): Promise<{ ip: string; suggestedCidr: string }> {
+    const rows = await this.proc.suggestCidr(ip);
+    return { ip, suggestedCidr: rows[0]?.result || ip };
+  }
+
   async listNetworks(): Promise<AllowedNetwork[]> {
     const rows = await this.proc.networksList();
     return rows[0]?.result ?? [];

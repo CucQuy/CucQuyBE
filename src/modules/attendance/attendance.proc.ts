@@ -44,6 +44,12 @@ export class AttendanceProc {
       SELECT attendance_ip_status(${ip}) AS result`;
   }
 
+  /** Gợi ý dải CIDR để whitelist từ 1 IP (IPv6 → /56, IPv4 → /32). */
+  suggestCidr(ip: string): Promise<Array<{ result: string }>> {
+    return this.db.sql<Array<{ result: string }>>`
+      SELECT attendance_suggest_cidr(${ip}) AS result`;
+  }
+
   networksList(): Promise<Array<{ result: AllowedNetwork[] }>> {
     return this.db.sql<Array<{ result: AllowedNetwork[] }>>`
       SELECT attendance_networks_list() AS result`;

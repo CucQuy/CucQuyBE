@@ -21,6 +21,20 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
   );
 $$;
 
+-- Gợi ý DẢI (prefix) để whitelist từ 1 IP: IPv6 → /56 (bắt mọi thiết bị trong wifi vì
+-- IPv6 đổi /128 theo máy/lần kết nối), IPv4 → /32. Rỗng/không hợp lệ → ''.
+CREATE OR REPLACE FUNCTION attendance_suggest_cidr(p_ip text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE v_msk int;
+BEGIN
+  IF p_ip IS NULL OR trim(p_ip) = '' THEN RETURN ''; END IF;
+  v_msk := CASE WHEN family(p_ip::inet) = 6 THEN 56 ELSE 32 END;
+  RETURN set_masklen(p_ip::inet, v_msk)::cidr::text;
+EXCEPTION WHEN others THEN
+  RETURN '';
+END;
+$$;
+
 -- Trạng thái IP: đã cấu hình whitelist chưa + IP hiện tại có được phép không.
 CREATE OR REPLACE FUNCTION attendance_ip_status(p_ip text)
 RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
