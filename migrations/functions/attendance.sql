@@ -5,7 +5,27 @@
 -- Múi giờ tính "hôm nay": Asia/Ho_Chi_Minh.
 -- ============================================================
 
--- 1 bản ghi chấm công -> jsonb (kèm tên nhân viên).
+-- Suy ra CA làm việc từ thời điểm chấm + loại (in/out) — giờ VN. KHÔNG lưu cột,
+-- derive lúc đọc để luôn nhất quán khi đổi khung giờ ca.
+--   Ca1 08:00–12:00, Ca2 13:30–17:30, Ca3 17:30–21:30.
+-- Cắt tại 12:45 (giữa ca1–ca2) và 17:30 (biên ca2–ca3). Tại biên 17:30:
+--   'out' → ca2 (đang KẾT THÚC), 'in' → ca3 (đang BẮT ĐẦU). 765'=12:45, 1050'=17:30.
+CREATE OR REPLACE FUNCTION attendance_shift_at(p_ts timestamptz, p_kind text)
+RETURNS text LANGUAGE plpgsql STABLE AS $$
+DECLARE v_m int;
+BEGIN
+  IF p_ts IS NULL THEN RETURN NULL; END IF;
+  v_m := (EXTRACT(hour   FROM (p_ts AT TIME ZONE 'Asia/Ho_Chi_Minh')) * 60
+        + EXTRACT(minute FROM (p_ts AT TIME ZONE 'Asia/Ho_Chi_Minh')))::int;
+  IF p_kind = 'out' THEN
+    RETURN CASE WHEN v_m < 765 THEN 'ca1' WHEN v_m <= 1050 THEN 'ca2' ELSE 'ca3' END;
+  ELSE
+    RETURN CASE WHEN v_m < 765 THEN 'ca1' WHEN v_m <  1050 THEN 'ca2' ELSE 'ca3' END;
+  END IF;
+END;
+$$;
+
+-- 1 bản ghi chấm công -> jsonb (kèm tên nhân viên + ca suy ra).
 CREATE OR REPLACE FUNCTION attendance_record_to_json(r attendance_records)
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT jsonb_build_object(
@@ -13,6 +33,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     'employeeId',   r.employee_id,
     'employeeName', (SELECT e.name FROM employees e WHERE e.id = r.employee_id),
     'kind',         r.kind,
+    'shift',        attendance_shift_at(r.checked_at, r.kind),
     'checkedAt',    r.checked_at,
     'ip',           r.ip,
     'faceDistance', r.face_distance,
@@ -201,14 +222,20 @@ RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
 DECLARE
   v_last attendance_records%ROWTYPE;
   v_today date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
+  v_next_kind text;
 BEGIN
   SELECT * INTO v_last FROM attendance_records
   WHERE employee_id = p_employee_id ORDER BY checked_at DESC LIMIT 1;
+  -- Nút kế tiếp: đang trong ca (lần cuối 'in') → 'out'; còn lại → 'in'.
+  v_next_kind := CASE WHEN v_last.kind = 'in' THEN 'out' ELSE 'in' END;
   RETURN jsonb_build_object(
     'employeeId', p_employee_id,
     'faceCount', (SELECT count(*) FROM employee_face_descriptors WHERE employee_id = p_employee_id),
     'lastKind', v_last.kind,
     'lastAt', v_last.checked_at,
+    'nextKind', v_next_kind,
+    -- Ca mà lần chấm KẾ TIẾP (theo v_next_kind) sẽ rơi vào, tính theo GIỜ HIỆN TẠI.
+    'currentShift', attendance_shift_at(now(), v_next_kind),
     'todayIn', (SELECT min(checked_at) FROM attendance_records
                 WHERE employee_id = p_employee_id AND kind = 'in'
                   AND (checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today),
@@ -217,7 +244,26 @@ BEGIN
                    AND (checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today),
     'todayCount', (SELECT count(*) FROM attendance_records
                    WHERE employee_id = p_employee_id
-                     AND (checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today)
+                     AND (checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today),
+    -- Vào/ra từng ca hôm nay (derive ca theo giờ chấm).
+    'todayShifts', (
+      SELECT COALESCE(jsonb_agg(
+        jsonb_build_object('shift', s.code, 'in', si.i, 'out', so.o) ORDER BY s.ord
+      ), '[]'::jsonb)
+      FROM (VALUES ('ca1', 1), ('ca2', 2), ('ca3', 3)) AS s(code, ord)
+      LEFT JOIN LATERAL (
+        SELECT min(a.checked_at) AS i FROM attendance_records a
+        WHERE a.employee_id = p_employee_id AND a.kind = 'in'
+          AND (a.checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today
+          AND attendance_shift_at(a.checked_at, 'in') = s.code
+      ) si ON true
+      LEFT JOIN LATERAL (
+        SELECT max(a.checked_at) AS o FROM attendance_records a
+        WHERE a.employee_id = p_employee_id AND a.kind = 'out'
+          AND (a.checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today
+          AND attendance_shift_at(a.checked_at, 'out') = s.code
+      ) so ON true
+    )
   );
 END;
 $$;
