@@ -413,9 +413,14 @@ export class OrdersService {
         batch.map(async (r) => {
           const t = await this.fetchTracking(r.tracking_number);
           const e0 = t.events?.[0];
-          const latest = e0
-            ? e0.label + (e0.location ? ` · ${e0.location}` : '')
-            : t.status ?? null;
+          // Đơn HUỶ/HOÀN không sinh mốc sự kiện display_flag → e0 vẫn là mốc cũ ("Chuẩn bị
+          // hàng"). Ưu tiên nhóm trạng thái (t.status = 'Đã huỷ'/'Hoàn hàng') để không kẹt.
+          const terminal = t.status === 'Đã huỷ' || t.status === 'Hoàn hàng';
+          const latest = terminal
+            ? t.status
+            : e0
+              ? e0.label + (e0.location ? ` · ${e0.location}` : '')
+              : t.status ?? null;
           if (latest) {
             await this.proc.setTrackingStatus(r.id, latest, t.deliveredAt, t.shippedAt);
             updated++;
