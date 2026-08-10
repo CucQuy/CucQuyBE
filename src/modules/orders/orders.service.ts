@@ -402,6 +402,40 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Map danh sách mã VĐ SPX → `order_sn` (= `order_id` của SPX) để in label hàng loạt.
+   * Portal SPX in label theo `order_id`, KHÔNG theo mã vận đơn → phải tra từng mã.
+   * Bỏ mã không phải SPX / mã tra lỗi. Proxy tránh CORS (browser gọi thẳng SPX bị chặn).
+   */
+  async spxLabelIds(tns: string[]): Promise<{ tn: string; orderSn: string }[]> {
+    const clean = Array.from(
+      new Set((tns || []).map((t) => (t || '').trim()).filter((t) => /^SPXVN/i.test(t))),
+    );
+    const out: { tn: string; orderSn: string }[] = [];
+    const batchSize = 6;
+    for (let i = 0; i < clean.length; i += batchSize) {
+      const batch = clean.slice(i, i + batchSize);
+      const ids = await Promise.all(batch.map((tn) => this.fetchSpxOrderId(tn)));
+      ids.forEach((orderSn, k) => {
+        if (orderSn) out.push({ tn: batch[k], orderSn });
+      });
+    }
+    return out;
+  }
+
+  /** Tra `order_id` SPX theo mã vận đơn (get_order_info). null nếu lỗi/không có. */
+  private async fetchSpxOrderId(tn: string): Promise<string | null> {
+    try {
+      const url = `https://spx.vn/shipment/order/open/order/get_order_info?spx_tn=${encodeURIComponent(tn)}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const j: any = await res.json();
+      const id = j?.data?.order_info?.order_id;
+      return id != null && id !== '' ? String(id) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Refresh trạng thái VĐ (mốc mới nhất) cho các đơn SPX đang chạy → lưu vào DB. */
   async refreshTracking(): Promise<{ updated: number; total: number }> {
     const rows = await this.proc.trackedForRefresh();
