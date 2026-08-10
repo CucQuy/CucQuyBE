@@ -94,6 +94,7 @@ LANGUAGE sql STABLE AS $$
            to_char(date_trunc('month', revenue_try_ts(o.delivery_date)), 'YYYY-MM') AS month_key
     FROM orders o
     JOIN ctv ON ctv.uid = o.created_by
+    WHERE COALESCE(o.is_test, false) = false
   ),
   groups AS (
     SELECT g.id, g.name, g.min_margin, g.max_margin, g.fallback_rate,
@@ -212,6 +213,7 @@ BEGIN
   FROM orders o
   WHERE o.status IS DISTINCT FROM 'CANCELLED'
     AND o.status IS DISTINCT FROM 'RETURNED'
+    AND COALESCE(o.is_test, false) = false
     AND revenue_try_ts(o.delivery_date) BETWEEN v_from AND v_to;
 
   -- ── Hoa hồng: đơn CTV không huỷ/hoàn, delivery_date trong kỳ ──
@@ -269,6 +271,7 @@ BEGIN
     INTO v_bank_in
   FROM transactions t
   WHERE t.transfer_type = 'in'
+    AND COALESCE(t.is_test, false) = false
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
   -- ── bankOut: transactions transfer_type='out' theo transaction_date (đối xứng bankIn) ──

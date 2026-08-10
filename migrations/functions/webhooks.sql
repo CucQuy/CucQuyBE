@@ -53,7 +53,10 @@ BEGIN
     IF v_matched > 0 THEN v_match_by := 'content'; END IF;
 
   ELSIF v_transfer_type = 'in' AND v_order_number IS NULL
-        AND v_amount > 0 AND v_tx_date IS NOT NULL THEN
+        AND v_amount > 0 AND v_tx_date IS NOT NULL
+        -- Giao dịch test (TK 0776750418) KHÔNG được khớp đơn thật qua số tiền — chỉ khớp
+        -- theo mã đơn (đơn test có mã trong nội dung CK).
+        AND COALESCE((v_tx->>'is_test')::boolean, false) = false THEN
     -- (2) Fallback khớp theo SỐ TIỀN. Đơn ứng viên = tiêu chí đối soát:
     -- chưa PAID, chưa có sepay_id, GD trong [created_at, +7 ngày], VÀ số tiền khớp
     -- total (trả đủ) HOẶC deposit_amount (đặt cọc — khách chuyển free-text không mã đơn).

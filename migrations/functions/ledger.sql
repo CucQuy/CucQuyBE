@@ -20,6 +20,8 @@
 CREATE OR REPLACE FUNCTION transaction_ledger_status(t transactions)
 RETURNS text LANGUAGE sql STABLE AS $$
   SELECT CASE
+    -- Giao dịch TEST (tiền vào TK test) — nhãn riêng, không tính vào doanh thu/đối soát.
+    WHEN COALESCE(t.is_test, false) THEN 'test'
     WHEN t.transfer_type = 'in' THEN
       CASE
         -- Khớp 1 đơn cụ thể = mạnh nhất (đối soát chính xác).
@@ -152,7 +154,8 @@ BEGIN
           'reconciledPct', CASE WHEN count(*) = 0 THEN 100
             ELSE round(count(*) FILTER (WHERE status <> 'unmatched')::numeric * 100 / count(*))::int END
         )
-        FROM filt
+        -- Summary sổ/đối soát KHÔNG tính giao dịch test (chúng vẫn hiện trong list, nhãn 'test').
+        FROM filt WHERE COALESCE(is_test, false) = false
       )
     ) INTO v_result;
   RETURN v_result;

@@ -114,7 +114,7 @@ BEGIN
   INSERT INTO transactions (
     id, sepay_id, gateway, transaction_date, account_number, code, content,
     transfer_type, transfer_amount, accumulated, sub_account, reference_code,
-    description, order_number, is_external, received_at, created_at
+    description, order_number, is_external, received_at, created_at, is_test
   ) VALUES (
     transaction_gen_id(),
     v_sepay_id,
@@ -132,7 +132,9 @@ BEGIN
     v_order_number,
     false,
     v_now,
-    v_now
+    v_now,
+    -- TEST: tiền vào tài khoản test (MBBank 0776750418) → đánh dấu để loại khỏi doanh thu/đối soát.
+    (COALESCE(p_body->>'accountNumber', '') = '0776750418')
   )
   RETURNING * INTO v_new;
 
@@ -164,6 +166,7 @@ BEGIN
     WHERE transfer_type = 'in'
       AND order_number IS NULL
       AND COALESCE(is_external, false) = false
+      AND COALESCE(is_test, false) = false
       AND NULLIF(transaction_date, '') IS NOT NULL
   ),
   pairs AS (
@@ -236,9 +239,10 @@ BEGIN
     v_sepay_id := NULLIF(v_pair->>'sepayId', '');
     v_amount := 0;
 
-    -- GD phải còn chưa map. Lấy luôn số tiền từ DB (không tin amount client).
+    -- GD phải còn chưa map + KHÔNG phải giao dịch test. Lấy luôn số tiền từ DB.
     SELECT transfer_amount INTO v_amount
-      FROM transactions WHERE id = v_tx_id AND order_number IS NULL;
+      FROM transactions
+      WHERE id = v_tx_id AND order_number IS NULL AND COALESCE(is_test, false) = false;
     IF NOT FOUND THEN
       v_skipped := v_skipped + 1;
       CONTINUE;
