@@ -38,6 +38,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PosModule } from './modules/pos/pos.module';
 import { NotificationSchedulesModule } from './modules/notification-schedules/notification-schedules.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { TtsModule } from './modules/tts/tts.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { ShippingModule } from './modules/shipping/shipping.module';
     PosModule,
     NotificationSchedulesModule,
     ShippingModule,
+    TtsModule,
   ],
   controllers: [HealthController, SsoLoginController],
 })
