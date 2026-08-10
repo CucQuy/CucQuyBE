@@ -51,16 +51,6 @@ export class OrdersController {
     return this.service.fetchTracking(tn || '');
   }
 
-  /** Map mã VĐ SPX (CSV) → order_sn để in label hàng loạt. ?tns=SPXVN...,SPXVN... */
-  @Get('spx-label-ids')
-  spxLabelIds(@Query('tns') tns: string) {
-    const list = (tns || '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    return this.service.spxLabelIds(list);
-  }
-
   /** Danh sách đơn PHÂN TRANG + lọc + sắp (server-side) → { items, total }. */
   @Get('page')
   listOrdersPage(@Query() query: Record<string, any>) {
