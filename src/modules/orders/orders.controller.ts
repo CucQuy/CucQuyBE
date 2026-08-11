@@ -104,6 +104,12 @@ export class OrdersController {
     return this.service.patchOrderFields(id, body ?? {}, user);
   }
 
+  /** Đánh dấu đơn đã in bill cho khách (set bill_printed_at = now()). */
+  @Patch(':id/print')
+  markBillPrinted(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.markBillPrinted(id, user);
+  }
+
   /** Cập nhật đơn (check quyền CTV + ghi history). */
   @Patch(':id')
   updateOrder(

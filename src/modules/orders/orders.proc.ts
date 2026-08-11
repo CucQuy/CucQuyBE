@@ -87,6 +87,16 @@ export class OrderProc {
     return row.order;
   }
 
+  // ── Đánh dấu đã in bill cho khách (set bill_printed_at = now()) ──
+  async markBillPrinted(
+    id: string,
+    userJson: Record<string, any>,
+  ): Promise<Order> {
+    const [row] = await this.db.sql<{ order: Order }[]>`
+      SELECT order_mark_bill_printed(${id}, ${this.db.json(userJson)}::jsonb) AS "order"`;
+    return row.order;
+  }
+
   // ── Patch field NHẸ (paymentStatus/paymentMethod/deliveryType) — không tính lại KM/items ──
   async patchFields(
     id: string,

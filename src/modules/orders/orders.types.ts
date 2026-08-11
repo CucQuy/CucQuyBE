@@ -132,6 +132,8 @@ export interface Order {
   deliveryDate?: string | null;
   deliveryTime?: string | null;
   note?: string;
+  /** ISO thời điểm in bill cho khách gần nhất — null/undefined nếu chưa in. */
+  billPrintedAt?: string | null;
   /** UID gốc của người tạo (giữ nguyên để check quyền / lookup). */
   createdByUid?: string;
   /** Tên hiển thị người tạo (đã resolve từ users) — để FE hiển thị. */

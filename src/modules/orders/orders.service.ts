@@ -213,6 +213,23 @@ export class OrdersService {
   }
 
   /**
+   * Đánh dấu đơn ĐÃ IN BILL (bill_printed_at = now()). Nhẹ: không ghi history / noti,
+   * không tính lại gì. Ai xem được đơn thì in được (không giới hạn CTV như sửa đơn).
+   * Trả order đầy đủ đã cập nhật (có billPrintedAt) để FE cập nhật badge.
+   */
+  async markBillPrinted(orderId: string, currentUser: AuthUser): Promise<Order> {
+    const existing = await this.proc.get(orderId);
+    if (!existing) throw new NotFoundException('ORDER_NOT_FOUND');
+    const userJson = {
+      uid: currentUser?.uid ?? '',
+      role: currentUser?.role ?? '',
+      displayName: currentUser?.displayName ?? '',
+      email: currentUser?.email ?? '',
+    };
+    return this.proc.markBillPrinted(orderId, userJson);
+  }
+
+  /**
    * Patch NHẸ các field nhanh (paymentStatus/paymentMethod/deliveryType) — dùng
    * order_patch_fields (chỉ đụng field gửi lên, không tính lại KM/items). Trả cùng
    * shape {...order, changes, prevOrder}. CTV check nằm trong SQL (raise ORDER_EDIT_DENIED).

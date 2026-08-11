@@ -241,7 +241,8 @@ LANGUAGE sql STABLE AS $$
   -- chạm trần 100 args (50 cặp) của jsonb_build_object — gộp thêm cặp sẽ vỡ.
   || jsonb_build_object(
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
-    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0)
+    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
+    'billPrintedAt',        o.bill_printed_at
   );
 $$;
 
@@ -339,7 +340,8 @@ LANGUAGE sql STABLE AS $$
   )
   || jsonb_build_object(
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
-    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0)
+    'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
+    'billPrintedAt',        o.bill_printed_at
   );
 $$;
 
@@ -1313,6 +1315,39 @@ BEGIN
       'field', 'status', 'label', 'Trạng thái',
       'oldValue', COALESCE(NULLIF(v_old,''), '—'),
       'newValue', COALESCE(NULLIF(p_status,''), '—'))));
+
+  RETURN order_get(p_id);
+END;
+$$;
+
+-- ─────────────────── Đánh dấu đã in bill cho khách ───────────────────
+-- Set bill_printed_at = now() (mốc in bill gần nhất). Nhẹ: không ghi history / không tính lại.
+-- Idempotent: in lại chỉ cập nhật mốc. Trả order đầy đủ (đã có billPrintedAt).
+CREATE OR REPLACE FUNCTION order_mark_bill_printed(
+  p_id   text,
+  p_user jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_uid       text := NULLIF(p_user->>'uid','');
+  v_editor    text;
+  v_uid_short text;
+BEGIN
+  PERFORM 1 FROM orders WHERE id = p_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ORDER_NOT_FOUND' USING ERRCODE = 'no_data_found';
+  END IF;
+
+  v_uid_short := CASE WHEN v_uid IS NOT NULL THEN 'User-' || left(v_uid, 6) END;
+  v_editor := COALESCE(NULLIF(p_user->>'displayName',''), NULLIF(p_user->>'email',''),
+                       v_uid_short, 'Unknown');
+
+  UPDATE orders SET
+    bill_printed_at = now(),
+    updated_at      = now(),
+    updated_by      = v_editor
+  WHERE id = p_id;
 
   RETURN order_get(p_id);
 END;
