@@ -128,6 +128,14 @@ export interface Order {
   paymentStatus?: string;
   paymentMethod?: string;
   deliveryType?: string;
+  /** Snapshot nhà xe đã chọn (khi deliveryType = SHIP_COACH). */
+  coachInfo?: {
+    id?: string;
+    name: string;
+    phone?: string | null;
+    route?: string | null;
+    pickupPoint?: string | null;
+  } | null;
   orderDate?: unknown;
   deliveryDate?: string | null;
   deliveryTime?: string | null;

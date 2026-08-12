@@ -212,6 +212,7 @@ LANGUAGE sql STABLE AS $$
     'paymentStatus',     o.payment_status,
     'paymentMethod',     o.payment_method,
     'deliveryType',      o.delivery_type,
+    'coachInfo',         o.coach_info,
     'orderDate',         o.order_date,
     'deliveryDate',      o.delivery_date,
     'deliveryTime',      o.delivery_time,
@@ -313,6 +314,7 @@ LANGUAGE sql STABLE AS $$
     'paymentStatus',     o.payment_status,
     'paymentMethod',     o.payment_method,
     'deliveryType',      o.delivery_type,
+    'coachInfo',         o.coach_info,
     'orderDate',         o.order_date,
     'deliveryDate',      o.delivery_date,
     'deliveryTime',      o.delivery_time,
@@ -898,7 +900,7 @@ BEGIN
     deposit_amount, paid_amount,
     surcharge_amount, surcharge_tag, surcharges,
     discounts, manual_discount_amount,
-    payment_status, payment_method, status, delivery_type,
+    payment_status, payment_method, status, delivery_type, coach_info,
     delivery_date, delivery_time, note, tracking_number, sepay_id,
     commission_status, is_test, created_by, created_at
   ) VALUES (
@@ -919,6 +921,7 @@ BEGIN
     COALESCE(NULLIF(p_input->>'paymentMethod',''), 'BANKING'),  -- mặc định đơn mới: chuyển khoản
     p_input->>'status',
     COALESCE(NULLIF(p_input->>'deliveryType',''), 'SHIP'),
+    CASE WHEN p_input ? 'coachInfo' THEN p_input->'coachInfo' ELSE NULL END,
     NULLIF(p_input->>'deliveryDate',''),
     NULLIF(p_input->>'deliveryTime',''),
     COALESCE(p_input->>'note',''),
@@ -1197,6 +1200,8 @@ BEGIN
                             THEN COALESCE((p_input->>'isTest')::boolean, false) ELSE is_test END,
     delivery_type    = CASE WHEN p_input ? 'deliveryType'
                             THEN p_input->>'deliveryType' ELSE delivery_type END,
+    coach_info       = CASE WHEN p_input ? 'coachInfo'
+                            THEN p_input->'coachInfo' ELSE coach_info END,
     updated_at       = now(),
     updated_by       = CASE WHEN p_changes IS NOT NULL AND jsonb_array_length(p_changes) > 0
                             THEN v_editor ELSE updated_by END
