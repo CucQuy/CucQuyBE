@@ -212,7 +212,6 @@ LANGUAGE sql STABLE AS $$
     'paymentStatus',     o.payment_status,
     'paymentMethod',     o.payment_method,
     'deliveryType',      o.delivery_type,
-    'coachInfo',         o.coach_info,
     'orderDate',         o.order_date,
     'deliveryDate',      o.delivery_date,
     'deliveryTime',      o.delivery_time,
@@ -243,7 +242,8 @@ LANGUAGE sql STABLE AS $$
   || jsonb_build_object(
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
     'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
-    'billPrintedAt',        o.bill_printed_at
+    'billPrintedAt',        o.bill_printed_at,
+    'coachInfo',            o.coach_info
   );
 $$;
 
@@ -314,7 +314,6 @@ LANGUAGE sql STABLE AS $$
     'paymentStatus',     o.payment_status,
     'paymentMethod',     o.payment_method,
     'deliveryType',      o.delivery_type,
-    'coachInfo',         o.coach_info,
     'orderDate',         o.order_date,
     'deliveryDate',      o.delivery_date,
     'deliveryTime',      o.delivery_time,
@@ -343,7 +342,8 @@ LANGUAGE sql STABLE AS $$
   || jsonb_build_object(
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
     'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
-    'billPrintedAt',        o.bill_printed_at
+    'billPrintedAt',        o.bill_printed_at,
+    'coachInfo',            o.coach_info
   );
 $$;
 
