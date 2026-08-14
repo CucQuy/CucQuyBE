@@ -24,6 +24,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { StockReceiptsModule } from './modules/stock-receipts/stock-receipts.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
+import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
@@ -74,6 +75,7 @@ import { TtsModule } from './modules/tts/tts.module';
     StockReceiptsModule,
     EmployeesModule,
     AttendanceModule,
+    ShiftsModule,
     ImagesModule,
     WebhooksModule,
     SerpapiModule,
