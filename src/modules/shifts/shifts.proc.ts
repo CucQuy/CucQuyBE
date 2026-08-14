@@ -5,6 +5,7 @@ import {
   SetDayInput,
   ShiftAssignment,
   WorkShift,
+  WorkShiftSaveItem,
 } from './shifts.types';
 
 /** Tầng gọi stored function work_shift_* / shift_assignment_* (raw SQL). */
@@ -15,6 +16,11 @@ export class ShiftsProc {
   listShifts(): Promise<Array<{ result: WorkShift[] }>> {
     return this.db.sql<Array<{ result: WorkShift[] }>>`
       SELECT work_shift_list() AS result`;
+  }
+
+  saveShifts(items: WorkShiftSaveItem[]): Promise<Array<{ result: WorkShift[] }>> {
+    return this.db.sql<Array<{ result: WorkShift[] }>>`
+      SELECT work_shift_save_all(${this.db.json(items)}::jsonb) AS result`;
   }
 
   range(input: RangeInput): Promise<Array<{ result: ShiftAssignment[] }>> {

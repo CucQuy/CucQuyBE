@@ -3,7 +3,7 @@
 -- Trả jsonb camelCase cho FE. Ngày 'yyyy-mm-dd', giờ 'HH24:MI'.
 -- ============================================================
 
--- Danh sách ca định nghĩa (đang bật, theo thứ tự).
+-- Danh sách ca định nghĩa (kèm thứ trong tuần áp dụng). Lấy CẢ ca tắt để trang cài đặt sửa lại.
 CREATE OR REPLACE FUNCTION work_shift_list()
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
@@ -14,11 +14,45 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
       'endTime',    to_char(s.end_time,   'HH24:MI'),
       'congFactor', s.cong_factor,
       'sortOrder',  s.sort_order,
+      'weekdays',   to_jsonb(s.weekdays),
       'active',     s.active
     ) ORDER BY s.sort_order),
     '[]'::jsonb)
-  FROM work_shifts s
-  WHERE s.active;
+  FROM work_shifts s;
+$$;
+
+-- Lưu cài đặt ca (upsert theo code): giờ + thứ trong tuần + bật/tắt. KHÔNG xoá ca.
+-- p_items: [{ code, name?, startTime:'HH:MM', endTime:'HH:MM', weekdays:[1..7], sortOrder?, congFactor?, active? }]
+CREATE OR REPLACE FUNCTION work_shift_save_all(p_items jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE it jsonb;
+BEGIN
+  FOR it IN SELECT * FROM jsonb_array_elements(COALESCE(p_items, '[]'::jsonb)) LOOP
+    IF NULLIF(it->>'code', '') IS NULL THEN CONTINUE; END IF;
+    INSERT INTO work_shifts (code, name, start_time, end_time, cong_factor, sort_order, weekdays, active)
+    VALUES (
+      it->>'code',
+      COALESCE(NULLIF(trim(it->>'name'), ''), it->>'code'),
+      (it->>'startTime')::time,
+      (it->>'endTime')::time,
+      COALESCE(NULLIF(it->>'congFactor', '')::numeric, 0.5),
+      COALESCE(NULLIF(it->>'sortOrder', '')::int, 0),
+      CASE WHEN it ? 'weekdays'
+           THEN ARRAY(SELECT jsonb_array_elements_text(it->'weekdays')::int)
+           ELSE ARRAY[1,2,3,4,5,6,7] END,
+      COALESCE((it->>'active')::boolean, true)
+    )
+    ON CONFLICT (code) DO UPDATE SET
+      name        = EXCLUDED.name,
+      start_time  = EXCLUDED.start_time,
+      end_time    = EXCLUDED.end_time,
+      cong_factor = EXCLUDED.cong_factor,
+      sort_order  = EXCLUDED.sort_order,
+      weekdays    = EXCLUDED.weekdays,
+      active      = EXCLUDED.active;
+  END LOOP;
+  RETURN work_shift_list();
+END;
 $$;
 
 -- 1 phân ca -> jsonb (kèm tên NV).

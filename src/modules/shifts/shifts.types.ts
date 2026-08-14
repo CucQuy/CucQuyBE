@@ -1,4 +1,4 @@
-/** Ca làm định nghĩa (cố định, seed 3 ca). */
+/** Ca làm định nghĩa (cố định, seed 3 ca). weekdays = ISO dow 1=T2..7=CN áp dụng. */
 export interface WorkShift {
   code: string; // 'ca1' | 'ca2' | 'ca3'
   name: string;
@@ -6,7 +6,20 @@ export interface WorkShift {
   endTime: string; // 'HH:MM'
   congFactor: number; // 1 ca = ? công
   sortOrder: number;
+  weekdays: number[]; // [1..7] ISO dow áp dụng
   active: boolean;
+}
+
+/** 1 item khi lưu cài đặt ca. */
+export interface WorkShiftSaveItem {
+  code: string;
+  name?: string;
+  startTime: string;
+  endTime: string;
+  weekdays: number[];
+  congFactor?: number;
+  sortOrder?: number;
+  active?: boolean;
 }
 
 /** 1 NV được xếp vào 1 ca của 1 ngày. */

@@ -5,6 +5,7 @@ import {
   SetDayInput,
   ShiftAssignment,
   WorkShift,
+  WorkShiftSaveItem,
 } from './shifts.types';
 
 /** Orchestration ca làm — danh sách ca + phân ca theo ngày (lịch). */
@@ -14,6 +15,11 @@ export class ShiftsService {
 
   async listShifts(): Promise<WorkShift[]> {
     const rows = await this.proc.listShifts();
+    return rows[0]?.result ?? [];
+  }
+
+  async saveShifts(items: WorkShiftSaveItem[]): Promise<WorkShift[]> {
+    const rows = await this.proc.saveShifts(items);
     return rows[0]?.result ?? [];
   }
 
