@@ -330,6 +330,26 @@ export class StockReceiptsService {
     return this.proc.unreconcile(receiptId);
   }
 
+  /** Tổng hợp phân bổ (paid/remaining/reconciled + danh sách GD) của 1 bill. */
+  async allocSummary(receiptId: string) {
+    return this.proc.allocSummary(receiptId);
+  }
+
+  /** GD tiền ra còn lại có thể gắn cho 1 bill. */
+  async allocAvailable(receiptId: string) {
+    return this.proc.allocAvailable(receiptId);
+  }
+
+  /** Thêm/sửa 1 phân bổ GD ↔ bill. */
+  async allocAdd(receiptId: string, transactionId: string, amount?: number | null) {
+    return this.proc.allocAdd(receiptId, transactionId, amount);
+  }
+
+  /** Xoá 1 phân bổ theo id. */
+  async allocRemove(allocId: string) {
+    return this.proc.allocRemove(allocId);
+  }
+
   /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run). windowDays=0 → chỉ theo số tiền. */
   async reconcilePreview(windowDays = 0) {
     return this.proc.reconcilePreview(Math.min(Math.max(windowDays, 0), 3650));

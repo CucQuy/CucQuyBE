@@ -218,6 +218,37 @@ export class StockReceiptsController {
     return this.service.unreconcileReceipt(id);
   }
 
+  /** Tổng hợp phân bổ (paid/remaining/reconciled + danh sách GD) của 1 bill. */
+  @Get(':id/allocations')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  allocSummary(@Param('id') id: string) {
+    return this.service.allocSummary(id);
+  }
+
+  /** GD tiền ra còn lại có thể gắn cho 1 bill. */
+  @Get(':id/available-txns')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  allocAvailable(@Param('id') id: string) {
+    return this.service.allocAvailable(id);
+  }
+
+  /** Gắn thêm 1 GD tiền ra cho bill (amount rỗng → tự tính min còn-lại). */
+  @Post(':id/allocations')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  allocAdd(
+    @Param('id') id: string,
+    @Body() body: { transactionId: string; amount?: number | null },
+  ) {
+    return this.service.allocAdd(id, body.transactionId, body.amount ?? null);
+  }
+
+  /** Xoá 1 phân bổ theo id. */
+  @Delete('allocations/:allocId')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  allocRemove(@Param('allocId') allocId: string) {
+    return this.service.allocRemove(allocId);
+  }
+
   /** Xoá phiếu nhập (cascade: lines + tài sản/chi phí liên kết) + recompute tổng NCC/NVL.
    *  Dùng cho tính năng SỬA (FE tạo bản mới rồi xoá bản cũ). Chặn nếu phiếu đã đối soát. */
   @Delete(':id')

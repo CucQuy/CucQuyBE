@@ -215,6 +215,39 @@ export class StockReceiptProc {
     return row.result;
   }
 
+  /** Tổng hợp phân bổ tiền của 1 bill (nhiều GD/bill). */
+  async allocSummary(receiptId: string): Promise<unknown> {
+    const [row] = await this.db.sql<{ result: unknown }[]>`
+      SELECT receipt_alloc_summary(${receiptId}) AS result`;
+    return row?.result ?? null;
+  }
+
+  /** GD tiền ra còn lại để gắn cho 1 bill. */
+  async allocAvailable(receiptId: string): Promise<unknown> {
+    const [row] = await this.db.sql<{ result: unknown }[]>`
+      SELECT receipt_available_out_txns(${receiptId}) AS result`;
+    return row?.result ?? [];
+  }
+
+  /** Thêm/sửa 1 phân bổ (amount rỗng → tự tính). */
+  async allocAdd(
+    receiptId: string,
+    transactionId: string,
+    amount?: number | null,
+  ): Promise<unknown> {
+    const input = { receiptId, transactionId, amount: amount ?? null };
+    const [row] = await this.db.sql<{ result: unknown }[]>`
+      SELECT receipt_alloc_add(${this.db.json(input)}::jsonb) AS result`;
+    return row.result;
+  }
+
+  /** Xoá 1 phân bổ theo id. */
+  async allocRemove(allocId: string): Promise<unknown> {
+    const [row] = await this.db.sql<{ result: unknown }[]>`
+      SELECT receipt_alloc_remove(${allocId}) AS result`;
+    return row.result;
+  }
+
   /** Gợi ý cặp khớp tự động (dry-run). */
   async reconcilePreview(windowDays: number): Promise<ReceiptReconcilePreview> {
     const [row] = await this.db.sql<{ result: ReceiptReconcilePreview }[]>`

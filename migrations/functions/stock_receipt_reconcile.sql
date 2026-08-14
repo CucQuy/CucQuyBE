@@ -5,15 +5,16 @@
 -- ============================================================
 
 -- Tiền ra "đủ điều kiện đối soát phiếu nhập": out, chưa kết toán, chưa loại chi phí,
--- KHÔNG phải hoàn đơn, CHƯA gắn phiếu nào, CHƯA gắn khoản chi tay nào (chống đếm trùng).
+-- KHÔNG phải hoàn đơn, CHƯA gắn khoản chi tay nào, và CÒN LẠI chưa phân bổ hết cho bill
+-- (receipt_tx_remaining > 0 — cho phép 1 GD chia nhiều bill; xem receipt_allocations.sql).
 CREATE OR REPLACE FUNCTION stock_receipt_out_reconcilable(t transactions)
 RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT t.transfer_type = 'out'
      AND coalesce(t.settled_out, false) = false
      AND coalesce(t.cost_excluded, false) = false
-     AND NOT EXISTS (SELECT 1 FROM stock_receipts s WHERE s.transaction_id = t.id)
      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
-     AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id);
+     AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
+     AND receipt_tx_remaining(t.id) > 0;
 $$;
 
 -- Parse TEXT ngày → date an toàn (NULL nếu không phải yyyy-mm-dd...). Dùng nội bộ.
@@ -45,7 +46,8 @@ BEGIN
            coalesce(NULLIF(s.supplier_name_canonical,''), s.supplier_name_raw, '?') AS supplier,
            s.invoice_number
     FROM stock_receipts s
-    WHERE coalesce(s.reconciled, false) = false AND s.transaction_id IS NULL
+    WHERE coalesce(s.reconciled, false) = false
+      AND NOT EXISTS (SELECT 1 FROM receipt_tx_allocations a WHERE a.receipt_id = s.id)
       AND s.total_amount IS NOT NULL
   ),
   pairs AS (
@@ -115,20 +117,27 @@ BEGIN
       v_skipped := v_skipped + 1; CONTINUE;
     END IF;
 
-    UPDATE stock_receipts sr
-       SET transaction_id = v_tx_id,
-           reconciled = true,
-           reconciled_at = now(),
-           reconciled_by = 'Đối soát tự động'
-     WHERE sr.id = v_receipt_id
-       AND sr.transaction_id IS NULL
-       AND coalesce(sr.reconciled, false) = false
-       AND NOT EXISTS (SELECT 1 FROM stock_receipts s2 WHERE s2.transaction_id = v_tx_id)
-       AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = v_tx_id)
-       AND EXISTS (SELECT 1 FROM transactions t WHERE t.id = v_tx_id AND t.transfer_type = 'out');
+    -- Chỉ auto-gắn khi: bill chưa có phân bổ nào, GD là tiền ra còn tiền chưa phân bổ,
+    -- GD chưa dính hoàn/chi tay. amount = min(còn lại GD, tổng bill).
+    INSERT INTO receipt_tx_allocations (id, receipt_id, transaction_id, amount)
+    SELECT 'rta_' || encode(gen_random_bytes(9), 'hex'), sr.id, t.id,
+           LEAST(receipt_tx_remaining(t.id), GREATEST(sr.total_amount, 0))
+    FROM stock_receipts sr
+    JOIN transactions t ON t.id = v_tx_id AND t.transfer_type = 'out'
+    WHERE sr.id = v_receipt_id
+      AND coalesce(sr.reconciled, false) = false
+      AND sr.total_amount IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM receipt_tx_allocations a WHERE a.receipt_id = sr.id)
+      AND receipt_tx_remaining(t.id) > 0
+      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = v_tx_id)
+      AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = v_tx_id)
+    ON CONFLICT (receipt_id, transaction_id) DO NOTHING;
     GET DIAGNOSTICS v_updated = ROW_COUNT;
 
-    IF v_updated = 1 THEN v_applied := v_applied + 1;
+    IF v_updated = 1 THEN
+      UPDATE stock_receipts SET reconciled_by = 'Đối soát tự động' WHERE id = v_receipt_id;
+      PERFORM receipt_alloc_recompute(v_receipt_id);
+      v_applied := v_applied + 1;
     ELSE v_skipped := v_skipped + 1; END IF;
   END LOOP;
 
