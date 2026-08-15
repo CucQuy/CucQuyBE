@@ -5,11 +5,15 @@ import {
 } from '@nestjs/common';
 import { DineInProc } from './dine-in.proc';
 import { DineInTable, DineInTableInput } from './dine-in.types';
+import { EventsGateway } from '../events/events.gateway';
 
 /** Orchestration màn Order theo bàn (dine-in): CRUD bàn + đóng bàn. */
 @Injectable()
 export class DineInService {
-  constructor(private readonly proc: DineInProc) {}
+  constructor(
+    private readonly proc: DineInProc,
+    private readonly events: EventsGateway,
+  ) {}
 
   /** Danh sách bàn (kèm đơn đang mở). */
   async listTables(): Promise<DineInTable[]> {
@@ -21,6 +25,7 @@ export class DineInService {
   async upsertTable(input: DineInTableInput): Promise<DineInTable> {
     try {
       const rows = await this.proc.upsert(input);
+      this.events.emitTablesChanged({ reason: 'table' });
       return rows[0].result;
     } catch (e) {
       throw mapDineInError(e);
@@ -31,6 +36,7 @@ export class DineInService {
   async deleteTable(id: string): Promise<{ ok: boolean }> {
     try {
       const rows = await this.proc.remove(id);
+      this.events.emitTablesChanged({ reason: 'table' });
       return rows[0].result;
     } catch (e) {
       throw mapDineInError(e);
@@ -41,6 +47,7 @@ export class DineInService {
   async checkout(orderId: string): Promise<unknown> {
     try {
       const rows = await this.proc.checkout(orderId);
+      this.events.emitTablesChanged({ reason: 'checkout' });
       return rows[0].result;
     } catch (e) {
       throw mapDineInError(e);

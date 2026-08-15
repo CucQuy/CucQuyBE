@@ -3,9 +3,10 @@ import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { OrderProc } from './orders.proc';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, EventsModule],
   controllers: [OrdersController],
   providers: [OrdersService, OrderProc],
 })

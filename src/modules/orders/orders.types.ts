@@ -128,6 +128,11 @@ export interface Order {
   paymentStatus?: string;
   paymentMethod?: string;
   deliveryType?: string;
+  /** Order theo bàn (dine-in): bàn + số khách + giờ vào/ra. */
+  tableId?: string | null;
+  guestCount?: number | null;
+  seatedAt?: string | null;
+  leftAt?: string | null;
   /** Snapshot nhà xe đã chọn (khi deliveryType = SHIP_COACH). */
   coachInfo?: {
     id?: string;
