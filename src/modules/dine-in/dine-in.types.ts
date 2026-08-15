@@ -26,6 +26,20 @@ export interface DineInTable {
   currentOrder: DineInOpenOrder | null;
 }
 
+/** 1 phiên vào/ra của bàn (lịch sử) = 1 đơn dine-in đã/đang mở. */
+export interface DineInSession {
+  id: string;
+  orderNumber: string | null;
+  seatedAt: string | null; // giờ vào
+  leftAt: string | null; // giờ ra (null = đang ngồi)
+  guestCount: number | null;
+  total: number;
+  paidAmount: number;
+  paymentStatus: string;
+  status: string;
+  itemCount: number;
+}
+
 /** Input tạo/sửa bàn (id vắng = tạo mới). */
 export interface DineInTableInput {
   id?: string;

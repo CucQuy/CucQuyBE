@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DineInProc } from './dine-in.proc';
-import { DineInTable, DineInTableInput } from './dine-in.types';
+import { DineInSession, DineInTable, DineInTableInput } from './dine-in.types';
 import { EventsGateway } from '../events/events.gateway';
 
 /** Orchestration màn Order theo bàn (dine-in): CRUD bàn + đóng bàn. */
@@ -52,6 +52,12 @@ export class DineInService {
     } catch (e) {
       throw mapDineInError(e);
     }
+  }
+
+  /** Lịch sử vào/ra của 1 bàn (mọi phiên, mới nhất trước). */
+  async tableHistory(tableId: string, limit = 30): Promise<DineInSession[]> {
+    const rows = await this.proc.history(tableId, limit);
+    return rows[0]?.result ?? [];
   }
 }
 

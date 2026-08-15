@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
-import { DineInTable, DineInTableInput } from './dine-in.types';
+import { DineInSession, DineInTable, DineInTableInput } from './dine-in.types';
 
 /** Tầng gọi stored function dine_in_* (raw SQL). Nơi DUY NHẤT chạm this.db.sql. */
 @Injectable()
@@ -25,5 +25,13 @@ export class DineInProc {
   checkout(orderId: string): Promise<Array<{ result: unknown }>> {
     return this.db.sql<Array<{ result: unknown }>>`
       SELECT dine_in_checkout(${orderId}) AS result`;
+  }
+
+  history(
+    tableId: string,
+    limit: number,
+  ): Promise<Array<{ result: DineInSession[] }>> {
+    return this.db.sql<Array<{ result: DineInSession[] }>>`
+      SELECT dine_in_table_history(${tableId}, ${limit}) AS result`;
   }
 }

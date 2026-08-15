@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -40,6 +41,12 @@ export class DineInController {
   @Put('tables/:id')
   updateTable(@Param('id') id: string, @Body() body: DineInTableInput) {
     return this.service.upsertTable({ ...body, id });
+  }
+
+  /** Lịch sử vào/ra của 1 bàn (mọi phiên, mới nhất trước). */
+  @Get('tables/:id/history')
+  tableHistory(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.service.tableHistory(id, limit ? Number(limit) : 30);
   }
 
   /** Xoá bàn (soft). */
