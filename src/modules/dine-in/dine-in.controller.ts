@@ -31,6 +31,12 @@ export class DineInController {
     return this.service.listTables();
   }
 
+  /** Lịch sử vào/ra toàn bộ bàn (tab Lịch sử bàn). */
+  @Get('history')
+  allHistory(@Query('limit') limit?: string) {
+    return this.service.allHistory(limit ? Number(limit) : 100);
+  }
+
   /** Tạo bàn mới. */
   @Post('tables')
   createTable(@Body() body: DineInTableInput) {

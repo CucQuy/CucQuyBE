@@ -128,6 +128,34 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
   ) sub;
 $$;
 
+-- Lịch sử vào/ra TOÀN BỘ bàn (kèm tên bàn) — cho tab "Lịch sử bàn". Mới nhất trước.
+CREATE OR REPLACE FUNCTION dine_in_history(p_limit int DEFAULT 100)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(sub.h ORDER BY sub.seated_at DESC NULLS LAST), '[]'::jsonb)
+  FROM (
+    SELECT o.seated_at,
+      jsonb_build_object(
+        'id',            o.id,
+        'orderNumber',   o.order_number,
+        'tableId',       o.table_id,
+        'tableName',     dt.name,
+        'seatedAt',      o.seated_at,
+        'leftAt',        o.left_at,
+        'guestCount',    o.guest_count,
+        'total',         COALESCE(o.total, 0),
+        'paidAmount',    COALESCE(o.paid_amount, 0),
+        'paymentStatus', o.payment_status,
+        'status',        o.status,
+        'itemCount',     COALESCE((SELECT SUM(oi.quantity) FROM order_items oi WHERE oi.order_id = o.id), 0)
+      ) AS h
+    FROM orders o
+    LEFT JOIN dine_in_tables dt ON dt.id = o.table_id
+    WHERE o.table_id IS NOT NULL
+    ORDER BY o.seated_at DESC NULLS LAST
+    LIMIT GREATEST(COALESCE(p_limit, 100), 1)
+  ) sub;
+$$;
+
 -- Đóng bàn (khách rời): set giờ ra. Trả đơn đã cập nhật (order_get) để FE refresh.
 CREATE OR REPLACE FUNCTION dine_in_checkout(p_order_id text)
 RETURNS jsonb LANGUAGE plpgsql AS $$

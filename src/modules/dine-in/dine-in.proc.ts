@@ -34,4 +34,9 @@ export class DineInProc {
     return this.db.sql<Array<{ result: DineInSession[] }>>`
       SELECT dine_in_table_history(${tableId}, ${limit}) AS result`;
   }
+
+  allHistory(limit: number): Promise<Array<{ result: DineInSession[] }>> {
+    return this.db.sql<Array<{ result: DineInSession[] }>>`
+      SELECT dine_in_history(${limit}) AS result`;
+  }
 }

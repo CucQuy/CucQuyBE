@@ -59,6 +59,12 @@ export class DineInService {
     const rows = await this.proc.history(tableId, limit);
     return rows[0]?.result ?? [];
   }
+
+  /** Lịch sử vào/ra toàn bộ bàn (tab Lịch sử bàn). */
+  async allHistory(limit = 100): Promise<DineInSession[]> {
+    const rows = await this.proc.allHistory(limit);
+    return rows[0]?.result ?? [];
+  }
 }
 
 /** Map exception raw từ Postgres sang HTTP status có nghĩa cho FE. */
