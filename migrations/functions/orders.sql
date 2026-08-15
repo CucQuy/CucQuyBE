@@ -243,7 +243,12 @@ LANGUAGE sql STABLE AS $$
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
     'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
     'billPrintedAt',        o.bill_printed_at,
-    'coachInfo',            o.coach_info
+    'coachInfo',            o.coach_info,
+    -- Order theo bàn (dine-in): bàn + số khách + giờ vào/ra.
+    'tableId',              o.table_id,
+    'guestCount',           o.guest_count,
+    'seatedAt',             o.seated_at,
+    'leftAt',               o.left_at
   );
 $$;
 
@@ -343,7 +348,12 @@ LANGUAGE sql STABLE AS $$
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
     'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
     'billPrintedAt',        o.bill_printed_at,
-    'coachInfo',            o.coach_info
+    'coachInfo',            o.coach_info,
+    -- Order theo bàn (dine-in): bàn + số khách + giờ vào/ra.
+    'tableId',              o.table_id,
+    'guestCount',           o.guest_count,
+    'seatedAt',             o.seated_at,
+    'leftAt',               o.left_at
   );
 $$;
 
@@ -902,7 +912,8 @@ BEGIN
     discounts, manual_discount_amount,
     payment_status, payment_method, status, delivery_type, coach_info,
     delivery_date, delivery_time, note, tracking_number, sepay_id,
-    commission_status, is_test, created_by, created_at
+    commission_status, is_test, created_by, created_at,
+    table_id, guest_count, seated_at
   ) VALUES (
     v_id, v_number, now(), v_cust_id,
     COALESCE(v_cust->>'name',''), COALESCE(v_cust->>'phone',''),
@@ -930,7 +941,12 @@ BEGIN
     NULLIF(p_input->>'commissionStatus',''),
     COALESCE((p_input->>'isTest')::boolean, false),
     NULLIF(p_input->>'createdBy',''),
-    now()
+    now(),
+    -- Dine-in: bàn + số khách + giờ vào (mặc định giờ vào = now() khi có bàn).
+    NULLIF(p_input->>'tableId',''),
+    NULLIF(p_input->>'guestCount','')::int,
+    CASE WHEN NULLIF(p_input->>'tableId','') IS NOT NULL
+         THEN COALESCE(NULLIF(p_input->>'seatedAt','')::timestamptz, now()) END
   );
 
   PERFORM order_write_items(v_id, v_items);
@@ -1202,6 +1218,15 @@ BEGIN
                             THEN p_input->>'deliveryType' ELSE delivery_type END,
     coach_info       = CASE WHEN p_input ? 'coachInfo'
                             THEN p_input->'coachInfo' ELSE coach_info END,
+    -- Dine-in: chỉ đụng khi payload gửi field (giữ nguyên khi vắng).
+    table_id         = CASE WHEN p_input ? 'tableId'
+                            THEN NULLIF(p_input->>'tableId','') ELSE table_id END,
+    guest_count      = CASE WHEN p_input ? 'guestCount'
+                            THEN NULLIF(p_input->>'guestCount','')::int ELSE guest_count END,
+    seated_at        = CASE WHEN p_input ? 'seatedAt'
+                            THEN NULLIF(p_input->>'seatedAt','')::timestamptz ELSE seated_at END,
+    left_at          = CASE WHEN p_input ? 'leftAt'
+                            THEN NULLIF(p_input->>'leftAt','')::timestamptz ELSE left_at END,
     updated_at       = now(),
     updated_by       = CASE WHEN p_changes IS NOT NULL AND jsonb_array_length(p_changes) > 0
                             THEN v_editor ELSE updated_by END
