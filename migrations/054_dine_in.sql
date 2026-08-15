@@ -30,7 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_table_open
 -- Seed 2 bàn mặc định (góc trái trên & trái dưới của sơ đồ) — chỉ khi bảng còn rỗng.
 INSERT INTO dine_in_tables (id, name, pos_x, pos_y, seats, sort_order)
 SELECT * FROM (VALUES
-  (replace(gen_random_uuid()::text, '-', ''), 'Bàn 1', 0.16::numeric, 0.20::numeric, 4, 1),
-  (replace(gen_random_uuid()::text, '-', ''), 'Bàn 2', 0.16::numeric, 0.74::numeric, 4, 2)
+  (replace(gen_random_uuid()::text, '-', ''), 'Bàn 1', 0.18::numeric, 0.42::numeric, 4, 1),
+  (replace(gen_random_uuid()::text, '-', ''), 'Bàn 2', 0.18::numeric, 0.68::numeric, 4, 2)
 ) AS v(id, name, pos_x, pos_y, seats, sort_order)
 WHERE NOT EXISTS (SELECT 1 FROM dine_in_tables);
