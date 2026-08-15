@@ -30,15 +30,19 @@ BEGIN
 END;
 $$;
 
--- ── Set tay 1 giao dịch: gán category + cờ loại khỏi chi phí (backup khi rule sai) ──
+-- ── Set tay 1 giao dịch: gán category + cờ loại khỏi chi phí + ghi chú (backup khi rule sai) ──
+-- p_note: chỉ ghi đè review_note khi truyền (KHÔNG null xoá note cũ). Bắt buộc note khi category='other' → FE ràng.
+-- Đổi chữ ký (thêm p_note) nên phải DROP bản cũ trước.
+DROP FUNCTION IF EXISTS transaction_set_expense(text, text, boolean);
 CREATE OR REPLACE FUNCTION transaction_set_expense(
-  p_id text, p_category text, p_excluded boolean
+  p_id text, p_category text, p_excluded boolean, p_note text DEFAULT NULL
 )
 RETURNS SETOF transactions LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE transactions
      SET expense_category = NULLIF(p_category, ''),
-         cost_excluded    = coalesce(p_excluded, false)
+         cost_excluded    = coalesce(p_excluded, false),
+         review_note      = CASE WHEN p_note IS NOT NULL THEN NULLIF(p_note, '') ELSE review_note END
    WHERE id = p_id;
   RETURN QUERY SELECT * FROM transactions WHERE id = p_id;
 END;

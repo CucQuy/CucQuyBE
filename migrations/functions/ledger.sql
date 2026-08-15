@@ -26,6 +26,8 @@ RETURNS text LANGUAGE sql STABLE AS $$
       CASE
         -- Khớp 1 đơn cụ thể = mạnh nhất (đối soát chính xác).
         WHEN t.order_number IS NOT NULL AND t.order_number <> '' THEN 'matched'
+        -- Đánh dấu tay "Cấp vốn" (tiền chủ bơm vào — set expense_category='capital', KHÔNG phải doanh thu).
+        WHEN t.expense_category = 'capital' THEN 'capital'
         -- Đánh dấu tay "Shopee thanh toán" (set expense_category='shopee').
         WHEN t.expense_category = 'shopee' THEN 'shopee'
         -- User chủ động đánh dấu ngoài hệ thống → override auto-detect bên dưới.

@@ -133,9 +133,14 @@ export class TransactionsService {
     await this.proc.linkOrder(id, orderNumber);
   }
 
-  /** Set tay phân loại chi phí (category + cờ loại khỏi chi phí) cho 1 giao dịch. */
-  async setTransactionExpense(id: string, category: string | null, excluded: boolean): Promise<void> {
-    await this.proc.setExpense(id, category || null, excluded);
+  /** Set tay phân loại chi phí (category + cờ loại khỏi chi phí + ghi chú) cho 1 giao dịch. */
+  async setTransactionExpense(
+    id: string,
+    category: string | null,
+    excluded: boolean,
+    note: string | null = null,
+  ): Promise<void> {
+    await this.proc.setExpense(id, category || null, excluded, note);
   }
 
   /** Danh sách rule phân loại chi phí. */

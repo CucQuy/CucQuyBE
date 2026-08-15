@@ -121,7 +121,7 @@ export class TransactionsController {
   /** Set tay phân loại chi phí cho 1 giao dịch (category + cờ loại khỏi chi phí). */
   @Patch(':id/expense')
   async setExpense(@Param('id') id: string, @Body() dto: SetExpenseDto) {
-    await this.service.setTransactionExpense(id, dto.category ?? null, dto.excluded);
+    await this.service.setTransactionExpense(id, dto.category ?? null, dto.excluded, dto.note ?? null);
     return { ok: true };
   }
 

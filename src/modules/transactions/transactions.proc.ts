@@ -156,8 +156,13 @@ export class TransactionProc {
   }
 
   /** Set tay phân loại chi phí cho 1 giao dịch (category + cờ loại khỏi chi phí). */
-  setExpense(id: string, category: string | null, excluded: boolean): Promise<unknown> {
-    return this.db.sql`SELECT * FROM transaction_set_expense(${id}, ${category}, ${excluded})`;
+  setExpense(
+    id: string,
+    category: string | null,
+    excluded: boolean,
+    note: string | null = null,
+  ): Promise<unknown> {
+    return this.db.sql`SELECT * FROM transaction_set_expense(${id}, ${category}, ${excluded}, ${note})`;
   }
 
   /** Danh sách rule phân loại chi phí. */
