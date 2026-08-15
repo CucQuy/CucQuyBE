@@ -248,6 +248,13 @@ export class StockReceiptProc {
     return row.result;
   }
 
+  /** Đánh dấu / bỏ đánh dấu "đã khớp dù lệch" cho 1 bill. */
+  async allocSetForced(receiptId: string, forced: boolean): Promise<unknown> {
+    const [row] = await this.db.sql<{ result: unknown }[]>`
+      SELECT receipt_alloc_set_forced(${receiptId}, ${forced}) AS result`;
+    return row.result;
+  }
+
   /** Gợi ý cặp khớp tự động (dry-run). */
   async reconcilePreview(windowDays: number): Promise<ReceiptReconcilePreview> {
     const [row] = await this.db.sql<{ result: ReceiptReconcilePreview }[]>`

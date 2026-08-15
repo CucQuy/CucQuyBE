@@ -249,6 +249,13 @@ export class StockReceiptsController {
     return this.service.allocRemove(allocId);
   }
 
+  /** Đánh dấu / bỏ đánh dấu bill "đã khớp dù lệch" (không bắt buộc gắn đủ 100%). */
+  @Post(':id/allocations/force')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  allocSetForced(@Param('id') id: string, @Body() body: { forced: boolean }) {
+    return this.service.allocSetForced(id, body?.forced === true);
+  }
+
   /** Xoá phiếu nhập (cascade: lines + tài sản/chi phí liên kết) + recompute tổng NCC/NVL.
    *  Dùng cho tính năng SỬA (FE tạo bản mới rồi xoá bản cũ). Chặn nếu phiếu đã đối soát. */
   @Delete(':id')

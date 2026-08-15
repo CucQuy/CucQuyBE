@@ -350,6 +350,11 @@ export class StockReceiptsService {
     return this.proc.allocRemove(allocId);
   }
 
+  /** Đánh dấu / bỏ đánh dấu "đã khớp dù lệch" cho 1 bill. */
+  async allocSetForced(receiptId: string, forced: boolean) {
+    return this.proc.allocSetForced(receiptId, forced);
+  }
+
   /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run). windowDays=0 → chỉ theo số tiền. */
   async reconcilePreview(windowDays = 0) {
     return this.proc.reconcilePreview(Math.min(Math.max(windowDays, 0), 3650));

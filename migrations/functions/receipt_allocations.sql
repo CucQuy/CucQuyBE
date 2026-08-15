@@ -23,21 +23,27 @@ RETURNS numeric LANGUAGE sql STABLE AS $$
        - receipt_tx_allocated(p_tx_id);
 $$;
 
--- Tính lại cờ reconciled của bill (paid >= total).
+-- Tính lại cờ reconciled của bill.
+-- Đã khớp khi: đủ tiền (paid >= total) HOẶC được đánh dấu khớp tay dù lệch (reconcile_forced)
+--   — miễn là có gắn ít nhất 1 GD (paid > 0).
+-- Không còn phân bổ nào (paid = 0) → tự gỡ cờ forced (không thể "đã khớp" khi chưa gắn GD).
 CREATE OR REPLACE FUNCTION receipt_alloc_recompute(p_receipt_id text)
 RETURNS void LANGUAGE plpgsql AS $$
-DECLARE v_total numeric; v_paid numeric; v_done boolean; v_first text;
+DECLARE v_total numeric; v_paid numeric; v_forced boolean; v_done boolean; v_first text;
 BEGIN
-  SELECT total_amount INTO v_total FROM stock_receipts WHERE id = p_receipt_id;
+  SELECT total_amount, COALESCE(reconcile_forced, false)
+    INTO v_total, v_forced FROM stock_receipts WHERE id = p_receipt_id;
   SELECT COALESCE(sum(amount), 0) INTO v_paid FROM receipt_tx_allocations WHERE receipt_id = p_receipt_id;
-  v_done := (v_total IS NOT NULL AND v_paid > 0 AND v_paid >= v_total);
+  IF v_paid <= 0 THEN v_forced := false; END IF;
+  v_done := (v_total IS NOT NULL AND v_paid > 0 AND (v_forced OR v_paid >= v_total));
   -- transaction_id legacy: trỏ về alloc đầu (hiển thị cũ), NULL nếu không còn alloc.
   SELECT transaction_id INTO v_first FROM receipt_tx_allocations
    WHERE receipt_id = p_receipt_id ORDER BY created_at LIMIT 1;
   UPDATE stock_receipts SET
-    reconciled    = v_done,
-    reconciled_at = CASE WHEN v_done THEN now() ELSE NULL END,
-    transaction_id = v_first
+    reconciled       = v_done,
+    reconciled_at    = CASE WHEN v_done THEN now() ELSE NULL END,
+    reconcile_forced = v_forced,
+    transaction_id   = v_first
   WHERE id = p_receipt_id;
 END;
 $$;
@@ -52,6 +58,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     'remaining',  GREATEST(COALESCE(s.total_amount, 0)
                     - COALESCE((SELECT sum(a.amount) FROM receipt_tx_allocations a WHERE a.receipt_id = s.id), 0), 0),
     'reconciled', COALESCE(s.reconciled, false),
+    'forced',     COALESCE(s.reconcile_forced, false),
     'allocations', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
         'id', a.id, 'transactionId', a.transaction_id, 'amount', a.amount,
@@ -133,6 +140,29 @@ CREATE OR REPLACE FUNCTION receipt_alloc_clear(p_receipt_id text)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 BEGIN
   DELETE FROM receipt_tx_allocations WHERE receipt_id = p_receipt_id;
+  PERFORM receipt_alloc_recompute(p_receipt_id);
+  RETURN receipt_alloc_summary(p_receipt_id);
+END;
+$$;
+
+-- Đánh dấu / bỏ đánh dấu "đã khớp DÙ LỆCH" cho 1 bill (không bắt buộc paid >= total).
+--  * forced=true: cần đã gắn ≥ 1 GD (paid > 0); phần lệch chỉ để cảnh báo ở FE, không chặn.
+--  * forced=false: bỏ đánh dấu → bill quay lại chỉ "đã khớp" khi thực sự đủ tiền.
+-- Trả summary bill sau khi recompute.
+CREATE OR REPLACE FUNCTION receipt_alloc_set_forced(p_receipt_id text, p_forced boolean)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_paid numeric;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM stock_receipts WHERE id = p_receipt_id) THEN
+    RAISE EXCEPTION 'Không tìm thấy bill';
+  END IF;
+  IF COALESCE(p_forced, false) THEN
+    SELECT COALESCE(sum(amount), 0) INTO v_paid FROM receipt_tx_allocations WHERE receipt_id = p_receipt_id;
+    IF v_paid <= 0 THEN
+      RAISE EXCEPTION 'Cần gắn ít nhất 1 giao dịch trước khi đánh dấu đã khớp';
+    END IF;
+  END IF;
+  UPDATE stock_receipts SET reconcile_forced = COALESCE(p_forced, false) WHERE id = p_receipt_id;
   PERFORM receipt_alloc_recompute(p_receipt_id);
   RETURN receipt_alloc_summary(p_receipt_id);
 END;
