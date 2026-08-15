@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { join, dirname } from 'path';
 // tf runtime dùng để điều khiển backend (setBackend/ready). face-api.node-wasm require
 // đúng module '@tensorflow/tfjs' này (cùng singleton) nên backend set ở đây có hiệu lực.
@@ -32,12 +37,25 @@ export interface FaceDetectResult {
  * So khớp 1:1 bằng euclidean distance (nhỏ = giống). Model đóng gói ở models/face.
  */
 @Injectable()
-export class FaceService {
+export class FaceService implements OnModuleInit {
   private readonly logger = new Logger(FaceService.name);
   private readonly modelsDir = join(process.cwd(), 'models', 'face');
   /** Ngưỡng khớp: distance ≤ ngưỡng ⇒ CÙNG người. Chỉnh qua env FACE_MATCH_THRESHOLD. */
   readonly threshold = Number(process.env.FACE_MATCH_THRESHOLD) || 0.5;
+  /** inputSize TinyFaceDetector — nhỏ hơn = nhanh hơn (chỉnh qua env FACE_INPUT_SIZE). */
+  private readonly inputSize = Number(process.env.FACE_INPUT_SIZE) || 320;
   private ready?: Promise<void>;
+
+  /**
+   * Nạp sẵn model NGAY lúc pod khởi động (không chờ request đầu tiên) → lần đăng ký/
+   * chấm công đầu KHÔNG phải gánh chi phí init WASM + load 3 net (vốn làm "quá lâu").
+   * Fire-and-forget: lỗi chỉ log, không chặn boot.
+   */
+  onModuleInit(): void {
+    void this.ensureReady().catch((e) =>
+      this.logger.warn(`Face models warm-up failed (sẽ thử lại khi có request): ${e}`),
+    );
+  }
 
   /** Nạp backend WASM + model 1 lần (lazy, dùng lại promise). */
   private ensureReady(): Promise<void> {
@@ -84,7 +102,7 @@ export class FaceService {
         .detectSingleFace(
           input as unknown as FaceApiType.TNetInput,
           new faceapi.TinyFaceDetectorOptions({
-            inputSize: 416,
+            inputSize: this.inputSize,
             scoreThreshold: 0.4,
           }),
         )
