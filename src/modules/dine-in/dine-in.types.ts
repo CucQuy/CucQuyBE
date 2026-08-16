@@ -23,6 +23,9 @@ export interface DineInTable {
   seats: number;
   sortOrder: number;
   active: boolean;
+  /** Các đơn đang mở của bàn (nhiều đơn/bàn). */
+  currentOrders: DineInOpenOrder[];
+  /** Đơn vào sớm nhất (tương thích ngược). */
   currentOrder: DineInOpenOrder | null;
 }
 

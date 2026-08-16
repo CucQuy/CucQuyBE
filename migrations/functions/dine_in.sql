@@ -7,16 +7,10 @@
 -- "Đơn đang mở" = table_id khớp, left_at IS NULL, status chưa huỷ/hoàn.
 CREATE OR REPLACE FUNCTION dine_in_table_to_json(t dine_in_tables)
 RETURNS jsonb LANGUAGE sql STABLE AS $$
-  SELECT jsonb_build_object(
-    'id',        t.id,
-    'name',      t.name,
-    'posX',      COALESCE(t.pos_x, 0),
-    'posY',      COALESCE(t.pos_y, 0),
-    'seats',     COALESCE(t.seats, 4),
-    'sortOrder', COALESCE(t.sort_order, 0),
-    'active',    COALESCE(t.active, true),
-    'currentOrder', (
-      SELECT jsonb_build_object(
+  WITH open_orders AS (
+    SELECT
+      o.seated_at,
+      jsonb_build_object(
         'id',            o.id,
         'orderNumber',   o.order_number,
         'guestCount',    o.guest_count,
@@ -27,14 +21,26 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
         'status',        o.status,
         'paymentStatus', o.payment_status,
         'itemCount',     COALESCE((SELECT SUM(oi.quantity) FROM order_items oi WHERE oi.order_id = o.id), 0)
-      )
-      FROM orders o
-      WHERE o.table_id = t.id
-        AND o.left_at IS NULL
-        AND o.status NOT IN ('CANCELLED', 'RETURNED')
-      ORDER BY o.order_date DESC NULLS LAST
-      LIMIT 1
-    )
+      ) AS j
+    FROM orders o
+    WHERE o.table_id = t.id
+      AND o.left_at IS NULL
+      AND o.status NOT IN ('CANCELLED', 'RETURNED')
+    ORDER BY o.seated_at ASC NULLS LAST
+  )
+  SELECT jsonb_build_object(
+    'id',        t.id,
+    'name',      t.name,
+    'posX',      COALESCE(t.pos_x, 0),
+    'posY',      COALESCE(t.pos_y, 0),
+    'seats',     COALESCE(t.seats, 4),
+    'sortOrder', COALESCE(t.sort_order, 0),
+    'active',    COALESCE(t.active, true),
+    -- Nhiều đơn/bàn: 1 bàn đang hoạt động có thể gắn nhiều đơn mở (leftAt null).
+    'currentOrders', COALESCE(
+      (SELECT jsonb_agg(j ORDER BY seated_at ASC NULLS LAST) FROM open_orders), '[]'::jsonb),
+    -- Giữ currentOrder (đơn vào sớm nhất) cho tương thích ngược.
+    'currentOrder', (SELECT j FROM open_orders LIMIT 1)
   );
 $$;
 
