@@ -115,6 +115,18 @@ export class EventsGateway implements OnGatewayConnection {
       { order_id: event.orderNumber, amount: event.amount },
       { qos: 1, retain: false },
     );
+    // Sau khi máy POS hiện "Thanh toán thành công" + đọc tiền (~vài giây) → XOÁ QR:
+    // báo về màn chính (order/cancel) + xoá retained order/create. Đảm bảo máy KHÔNG
+    // còn hiện QR sau khi thanh toán, kể cả khi (a) lỡ mất event order:paid do rớt
+    // WiFi, hoặc (b) reboot/nối lại rồi nhận lại QR retained cũ. (Giống POST /pos/clear.)
+    setTimeout(() => {
+      try {
+        this.mqtt.publish(MQTT_TOPICS.ORDER_CANCEL, {}, { qos: 1, retain: false });
+        this.mqtt.clearRetained(MQTT_TOPICS.ORDER_CREATE);
+      } catch (e) {
+        this.logger.warn(`POS clear-after-paid lỗi (bỏ qua): ${e}`);
+      }
+    }, 3000);
     // Lưu vào hộp thư in-app (fire-and-forget, không chặn emit).
     void this.notif.log({
       kind: 'inapp',
