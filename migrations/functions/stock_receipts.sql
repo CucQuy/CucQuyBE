@@ -352,6 +352,7 @@ DECLARE
   v_expense_id uuid;
   v_ai_type text;
   v_ai_conf numeric;
+  v_auto_tx text;  -- GD tiền ra khớp số tiền -> tự đối soát ngay khi tạo phiếu
 BEGIN
   -- ── resolveSupplier ──────────────────────────────────────────────────────
   -- 1) targetSupplierId tồn tại -> dùng lại
@@ -598,7 +599,32 @@ BEGIN
     );
   END LOOP;
 
-  RETURN jsonb_build_object('id', v_header_id);
+  -- ── AUTO ĐỐI SOÁT ────────────────────────────────────────────────────────
+  -- Tạo phiếu xong, nếu có tiền RA khớp SỐ TIỀN thì gắn (đối soát) luôn.
+  -- Ưu tiên #1 (bắt buộc) = khớp số tiền tuyệt đối với total phiếu.
+  -- "Nới lỏng phạm vi": KHÔNG lọc theo ngày — quét MỌI GD tiền ra đủ điều kiện;
+  -- ngày chỉ dùng để chọn GD gần ngày phiếu nhất khi có nhiều ứng viên cùng số tiền.
+  -- Tái dùng stock_receipt_reconcile_apply (đủ guard: bill chưa có phân bổ, GD còn dư,
+  -- không dính hoàn/chi tay) → idempotent, an toàn; reconciled_by = 'Đối soát tự động'.
+  IF v_total > 0 THEN
+    SELECT t.id INTO v_auto_tx
+    FROM transactions t
+    WHERE stock_receipt_out_reconcilable(t)
+      AND t.transfer_amount = v_total
+    ORDER BY
+      abs(COALESCE(
+        stock_receipt_safe_date(t.transaction_date) - stock_receipt_safe_date(v_receipt_date),
+        999999)) ASC,
+      stock_receipt_safe_date(t.transaction_date) DESC NULLS LAST
+    LIMIT 1;
+
+    IF v_auto_tx IS NOT NULL THEN
+      PERFORM stock_receipt_reconcile_apply(jsonb_build_array(
+        jsonb_build_object('receiptId', v_header_id, 'transactionId', v_auto_tx)));
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object('id', v_header_id, 'autoReconciledTxId', v_auto_tx);
 END;
 $$;
 
