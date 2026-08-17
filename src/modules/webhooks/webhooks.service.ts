@@ -15,14 +15,20 @@ export class WebhooksService {
   ) {}
 
   /**
-   * Group Zalo đích cho thông báo THANH TOÁN = paymentGroupId (DB config), tách
-   * khỏi nhóm đơn hàng. Chưa cấu hình → undefined → ZaloService fallback env.
+   * Group Zalo đích cho thông báo THANH TOÁN = các nhóm có cờ notifyOnPayment
+   * (cấu hình theo từng nhóm ở Cài đặt Zalo). Fallback: paymentGroupId (config cũ)
+   * → undefined (ZaloService dùng env). Tách khỏi nhóm đơn hàng.
    */
   private async paymentGroupIds(): Promise<string[] | undefined> {
     try {
       const cfg = await this.config.fetchZaloGroupsConfiguration();
-      const id = (cfg.paymentGroupId ?? '').trim();
-      return id ? [id] : undefined;
+      const fromGroups = (cfg.groups ?? [])
+        .filter((g) => g.notifyOnPayment === true)
+        .map((g) => (g.zaloGroupId ?? '').trim())
+        .filter(Boolean);
+      if (fromGroups.length > 0) return [...new Set(fromGroups)];
+      const legacy = (cfg.paymentGroupId ?? '').trim();
+      return legacy ? [legacy] : undefined;
     } catch {
       return undefined;
     }

@@ -263,6 +263,7 @@ LANGUAGE sql STABLE AS $$
                 'notifyOnCreate', COALESCE(g.notify_on_create, true),
                 'notifyOnUpdate', COALESCE(g.notify_on_update, true),
                 'notifyOnDelete', COALESCE(g.notify_on_delete, true),
+                'notifyOnPayment', COALESCE(g.notify_on_payment, false),
                 'updateFieldWhitelist', COALESCE(to_jsonb(g.update_field_whitelist), '[]'::jsonb)
               ) ORDER BY g.id)
        FROM zalo_groups g),
@@ -331,6 +332,7 @@ BEGIN
     (COALESCE((x->>'notifyOnCreate')::boolean, true)) AS notify_on_create,
     (COALESCE((x->>'notifyOnUpdate')::boolean, true)) AS notify_on_update,
     (COALESCE((x->>'notifyOnDelete')::boolean, true)) AS notify_on_delete,
+    (COALESCE((x->>'notifyOnPayment')::boolean, false)) AS notify_on_payment,
     (SELECT COALESCE(array_agg(s), '{}'::text[])
        FROM jsonb_array_elements_text(
          CASE WHEN jsonb_typeof(x->'updateFieldWhitelist') = 'array' THEN x->'updateFieldWhitelist' ELSE '[]'::jsonb END
@@ -345,14 +347,15 @@ BEGIN
   DELETE FROM zalo_groups WHERE id NOT IN (SELECT id FROM _grp);
 
   -- upsert groups
-  INSERT INTO zalo_groups (id, name, zalo_group_id, notify_on_create, notify_on_update, notify_on_delete, update_field_whitelist)
-  SELECT id, name, zalo_group_id, notify_on_create, notify_on_update, notify_on_delete, update_field_whitelist FROM _grp
+  INSERT INTO zalo_groups (id, name, zalo_group_id, notify_on_create, notify_on_update, notify_on_delete, notify_on_payment, update_field_whitelist)
+  SELECT id, name, zalo_group_id, notify_on_create, notify_on_update, notify_on_delete, notify_on_payment, update_field_whitelist FROM _grp
   ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     zalo_group_id = EXCLUDED.zalo_group_id,
     notify_on_create = EXCLUDED.notify_on_create,
     notify_on_update = EXCLUDED.notify_on_update,
     notify_on_delete = EXCLUDED.notify_on_delete,
+    notify_on_payment = EXCLUDED.notify_on_payment,
     update_field_whitelist = EXCLUDED.update_field_whitelist;
 
   -- replace members (chỉ uid có trong users → FK an toàn, tự bỏ uid lạ)

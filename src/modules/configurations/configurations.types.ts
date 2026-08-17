@@ -23,6 +23,8 @@ export interface ZaloGroupConfig {
   notifyOnCreate?: boolean;
   notifyOnUpdate?: boolean;
   notifyOnDelete?: boolean;
+  /** Nhận thông báo THANH TOÁN (webhook SePay) cho nhóm này. */
+  notifyOnPayment?: boolean;
   updateFieldWhitelist?: string[];
 }
 
