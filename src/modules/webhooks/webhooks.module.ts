@@ -7,9 +7,10 @@ import { WebhookProc } from './webhooks.proc';
 import { QUEUE_WEBHOOKS } from '../../queue/queue.constants';
 import { EventsModule } from '../events/events.module';
 import { ZaloModule } from '../zalo/zalo.module';
+import { ConfigurationsModule } from '../configurations/configurations.module';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: QUEUE_WEBHOOKS }), EventsModule, ZaloModule],
+  imports: [BullModule.registerQueue({ name: QUEUE_WEBHOOKS }), EventsModule, ZaloModule, ConfigurationsModule],
   controllers: [WebhooksController],
   providers: [WebhooksService, WebhooksProcessor, WebhookProc],
 })

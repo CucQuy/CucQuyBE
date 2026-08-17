@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { WebhookProc, OrderPaidSummary, OrderPaidItem } from './webhooks.proc';
 import { EventsGateway } from '../events/events.gateway';
 import { ZaloService } from '../zalo/zalo.service';
+import { ConfigurationsService } from '../configurations/configurations.service';
 
 /** Service chỉ orchestration + dựng payload HTTP; mọi DB qua WebhookProc. */
 @Injectable()
@@ -10,7 +11,22 @@ export class WebhooksService {
     private readonly proc: WebhookProc,
     private readonly events: EventsGateway,
     private readonly zalo: ZaloService,
+    private readonly config: ConfigurationsService,
   ) {}
+
+  /**
+   * Group Zalo đích cho thông báo THANH TOÁN = paymentGroupId (DB config), tách
+   * khỏi nhóm đơn hàng. Chưa cấu hình → undefined → ZaloService fallback env.
+   */
+  private async paymentGroupIds(): Promise<string[] | undefined> {
+    try {
+      const cfg = await this.config.fetchZaloGroupsConfiguration();
+      const id = (cfg.paymentGroupId ?? '').trim();
+      return id ? [id] : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   /** SePay: lưu transaction + (nếu khớp orderNumber) set order = PAID. */
   async handleSepay(body: any): Promise<{ status: number; payload: Record<string, unknown> }> {
@@ -103,8 +119,12 @@ export class WebhooksService {
     } catch {
       // Không lấy được chi tiết đơn → vẫn gửi noti gọn (chỉ số tiền/ngân hàng).
     }
+    const groupIds = await this.paymentGroupIds();
     await this.zalo
-      .send({ message: this.buildPaidMessage(orderNumber, amount, tx, summary) })
+      .send({
+        message: this.buildPaidMessage(orderNumber, amount, tx, summary),
+        ...(groupIds ? { groupIds } : {}),
+      })
       .catch(() => undefined);
   }
 
@@ -126,7 +146,8 @@ export class WebhooksService {
       `🔎 ${ambiguousCount} đơn cùng số tiền — không tự khớp được`,
       '👉 Vào màn Giao dịch để đối soát thủ công',
     ].join('\n');
-    await this.zalo.send({ message }).catch(() => undefined);
+    const groupIds = await this.paymentGroupIds();
+    await this.zalo.send({ message, ...(groupIds ? { groupIds } : {}) }).catch(() => undefined);
   }
 
   /**

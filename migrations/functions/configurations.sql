@@ -269,6 +269,7 @@ LANGUAGE sql STABLE AS $$
       '[]'::jsonb
     ),
     'mainGroupId', COALESCE((SELECT main_group_id FROM zalo_config WHERE id = 'zalo'), ''),
+    'paymentGroupId', COALESCE((SELECT payment_group_id FROM zalo_config WHERE id = 'zalo'), ''),
     'mainNotifyOnCreate', COALESCE((SELECT main_notify_on_create FROM zalo_config WHERE id = 'zalo'), true),
     'mainNotifyOnUpdate', COALESCE((SELECT main_notify_on_update FROM zalo_config WHERE id = 'zalo'), true),
     'mainNotifyOnDelete', COALESCE((SELECT main_notify_on_delete FROM zalo_config WHERE id = 'zalo'), true),
@@ -296,6 +297,9 @@ BEGIN
 
   IF p_data ? 'mainGroupId' THEN
     UPDATE zalo_config SET main_group_id = btrim(COALESCE(p_data->>'mainGroupId','')) WHERE id = 'zalo';
+  END IF;
+  IF p_data ? 'paymentGroupId' THEN
+    UPDATE zalo_config SET payment_group_id = btrim(COALESCE(p_data->>'paymentGroupId','')) WHERE id = 'zalo';
   END IF;
   IF p_data ? 'mainNotifyOnCreate' THEN
     UPDATE zalo_config SET main_notify_on_create = (p_data->'mainNotifyOnCreate')::boolean WHERE id = 'zalo';

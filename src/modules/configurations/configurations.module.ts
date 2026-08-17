@@ -6,5 +6,6 @@ import { ConfigurationProc } from './configurations.proc';
 @Module({
   controllers: [ConfigurationsController],
   providers: [ConfigurationsService, ConfigurationProc],
+  exports: [ConfigurationsService],
 })
 export class ConfigurationsModule {}

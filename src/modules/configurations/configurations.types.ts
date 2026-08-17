@@ -29,6 +29,8 @@ export interface ZaloGroupConfig {
 export interface ZaloGroupsConfiguration {
   groups: ZaloGroupConfig[];
   mainGroupId?: string;
+  /** Nhóm Zalo nhận thông báo THANH TOÁN (webhook SePay) — tách khỏi nhóm đơn hàng. */
+  paymentGroupId?: string;
   mainNotifyOnCreate?: boolean;
   mainNotifyOnUpdate?: boolean;
   mainNotifyOnDelete?: boolean;
@@ -99,6 +101,7 @@ export interface CreatePaymentAccountPayload {
 export interface SaveZaloGroupsPayload {
   groups: ZaloGroupConfig[];
   mainGroupId?: string;
+  paymentGroupId?: string;
   mainNotifyOnCreate?: boolean;
   mainNotifyOnUpdate?: boolean;
   mainNotifyOnDelete?: boolean;
