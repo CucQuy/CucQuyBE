@@ -241,7 +241,58 @@ export class TransactionProc {
   expenseUnlink(txId: string): Promise<{ expense_out_unlink: number }[]> {
     return this.db.sql<{ expense_out_unlink: number }[]>`SELECT expense_out_unlink(${txId})`;
   }
+
+  /** Transaction-first: tổng hợp rải 1 GD tiền-ra ↔ nhiều phiếu nhập (đã gắn + ứng viên). */
+  receiptAllocSummary(txId: string): Promise<{ result: TxReceiptAllocSummary }[]> {
+    return this.db.sql<{ result: TxReceiptAllocSummary }[]>`
+      SELECT tx_receipt_alloc_summary(${txId}) AS result`;
+  }
+
+  /** Rải 1 GD tiền-ra vào NHIỀU phiếu 1 lượt (items = [{receiptId, amount?}]). */
+  receiptAllocAddBulk(txId: string, items: unknown): Promise<{ result: TxReceiptAllocSummary }[]> {
+    return this.db.sql<{ result: TxReceiptAllocSummary }[]>`
+      SELECT tx_receipt_alloc_add_bulk(${txId}, ${this.db.json(items ?? [])}::jsonb) AS result`;
+  }
+
+  /** Gỡ 1 phân bổ (theo alloc id) → trả summary theo phía GD. */
+  receiptAllocRemove(allocId: string): Promise<{ result: TxReceiptAllocSummary }[]> {
+    return this.db.sql<{ result: TxReceiptAllocSummary }[]>`
+      SELECT tx_receipt_alloc_remove(${allocId}) AS result`;
+  }
 }
+
+/** 1 phiếu GD đang gắn (phía transaction). */
+export type TxReceiptAllocation = {
+  id: string;
+  receiptId: string;
+  amount: number;
+  receiptTotal: number | null;
+  receiptDate: string | null;
+  supplier: string | null;
+  invoice: string | null;
+  receiptReconciled: boolean;
+};
+
+/** 1 phiếu ứng viên để rải GD. */
+export type TxReceiptCandidate = {
+  receiptId: string;
+  total: number | null;
+  paid: number;
+  remaining: number;
+  receiptDate: string | null;
+  supplier: string | null;
+  invoice: string | null;
+};
+
+/** Summary rải 1 GD tiền-ra ↔ nhiều phiếu nhập. */
+export type TxReceiptAllocSummary = {
+  transactionId: string;
+  txAmount: number;
+  allocated: number;
+  remaining: number;
+  allocations: TxReceiptAllocation[];
+  candidates: TxReceiptCandidate[];
+};
 
 /** 1 cặp GD↔đơn khớp tự động (từ preview). */
 export type ReconcileMatch = {

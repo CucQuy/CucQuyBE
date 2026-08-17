@@ -8,7 +8,9 @@ import {
   LedgerFilters,
   LedgerResult,
   LedgerItem,
+  TxReceiptAllocSummary,
 } from './transactions.proc';
+import { TxReceiptAllocItem } from './dto/receipt-alloc.dto';
 
 /** 1 điểm chuỗi thu/chi theo ngày (đã coerce số). */
 export type LedgerSeriesItem = { day: string; in: number; out: number };
@@ -237,4 +239,58 @@ export class TransactionsService {
     const rows = await this.proc.expenseUnlink(txId);
     return { unlinked: Number(rows[0]?.expense_out_unlink) || 0 };
   }
+
+  /** Transaction-first: summary rải 1 GD tiền-ra ↔ nhiều phiếu nhập (đã gắn + ứng viên). */
+  async fetchReceiptAllocations(txId: string): Promise<TxReceiptAllocSummary> {
+    const rows = await this.proc.receiptAllocSummary(txId);
+    return normalizeTxReceiptAlloc(rows[0]?.result);
+  }
+
+  /** Rải 1 GD tiền-ra vào NHIỀU phiếu 1 lượt → trả summary mới. */
+  async addReceiptAllocations(
+    txId: string,
+    items: TxReceiptAllocItem[],
+  ): Promise<TxReceiptAllocSummary> {
+    const rows = await this.proc.receiptAllocAddBulk(txId, items ?? []);
+    return normalizeTxReceiptAlloc(rows[0]?.result);
+  }
+
+  /** Gỡ 1 phân bổ (theo alloc id) → trả summary GD mới. */
+  async removeReceiptAllocation(allocId: string): Promise<TxReceiptAllocSummary> {
+    const rows = await this.proc.receiptAllocRemove(allocId);
+    return normalizeTxReceiptAlloc(rows[0]?.result);
+  }
+}
+
+/** Coerce số từ jsonb (numeric có thể ra string) — coi dữ liệu là untrusted. */
+function normalizeTxReceiptAlloc(r: unknown): TxReceiptAllocSummary {
+  const o = (r ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v) || 0);
+  const arr = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+  return {
+    transactionId: typeof o.transactionId === 'string' ? o.transactionId : '',
+    txAmount: num(o.txAmount),
+    allocated: num(o.allocated),
+    remaining: num(o.remaining),
+    allocations: arr(o.allocations).map((a) => ({
+      id: String(a.id ?? ''),
+      receiptId: String(a.receiptId ?? ''),
+      amount: num(a.amount),
+      receiptTotal: a.receiptTotal == null ? null : num(a.receiptTotal),
+      receiptDate: typeof a.receiptDate === 'string' ? a.receiptDate : null,
+      supplier: typeof a.supplier === 'string' ? a.supplier : null,
+      invoice: typeof a.invoice === 'string' ? a.invoice : null,
+      receiptReconciled: a.receiptReconciled === true,
+    })),
+    candidates: arr(o.candidates).map((c) => ({
+      receiptId: String(c.receiptId ?? ''),
+      total: c.total == null ? null : num(c.total),
+      paid: num(c.paid),
+      remaining: num(c.remaining),
+      receiptDate: typeof c.receiptDate === 'string' ? c.receiptDate : null,
+      supplier: typeof c.supplier === 'string' ? c.supplier : null,
+      invoice: typeof c.invoice === 'string' ? c.invoice : null,
+    })),
+  };
 }

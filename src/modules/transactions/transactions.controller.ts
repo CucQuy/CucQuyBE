@@ -10,6 +10,7 @@ import { ExpenseReconcileApplyDto } from './dto/expense-reconcile-apply.dto';
 import { ExpenseLinkDto } from './dto/expense-link.dto';
 import { SetExpenseDto } from './dto/set-expense.dto';
 import { SaveExpenseRulesDto } from './dto/expense-rules.dto';
+import { TxReceiptAllocAddDto } from './dto/receipt-alloc.dto';
 
 @ApiTags('Giao dịch')
 @Controller('transactions')
@@ -159,5 +160,23 @@ export class TransactionsController {
   @Delete(':id/expense-link')
   expenseUnlink(@Param('id') id: string) {
     return this.service.expenseUnlink(id);
+  }
+
+  /** Transaction-first: summary rải 1 GD tiền-ra ↔ nhiều phiếu nhập (đã gắn + phiếu ứng viên). */
+  @Get(':id/receipt-allocations')
+  fetchReceiptAllocations(@Param('id') id: string) {
+    return this.service.fetchReceiptAllocations(id);
+  }
+
+  /** Rải 1 GD tiền-ra vào NHIỀU phiếu nhập 1 lượt (items = [{receiptId, amount?}]). */
+  @Post(':id/receipt-allocations')
+  addReceiptAllocations(@Param('id') id: string, @Body() dto: TxReceiptAllocAddDto) {
+    return this.service.addReceiptAllocations(id, dto.items);
+  }
+
+  /** Gỡ 1 phân bổ GD↔phiếu (theo alloc id) → trả summary GD mới. */
+  @Delete('receipt-allocations/:allocId')
+  removeReceiptAllocation(@Param('allocId') allocId: string) {
+    return this.service.removeReceiptAllocation(allocId);
   }
 }
