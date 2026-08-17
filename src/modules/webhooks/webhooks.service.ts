@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { WebhookProc, OrderPaidSummary, OrderPaidItem } from './webhooks.proc';
+import { WebhookProc } from './webhooks.proc';
 import { EventsGateway } from '../events/events.gateway';
 import { ZaloService } from '../zalo/zalo.service';
 import { ConfigurationsService } from '../configurations/configurations.service';
@@ -113,22 +113,16 @@ export class WebhooksService {
       .replace(', ', ' ');
   }
 
-  /** Lấy tóm tắt đơn rồi build + gửi noti Zalo auto-PAID. Không throw ra ngoài. */
+  /** Build + gửi noti Zalo auto-PAID (gọn). Không throw ra ngoài. */
   private async buildAndSendPaid(
     orderNumber: string,
     amount: number,
     tx: Record<string, any>,
   ): Promise<void> {
-    let summary: OrderPaidSummary | null = null;
-    try {
-      summary = await this.proc.orderPaidSummary(orderNumber);
-    } catch {
-      // Không lấy được chi tiết đơn → vẫn gửi noti gọn (chỉ số tiền/ngân hàng).
-    }
     const groupIds = await this.paymentGroupIds();
     await this.zalo
       .send({
-        message: this.buildPaidMessage(orderNumber, amount, tx, summary),
+        message: this.buildPaidMessage(orderNumber, amount, tx),
         ...(groupIds ? { groupIds } : {}),
       })
       .catch(() => undefined);
@@ -157,67 +151,28 @@ export class WebhooksService {
   }
 
   /**
-   * Nội dung Zalo khi đơn được auto-PAID — khối gọn, dễ quét: khách + số tiền/ngân
-   * hàng/giờ trên 1 dòng + danh sách món. Field thiếu thì bỏ dòng, không hiện trống.
+   * Nội dung Zalo khi đơn auto-PAID — GỌN: loại (cọc/thanh toán) + mã đơn, số tiền
+   * (+ ngân hàng), ngày giờ nhận. Cọc = nội dung CK có prefix "C" (QR cọc: C<mã đơn>).
    */
   private buildPaidMessage(
     orderNumber: string,
     amount: number,
     tx: Record<string, any>,
-    summary: OrderPaidSummary | null,
   ): string {
-    const DIVIDER = '─────────────────────────';
     const bank = typeof tx.gateway === 'string' ? tx.gateway.trim() : '';
     const time = this.formatTxTime(tx.transaction_date ?? tx.received_at);
-    const name = summary?.customerName?.trim() ?? '';
-    const phone = summary?.phone?.trim() ?? '';
-    const items = Array.isArray(summary?.items) ? summary!.items! : [];
-
-    const lines = [`💰 ĐÃ NHẬN THANH TOÁN · ${orderNumber}`, DIVIDER];
-    if (name || phone) lines.push(`👤 ${[name, phone].filter(Boolean).join(' · ')}`);
+    const rawContent =
+      typeof tx.content === 'string' ? tx.content
+      : typeof tx.description === 'string' ? tx.description : '';
+    const norm = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    // QR cọc gắn nội dung "C" + mã đơn → phân biệt cọc vs thanh toán đủ.
+    const isDeposit = norm(rawContent).includes('C' + norm(orderNumber));
 
     const money = [this.formatVND(amount)];
     if (bank) money.push(bank);
-    if (time) money.push(time);
-    lines.push(`💵 ${money.join(' · ')}`);
 
-    if (items.length) {
-      lines.push('📦 Sản phẩm:');
-      items.forEach((it) => this.itemLines(it).forEach((l) => lines.push(l)));
-    }
-
-    lines.push('✅ ĐÃ THANH TOÁN');
+    const lines = [`💰 ${isDeposit ? 'CỌC' : 'THANH TOÁN'} · ${orderNumber}`, `💵 ${money.join(' · ')}`];
+    if (time) lines.push(`🕒 ${time}`);
     return lines.join('\n');
-  }
-
-  /** Gom vị (có lặp) → "4 socola, 3 matcha" (số lượng trước). '' nếu không có. */
-  private flavorsDetail(flavors?: string[] | null): string {
-    if (!Array.isArray(flavors) || !flavors.length) return '';
-    const m = new Map<string, number>();
-    flavors.forEach((f) => m.set(f, (m.get(f) || 0) + 1));
-    return Array.from(m.entries())
-      .map(([n, q]) => `${q} ${n}`)
-      .join(', ');
-  }
-
-  /**
-   * Các dòng hiển thị 1 món (cấu trúc phân cấp, khớp FE): • tên → mỗi size "- Tên: SL n"
-   * → "Chi tiết (vị...)" nếu có vị. Món không có size → gộp "· SL n" vào dòng tên.
-   */
-  private itemLines(it: OrderPaidItem): string[] {
-    const out: string[] = [];
-    const scs = (it.sizeCounts ?? []).filter((x) => (x?.qty || 0) > 0);
-    const qty = it.quantity || 0;
-    if (scs.length > 0) {
-      out.push(`• ${it.name || '(?)'}`);
-      scs.forEach((sc) => out.push(`- ${sc.name}: SL ${sc.qty}`));
-    } else if (it.size) {
-      out.push(`• ${it.name || '(?)'} · ${it.size}${qty > 1 ? ` · SL ${qty}` : ''}`);
-    } else {
-      out.push(`• ${it.name || '(?)'}${qty > 1 ? ` · SL ${qty}` : ''}`);
-    }
-    const fl = this.flavorsDetail(it.flavors);
-    if (fl) out.push(`Chi tiết (${fl})`);
-    return out;
   }
 }
