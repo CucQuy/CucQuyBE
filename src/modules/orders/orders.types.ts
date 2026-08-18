@@ -133,14 +133,6 @@ export interface Order {
   guestCount?: number | null;
   seatedAt?: string | null;
   leftAt?: string | null;
-  /** Snapshot nhà xe đã chọn (khi deliveryType = SHIP_COACH). */
-  coachInfo?: {
-    id?: string;
-    name: string;
-    phone?: string | null;
-    route?: string | null;
-    pickupPoint?: string | null;
-  } | null;
   orderDate?: unknown;
   deliveryDate?: string | null;
   deliveryTime?: string | null;

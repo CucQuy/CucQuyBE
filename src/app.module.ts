@@ -16,7 +16,6 @@ import { ManualExpensesModule } from './modules/manual-expenses/manual-expenses.
 import { CategoriesModule } from './modules/categories/categories.module';
 import { FlavorsModule } from './modules/flavors/flavors.module';
 import { BadgesModule } from './modules/badges/badges.module';
-import { CoachesModule } from './modules/coaches/coaches.module';
 import { CommissionGroupsModule } from './modules/commission-groups/commission-groups.module';
 import { ConfigurationsModule } from './modules/configurations/configurations.module';
 import { UsersModule } from './modules/users/users.module';
@@ -71,7 +70,6 @@ import { RecipesModule } from './modules/recipes/recipes.module';
     CategoriesModule,
     FlavorsModule,
     BadgesModule,
-    CoachesModule,
     CommissionGroupsModule,
     ConfigurationsModule,
     UsersModule,

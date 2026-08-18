@@ -243,7 +243,6 @@ LANGUAGE sql STABLE AS $$
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
     'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
     'billPrintedAt',        o.bill_printed_at,
-    'coachInfo',            o.coach_info,
     -- Order theo bàn (dine-in): bàn + số khách + giờ vào/ra.
     'tableId',              o.table_id,
     'guestCount',           o.guest_count,
@@ -348,7 +347,6 @@ LANGUAGE sql STABLE AS $$
     'discounts',            COALESCE(o.discounts, '[]'::jsonb),
     'manualDiscountAmount', COALESCE(o.manual_discount_amount, 0),
     'billPrintedAt',        o.bill_printed_at,
-    'coachInfo',            o.coach_info,
     -- Order theo bàn (dine-in): bàn + số khách + giờ vào/ra.
     'tableId',              o.table_id,
     'guestCount',           o.guest_count,
@@ -910,7 +908,7 @@ BEGIN
     deposit_amount, paid_amount,
     surcharge_amount, surcharge_tag, surcharges,
     discounts, manual_discount_amount,
-    payment_status, payment_method, status, delivery_type, coach_info,
+    payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, tracking_number, sepay_id,
     commission_status, is_test, created_by, created_at,
     table_id, guest_count, seated_at
@@ -932,7 +930,6 @@ BEGIN
     COALESCE(NULLIF(p_input->>'paymentMethod',''), 'BANKING'),  -- mặc định đơn mới: chuyển khoản
     p_input->>'status',
     COALESCE(NULLIF(p_input->>'deliveryType',''), 'SHIP'),
-    CASE WHEN p_input ? 'coachInfo' THEN p_input->'coachInfo' ELSE NULL END,
     NULLIF(p_input->>'deliveryDate',''),
     NULLIF(p_input->>'deliveryTime',''),
     COALESCE(p_input->>'note',''),
@@ -1216,8 +1213,6 @@ BEGIN
                             THEN COALESCE((p_input->>'isTest')::boolean, false) ELSE is_test END,
     delivery_type    = CASE WHEN p_input ? 'deliveryType'
                             THEN p_input->>'deliveryType' ELSE delivery_type END,
-    coach_info       = CASE WHEN p_input ? 'coachInfo'
-                            THEN p_input->'coachInfo' ELSE coach_info END,
     -- Dine-in: chỉ đụng khi payload gửi field (giữ nguyên khi vắng).
     table_id         = CASE WHEN p_input ? 'tableId'
                             THEN NULLIF(p_input->>'tableId','') ELSE table_id END,
