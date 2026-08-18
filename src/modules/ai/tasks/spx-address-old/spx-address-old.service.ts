@@ -21,11 +21,32 @@ const WARD_PROMPT = loadPrompt(__dirname, 'spx-ward-grounded.prompt.md');
 @Injectable()
 export class SpxAddressOldService {
   private matcher: ReturnType<typeof createOldMatcher> | null = null;
+  private catalog: {
+    states: string[];
+    citiesByState: Record<string, string[]>;
+    wardsByCity: Record<string, string[]>;
+  } | null = null;
 
   constructor(
     private readonly ai: AiClientService,
     private readonly proc: SpxAdminProc,
   ) {}
+
+  /** Danh mục hành chính CŨ (Tỉnh → Quận/Huyện → Xã/Phường) cho dropdown sửa tay ở FE. Cache 1 lần. */
+  async getCatalog(): Promise<{
+    states: string[];
+    citiesByState: Record<string, string[]>;
+    wardsByCity: Record<string, string[]>;
+  }> {
+    if (this.catalog) return this.catalog;
+    const { states, cities, wards } = await this.proc.loadAll();
+    const citiesByState: Record<string, string[]> = {};
+    for (const { state, city } of cities) (citiesByState[state] ??= []).push(city);
+    const wardsByCity: Record<string, string[]> = {};
+    for (const { city, ward } of wards) (wardsByCity[city] ??= []).push(ward);
+    this.catalog = { states, citiesByState, wardsByCity };
+    return this.catalog;
+  }
 
   private async getMatcher(): Promise<ReturnType<typeof createOldMatcher>> {
     if (!this.matcher) {

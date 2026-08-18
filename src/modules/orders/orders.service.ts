@@ -10,6 +10,7 @@ import { diffOrders } from './order-history-diff';
 import { OrderProc } from './orders.proc';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EventsGateway } from '../events/events.gateway';
+import { SpxAddressOldService } from '../ai/tasks/spx-address-old/spx-address-old.service';
 import {
   Order,
   OrderDeleteResult,
@@ -40,6 +41,7 @@ export class OrdersService {
     private readonly proc: OrderProc,
     private readonly notif: NotificationsService,
     private readonly events: EventsGateway,
+    private readonly spxOld: SpxAddressOldService,
   ) {}
 
   /** Tên hiển thị người thao tác cho nội dung thông báo. */
@@ -90,6 +92,61 @@ export class OrdersService {
   /** 1 đơn đầy đủ theo id (order_get) — cho màn chi tiết/sửa (list trả bản nhẹ). */
   async getOrder(id: string): Promise<Order> {
     const order = await this.proc.get(id);
+    if (!order) throw new NotFoundException('ORDER_NOT_FOUND');
+    return order;
+  }
+
+  // ── Làm mịn địa chỉ SPX: resolve Tỉnh/Quận/Xã 1 lần → lưu trên đơn ──
+  /**
+   * Resolve địa chỉ đơn → danh mục SPX cũ (Tỉnh/Quận/Xã) rồi lưu. Trả order đã cập nhật.
+   * force=false (auto): BỎ QUA nếu user đã sửa tay (spxManual) hoặc địa chỉ chưa đổi
+   *   (spxSource khớp) → tránh gọi AI thừa. force=true (nút "Làm mịn lại"): luôn chạy.
+   */
+  async resolveOrderSpx(id: string, force = false): Promise<Order> {
+    const info = await this.proc.getAddressForResolve(id);
+    if (!info) throw new NotFoundException('ORDER_NOT_FOUND');
+    const source = [info.address, info.city].filter(Boolean).join(', ');
+    if (!force) {
+      if (info.spxManual || (info.spxSource ?? '') === source) {
+        return this.getOrder(id);
+      }
+    }
+    let state = '';
+    let city = '';
+    let ward = '';
+    if (source.trim()) {
+      const [r] = await this.spxOld.run([source], true);
+      state = r?.state ?? '';
+      city = r?.city ?? '';
+      ward = r?.ward ?? '';
+    }
+    const order = await this.proc.setSpxAddress(id, state, city, ward, info.address, source, false);
+    if (!order) throw new NotFoundException('ORDER_NOT_FOUND');
+    return order;
+  }
+
+  /** Danh mục hành chính CŨ (Tỉnh→Quận→Xã) cho dropdown sửa tay địa chỉ SPX ở FE. */
+  async getSpxOldCatalog() {
+    return this.spxOld.getCatalog();
+  }
+
+  /** Lưu địa chỉ SPX user CHỌN TAY (dropdown) — đánh dấu manual để auto không ghi đè. */
+  async setOrderSpxAddressManual(
+    id: string,
+    patch: { state?: string; city?: string; ward?: string; detail?: string },
+  ): Promise<Order> {
+    const info = await this.proc.getAddressForResolve(id);
+    if (!info) throw new NotFoundException('ORDER_NOT_FOUND');
+    const source = [info.address, info.city].filter(Boolean).join(', ');
+    const order = await this.proc.setSpxAddress(
+      id,
+      String(patch.state ?? ''),
+      String(patch.city ?? ''),
+      String(patch.ward ?? ''),
+      String(patch.detail ?? info.address ?? ''),
+      source,
+      true,
+    );
     if (!order) throw new NotFoundException('ORDER_NOT_FOUND');
     return order;
   }

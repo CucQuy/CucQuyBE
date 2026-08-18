@@ -4,9 +4,10 @@ import { OrdersService } from './orders.service';
 import { OrderProc } from './orders.proc';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { EventsModule } from '../events/events.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [NotificationsModule, EventsModule],
+  imports: [NotificationsModule, EventsModule, AiModule],
   controllers: [OrdersController],
   providers: [OrdersService, OrderProc],
 })

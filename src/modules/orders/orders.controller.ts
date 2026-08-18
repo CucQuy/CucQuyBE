@@ -63,6 +63,12 @@ export class OrdersController {
     return this.service.orderCounts();
   }
 
+  /** Danh mục hành chính CŨ (Tỉnh→Quận→Xã) cho dropdown sửa tay địa chỉ SPX. Khai báo TRƯỚC :id. */
+  @Get('spx-old-catalog')
+  getSpxOldCatalog() {
+    return this.service.getSpxOldCatalog();
+  }
+
   /** 1 đơn ĐẦY ĐỦ theo id (list trả bản nhẹ; chi tiết/sửa fetch cái này). */
   @Get(':id')
   getOrder(@Param('id') id: string) {
@@ -124,6 +130,25 @@ export class OrdersController {
   @Delete(':id')
   deleteOrder(@Param('id') id: string) {
     return this.service.deleteOrder(id);
+  }
+
+  /**
+   * Làm mịn địa chỉ SPX cho 1 đơn: resolve Tỉnh/Quận/Xã → lưu. Trả order đã cập nhật.
+   * body.force=true (nút "Làm mịn lại") → luôn chạy; false/không (auto sau tạo/sửa) →
+   * bỏ qua nếu user đã sửa tay hoặc địa chỉ chưa đổi.
+   */
+  @Post(':id/resolve-spx')
+  resolveSpx(@Param('id') id: string, @Body() body: { force?: boolean }) {
+    return this.service.resolveOrderSpx(id, body?.force === true);
+  }
+
+  /** Lưu địa chỉ SPX user chọn tay (dropdown Tỉnh/Quận/Xã) → set spx_manual=true. */
+  @Patch(':id/spx-address')
+  setSpxAddress(
+    @Param('id') id: string,
+    @Body() body: { state?: string; city?: string; ward?: string; detail?: string },
+  ) {
+    return this.service.setOrderSpxAddressManual(id, body ?? {});
   }
 
   /**

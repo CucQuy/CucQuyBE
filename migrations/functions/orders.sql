@@ -247,7 +247,16 @@ LANGUAGE sql STABLE AS $$
     'tableId',              o.table_id,
     'guestCount',           o.guest_count,
     'seatedAt',             o.seated_at,
-    'leftAt',               o.left_at
+    'leftAt',               o.left_at,
+    -- Địa chỉ SPX đã "làm mịn" (resolve Tỉnh/Quận/Xã 1 lần lúc tạo/sửa → xuất tái dùng).
+    'spxState',             o.spx_state,
+    'spxCity',              o.spx_city,
+    'spxWard',              o.spx_ward,
+    'spxDetail',            o.spx_detail,
+    'spxStatus',            o.spx_status,
+    'spxManual',            COALESCE(o.spx_manual, false),
+    'spxSource',            o.spx_source,
+    'spxResolvedAt',        o.spx_resolved_at
   );
 $$;
 
@@ -276,6 +285,41 @@ BEGIN
   END IF;
 
   RETURN 'ORD-' || lpad((v_num + 1)::text, 6, '0');
+END;
+$$;
+
+-- ─────────────── Làm mịn địa chỉ SPX (lưu trên đơn) ───────────────
+-- Lưu kết quả resolve Tỉnh/Quận/Xã cho 1 đơn (dùng cho CẢ auto-resolve lẫn sửa tay).
+-- p_manual=true → user sửa tay: đánh dấu để auto-resolve sau này KHÔNG ghi đè.
+-- status tự tính: đủ 3 cấp → 'matched'; có 1-2 → 'partial'; trống → 'unmatched'.
+-- Trả order_to_json sau cập nhật (NULL nếu id không tồn tại).
+CREATE OR REPLACE FUNCTION order_set_spx_address(
+  p_id text, p_state text, p_city text, p_ward text, p_detail text,
+  p_source text, p_manual boolean
+) RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_status text;
+  v_o orders;
+BEGIN
+  v_status := CASE
+    WHEN COALESCE(p_state,'')<>'' AND COALESCE(p_city,'')<>'' AND COALESCE(p_ward,'')<>'' THEN 'matched'
+    WHEN COALESCE(p_state,'')<>'' OR  COALESCE(p_city,'')<>'' OR  COALESCE(p_ward,'')<>'' THEN 'partial'
+    ELSE 'unmatched'
+  END;
+  UPDATE orders SET
+    spx_state       = NULLIF(p_state, ''),
+    spx_city        = NULLIF(p_city, ''),
+    spx_ward        = NULLIF(p_ward, ''),
+    spx_detail      = NULLIF(p_detail, ''),
+    spx_status      = v_status,
+    spx_manual      = COALESCE(p_manual, false),
+    spx_source      = p_source,
+    spx_resolved_at = now()
+  WHERE id = p_id
+  RETURNING * INTO v_o;
+  IF v_o.id IS NULL THEN RETURN NULL; END IF;
+  RETURN order_to_json(v_o);
 END;
 $$;
 
@@ -351,7 +395,16 @@ LANGUAGE sql STABLE AS $$
     'tableId',              o.table_id,
     'guestCount',           o.guest_count,
     'seatedAt',             o.seated_at,
-    'leftAt',               o.left_at
+    'leftAt',               o.left_at,
+    -- Địa chỉ SPX đã "làm mịn" — bản NHẸ vẫn trả để danh sách hiện badge trạng thái.
+    'spxState',             o.spx_state,
+    'spxCity',              o.spx_city,
+    'spxWard',              o.spx_ward,
+    'spxDetail',            o.spx_detail,
+    'spxStatus',            o.spx_status,
+    'spxManual',            COALESCE(o.spx_manual, false),
+    'spxSource',            o.spx_source,
+    'spxResolvedAt',        o.spx_resolved_at
   );
 $$;
 

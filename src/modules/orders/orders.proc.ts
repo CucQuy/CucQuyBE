@@ -248,4 +248,55 @@ export class OrderProc {
              updated_at = now()
        WHERE id = ${id}`;
   }
+
+  // ── Làm mịn địa chỉ SPX ──────────────────────────────────────
+  /** Đọc thông tin cần để resolve/quyết định resolve lại 1 đơn. */
+  async getAddressForResolve(id: string): Promise<{
+    address: string;
+    city: string;
+    deliveryType: string;
+    trackingNumber: string | null;
+    spxSource: string | null;
+    spxManual: boolean;
+  } | null> {
+    const [row] = await this.db.sql<
+      {
+        address: string | null;
+        city: string | null;
+        delivery_type: string | null;
+        tracking_number: string | null;
+        spx_source: string | null;
+        spx_manual: boolean | null;
+      }[]
+    >`
+      SELECT address, customer_city AS city, delivery_type, tracking_number,
+             spx_source, spx_manual
+        FROM orders WHERE id = ${id}`;
+    if (!row) return null;
+    return {
+      address: row.address ?? '',
+      city: row.city ?? '',
+      deliveryType: row.delivery_type ?? '',
+      trackingNumber: row.tracking_number,
+      spxSource: row.spx_source,
+      spxManual: Boolean(row.spx_manual),
+    };
+  }
+
+  /** Lưu địa chỉ SPX đã làm mịn (auto lẫn sửa tay). Trả order sau cập nhật. */
+  async setSpxAddress(
+    id: string,
+    state: string,
+    city: string,
+    ward: string,
+    detail: string,
+    source: string,
+    manual: boolean,
+  ): Promise<Order | null> {
+    const [row] = await this.db.sql<{ order: Order | null }[]>`
+      SELECT order_set_spx_address(
+        ${id}, ${state}, ${city}, ${ward}, ${detail}, ${source}, ${manual}
+      ) AS "order"`;
+    return row?.order ?? null;
+  }
 }
