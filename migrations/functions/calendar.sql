@@ -89,18 +89,25 @@ ev AS (
     AND o.delivery_date <= to_char(p.d_to,   'YYYY-MM-DD')
 
   UNION ALL
-  -- 2) Ca làm suy ra từ setting tuần (work_shifts.weekdays)
-  SELECT to_char(d.day, 'YYYY-MM-DD'), 'shift', to_char(s.start_time, 'HH24:MI'),
+  -- 2) ĐĂNG KÝ CA (shift_assignments): CHỈ hiện NV nào đã đăng ký ca nào — không dồn
+  --    theo setting tuần. title = tên NV; subtitle = tên ca + khung giờ.
+  SELECT to_char(a.work_date, 'YYYY-MM-DD'), 'shift', to_char(s.start_time, 'HH24:MI'),
     jsonb_build_object(
-      'id', 'shift_' || to_char(d.day, 'YYYYMMDD') || '_' || s.code, 'type', 'shift',
-      'date', to_char(d.day, 'YYYY-MM-DD'), 'title', s.name,
-      'subtitle', to_char(s.start_time, 'HH24:MI') || '–' || to_char(s.end_time, 'HH24:MI'),
-      'time', to_char(s.start_time, 'HH24:MI'), 'refId', s.code,
-      'meta', jsonb_build_object('sortOrder', s.sort_order)
+      'id', 'shift_' || a.id, 'type', 'shift',
+      'date', to_char(a.work_date, 'YYYY-MM-DD'),
+      'title', COALESCE((SELECT e.name FROM employees e WHERE e.id = a.employee_id), 'NV'),
+      'subtitle', s.name || ' · ' || to_char(s.start_time, 'HH24:MI') || '–' || to_char(s.end_time, 'HH24:MI'),
+      'time', to_char(s.start_time, 'HH24:MI'), 'refId', a.employee_id,
+      'meta', jsonb_build_object(
+        'shiftCode', s.code, 'sortOrder', s.sort_order,
+        'employeeId', a.employee_id,
+        'employeeName', (SELECT e.name FROM employees e WHERE e.id = a.employee_id)
+      )
     )
-  FROM params p
-  CROSS JOIN generate_series(p.d_from, p.d_to, interval '1 day') AS d(day)
-  JOIN work_shifts s ON s.active AND EXTRACT(ISODOW FROM d.day)::int = ANY (s.weekdays)
+  FROM shift_assignments a
+  JOIN work_shifts s ON s.code = a.shift_code
+  JOIN params p ON true
+  WHERE a.work_date >= p.d_from AND a.work_date <= p.d_to
 
   UNION ALL
   -- 3) Sự kiện tự thêm
