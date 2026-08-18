@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UploadedFile,
@@ -57,6 +58,36 @@ export class AttendanceController {
   @Get('me')
   me(@CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.me(user.email, this.clientIp(req));
+  }
+
+  /** Ca đang bật + đăng ký ca của chính NV trong khoảng ngày (lưới đăng ký công). */
+  @Get('my-shifts')
+  myShifts(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.service.myShiftWeek(user.email, from ?? '', to ?? '');
+  }
+
+  /** NV tự đăng ký ca của mình cho 1 ngày tương lai (thay trọn ngày). */
+  @Put('my-shifts')
+  registerMyShift(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { workDate?: string; shiftCodes?: string[] },
+  ) {
+    return this.service.registerSelfShift(
+      user.email,
+      String(body?.workDate ?? ''),
+      Array.isArray(body?.shiftCodes) ? body.shiftCodes : [],
+    );
+  }
+
+  /** Đối chiếu đăng ký ↔ đã làm (ca hợp lệ + công) 1 NV/ngày — admin đối chiếu công. */
+  @Get('day-compute')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  dayCompute(@Query('employeeId') employeeId: string, @Query('date') date?: string) {
+    return this.service.dayCompute(employeeId ?? '', date);
   }
 
   /** Đăng ký khuôn mặt cho 1 nhân viên — CHỈ super_admin. */

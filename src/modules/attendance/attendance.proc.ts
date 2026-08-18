@@ -107,4 +107,29 @@ export class AttendanceProc {
     return this.db.sql<Array<{ result: AttendanceOverviewRow[] }>>`
       SELECT attendance_overview() AS result`;
   }
+
+  // ── Đăng ký công (ca) + tính công theo ca hợp lệ ──
+  /** Danh sách ca (đang bật) để dựng lưới đăng ký. */
+  activeShifts(): Promise<Array<{ result: unknown[] }>> {
+    return this.db.sql<Array<{ result: unknown[] }>>`
+      SELECT work_shift_list() AS result`;
+  }
+
+  /** Đăng ký ca của 1 NV trong khoảng ngày → { 'yyyy-mm-dd': ['ca1',..] }. */
+  myShiftWeek(input: Record<string, unknown>): Promise<Array<{ result: Record<string, string[]> }>> {
+    return this.db.sql<Array<{ result: Record<string, string[]> }>>`
+      SELECT shift_my_week(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** NV tự đăng ký ca của mình cho 1 ngày tương lai. */
+  registerSelfShift(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT shift_register_self(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** Đối chiếu đăng ký ↔ đã làm (ca hợp lệ + công) cho 1 NV/ngày. */
+  dayCompute(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT attendance_day_compute(${this.db.json(input)}::jsonb) AS result`;
+  }
 }

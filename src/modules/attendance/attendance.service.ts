@@ -64,6 +64,39 @@ export class AttendanceService {
     return { employee, status, ip: ipStatus };
   }
 
+  // ── Đăng ký công (NV tự đăng ký ca) + tính công theo ca hợp lệ ──
+  /** Ca đang bật + đăng ký của NV đang đăng nhập trong khoảng ngày (cho lưới đăng ký). */
+  async myShiftWeek(email: string | undefined, from: string, to: string) {
+    const employee = await this.requireEmployee(email);
+    const [wk] = await this.proc.myShiftWeek({ employeeId: employee.id, from, to });
+    const [sh] = await this.proc.activeShifts();
+    return { employee, shifts: sh?.result ?? [], week: wk?.result ?? {} };
+  }
+
+  /** NV tự đăng ký ca CỦA MÌNH cho 1 ngày tương lai (thay trọn ngày). */
+  async registerSelfShift(email: string | undefined, workDate: string, shiftCodes: string[]) {
+    const employee = await this.requireEmployee(email);
+    try {
+      const [r] = await this.proc.registerSelfShift({
+        employeeId: employee.id,
+        workDate,
+        shiftCodes,
+      });
+      return r?.result ?? null;
+    } catch (e) {
+      if (String((e as { message?: string })?.message ?? '').includes('REGISTER_PAST')) {
+        throw new BadRequestException('Chỉ đăng ký/sửa ca được cho ngày trong tương lai.');
+      }
+      throw e;
+    }
+  }
+
+  /** Đối chiếu đăng ký ↔ đã làm (ca hợp lệ + công) cho 1 NV/ngày (admin dùng để đối chiếu). */
+  async dayCompute(employeeId: string, date?: string) {
+    const [r] = await this.proc.dayCompute({ employeeId, date });
+    return r?.result ?? null;
+  }
+
   /**
    * Đăng ký 1 mẫu khuôn mặt CHO 1 nhân viên. CHỈ super_admin (guard chặn ở controller).
    * Gọi nhiều lần cho nhiều góc mặt; reset=true ở lần đầu để xoá mẫu cũ.

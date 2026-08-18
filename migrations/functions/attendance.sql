@@ -216,6 +216,86 @@ BEGIN
 END;
 $$;
 
+-- ─────────────── Tính CÔNG theo ca ĐĂNG KÝ (đăng ký công) ───────────────
+-- Với 1 NV + 1 ngày: đối chiếu ca ĐÃ ĐĂNG KÝ (shift_assignments) với ca ĐÃ LÀM
+-- (khoảng [check-in đầu … check-out cuối] phủ ≥ 50% thời lượng ca).
+--   Ca hợp lệ (tính công) = đăng ký ∩ đã làm.
+--   status: 'valid' (đăng ký + làm) | 'missed' (đăng ký, không làm) |
+--           'unregistered' (làm, không đăng ký → KHÔNG tính công) | 'off' (không đăng ký, không làm).
+-- Ngày = hôm nay & chưa check-out → dùng now() làm mốc ra tạm (hiện ca hợp lệ realtime).
+-- p_input: { employeeId, date?('yyyy-mm-dd', mặc định hôm nay) }.
+CREATE OR REPLACE FUNCTION attendance_day_compute(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_emp     text := NULLIF(p_input->>'employeeId', '');
+  v_today   date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
+  v_date    date := COALESCE(NULLIF(p_input->>'date', '')::date, v_today);
+  v_in      timestamptz;
+  v_out     timestamptz;   -- mốc ra THỰC (trả ra ngoài)
+  v_out_eff timestamptz;   -- mốc ra hiệu lực để tính (có thể = now() nếu đang trong ca hôm nay)
+  v_in_min  int;
+  v_out_min int;
+  v_shifts  jsonb;
+  v_cong    numeric := 0;
+BEGIN
+  IF v_emp IS NULL THEN RETURN NULL; END IF;
+
+  SELECT min(checked_at) INTO v_in FROM attendance_records
+    WHERE employee_id = v_emp AND kind = 'in'
+      AND (checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_date;
+  SELECT max(checked_at) INTO v_out FROM attendance_records
+    WHERE employee_id = v_emp AND kind = 'out'
+      AND (checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_date;
+
+  v_out_eff := v_out;
+  IF v_out_eff IS NULL AND v_in IS NOT NULL AND v_date = v_today THEN
+    v_out_eff := now();
+  END IF;
+
+  v_in_min  := CASE WHEN v_in IS NULL THEN NULL ELSE
+    (EXTRACT(hour FROM (v_in AT TIME ZONE 'Asia/Ho_Chi_Minh'))*60
+     + EXTRACT(minute FROM (v_in AT TIME ZONE 'Asia/Ho_Chi_Minh')))::int END;
+  v_out_min := CASE WHEN v_out_eff IS NULL THEN NULL ELSE
+    (EXTRACT(hour FROM (v_out_eff AT TIME ZONE 'Asia/Ho_Chi_Minh'))*60
+     + EXTRACT(minute FROM (v_out_eff AT TIME ZONE 'Asia/Ho_Chi_Minh')))::int END;
+
+  WITH c AS (
+    SELECT ws.code, ws.name, ws.cong_factor, ws.sort_order,
+           EXISTS (SELECT 1 FROM shift_assignments a
+                    WHERE a.employee_id = v_emp AND a.work_date = v_date AND a.shift_code = ws.code) AS reg,
+           CASE
+             WHEN v_in_min IS NULL OR v_out_min IS NULL THEN false
+             ELSE GREATEST(0,
+                    LEAST(v_out_min, (EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))::int)
+                  - GREATEST(v_in_min, (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int)
+                  ) >= 0.5 * ((EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))::int
+                            - (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int)
+           END AS worked
+    FROM work_shifts ws WHERE ws.active
+  )
+  SELECT jsonb_agg(jsonb_build_object(
+           'code', code, 'name', name, 'congFactor', cong_factor,
+           'registered', reg, 'worked', worked, 'valid', (reg AND worked),
+           'status', CASE WHEN reg AND worked THEN 'valid'
+                          WHEN reg THEN 'missed'
+                          WHEN worked THEN 'unregistered'
+                          ELSE 'off' END
+         ) ORDER BY sort_order),
+         COALESCE(sum(cong_factor) FILTER (WHERE reg AND worked), 0)
+    INTO v_shifts, v_cong
+  FROM c;
+
+  RETURN jsonb_build_object(
+    'employeeId', v_emp,
+    'date',       to_char(v_date, 'YYYY-MM-DD'),
+    'in',         v_in,
+    'out',        v_out,
+    'cong',       v_cong,
+    'shifts',     COALESCE(v_shifts, '[]'::jsonb)
+  );
+END;
+$$;
+
 -- Trạng thái chấm công của 1 NV hôm nay (giờ VN).
 CREATE OR REPLACE FUNCTION attendance_status_for(p_employee_id text)
 RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
@@ -263,7 +343,9 @@ BEGIN
           AND (a.checked_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = v_today
           AND attendance_shift_at(a.checked_at, 'out') = s.code
       ) so ON true
-    )
+    ),
+    -- Đối chiếu ĐĂNG KÝ ↔ đã làm hôm nay: ca hợp lệ + công (đăng ký công).
+    'today', attendance_day_compute(jsonb_build_object('employeeId', p_employee_id, 'date', to_char(v_today, 'YYYY-MM-DD')))
   );
 END;
 $$;

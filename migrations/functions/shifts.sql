@@ -133,3 +133,59 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', p_id);
 END;
 $$;
+
+-- ─────────────── NV TỰ đăng ký ca (đăng ký công) ───────────────
+-- NV tự đặt TRỌN danh sách ca của CHÍNH MÌNH cho 1 ngày TƯƠNG LAI (thay thế cả ngày).
+-- p_input: { employeeId, workDate:'yyyy-mm-dd', shiftCodes:['ca1','ca2'] }.
+-- Chỉ cho ngày > hôm nay (giờ VN) — ngày đã tới/qua thì khoá (admin sửa qua set_day).
+-- shiftCodes rỗng => xoá hết đăng ký của NV trong ngày.
+CREATE OR REPLACE FUNCTION shift_register_self(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_emp   text   := NULLIF(p_input->>'employeeId', '');
+  v_date  date   := NULLIF(p_input->>'workDate', '')::date;
+  v_codes text[] := COALESCE(ARRAY(SELECT jsonb_array_elements_text(p_input->'shiftCodes')), '{}');
+  v_today date   := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
+BEGIN
+  IF v_emp IS NULL OR v_date IS NULL THEN
+    RAISE EXCEPTION 'Thiếu employeeId/workDate';
+  END IF;
+  IF v_date <= v_today THEN
+    RAISE EXCEPTION 'REGISTER_PAST';  -- chỉ đăng ký cho ngày tương lai
+  END IF;
+  IF EXISTS (SELECT 1 FROM unnest(v_codes) c WHERE NOT EXISTS (SELECT 1 FROM work_shifts w WHERE w.code = c)) THEN
+    RAISE EXCEPTION 'Ca không hợp lệ';
+  END IF;
+  DELETE FROM shift_assignments
+   WHERE employee_id = v_emp AND work_date = v_date AND NOT (shift_code = ANY (v_codes));
+  INSERT INTO shift_assignments (id, employee_id, work_date, shift_code)
+  SELECT 'sa_' || encode(gen_random_bytes(9), 'hex'), v_emp, v_date, c
+  FROM unnest(v_codes) c
+  WHERE NOT EXISTS (
+    SELECT 1 FROM shift_assignments x
+    WHERE x.employee_id = v_emp AND x.work_date = v_date AND x.shift_code = c
+  );
+  RETURN jsonb_build_object(
+    'workDate',   to_char(v_date, 'YYYY-MM-DD'),
+    'shiftCodes', COALESCE((
+      SELECT jsonb_agg(shift_code ORDER BY shift_code)
+      FROM shift_assignments WHERE employee_id = v_emp AND work_date = v_date
+    ), '[]'::jsonb)
+  );
+END;
+$$;
+
+-- Đăng ký ca của 1 NV trong khoảng ngày → map { 'yyyy-mm-dd': ['ca1','ca2'], ... } cho lưới tuần.
+CREATE OR REPLACE FUNCTION shift_my_week(p_input jsonb)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_object_agg(d.wd, d.codes), '{}'::jsonb)
+  FROM (
+    SELECT to_char(work_date, 'YYYY-MM-DD') AS wd,
+           jsonb_agg(shift_code ORDER BY shift_code) AS codes
+    FROM shift_assignments
+    WHERE employee_id = NULLIF(p_input->>'employeeId', '')
+      AND work_date >= (p_input->>'from')::date
+      AND work_date <= (p_input->>'to')::date
+    GROUP BY work_date
+  ) d;
+$$;
