@@ -256,7 +256,10 @@ LANGUAGE sql STABLE AS $$
     'spxStatus',            o.spx_status,
     'spxManual',            COALESCE(o.spx_manual, false),
     'spxSource',            o.spx_source,
-    'spxResolvedAt',        o.spx_resolved_at
+    'spxResolvedAt',        o.spx_resolved_at,
+    -- ĐVVC đã gửi (danh bạ carriers) — dùng để thống kê số đơn theo hãng.
+    'carrierId',            o.carrier_id,
+    'carrierName',          (SELECT name FROM carriers WHERE id = o.carrier_id)
   );
 $$;
 
@@ -404,7 +407,10 @@ LANGUAGE sql STABLE AS $$
     'spxStatus',            o.spx_status,
     'spxManual',            COALESCE(o.spx_manual, false),
     'spxSource',            o.spx_source,
-    'spxResolvedAt',        o.spx_resolved_at
+    'spxResolvedAt',        o.spx_resolved_at,
+    -- ĐVVC đã gửi (danh bạ carriers) — dùng để thống kê số đơn theo hãng.
+    'carrierId',            o.carrier_id,
+    'carrierName',          (SELECT name FROM carriers WHERE id = o.carrier_id)
   );
 $$;
 
@@ -888,6 +894,7 @@ DECLARE
   v_applied  jsonb;
   v_gifts    jsonb;
   v_cust_id  text;
+  v_carrier_id text;
 BEGIN
   v_id := replace(gen_random_uuid()::text, '-', '');
   v_number := COALESCE(NULLIF(p_input->>'orderNumber',''), order_next_number());
@@ -954,6 +961,12 @@ BEGIN
     v_cust_id := NULL;
   END IF;
 
+  -- carrier_id (ĐVVC) chỉ set khi khớp carriers.id (FK); id không hợp lệ → NULL.
+  v_carrier_id := NULLIF(p_input->>'carrierId', '');
+  IF v_carrier_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM carriers WHERE id = v_carrier_id) THEN
+    v_carrier_id := NULL;
+  END IF;
+
   INSERT INTO orders (
     id, order_number, order_date, customer_id,
     customer_name, phone, address, email, customer_city, customer_country,
@@ -964,7 +977,7 @@ BEGIN
     payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, tracking_number, sepay_id,
     commission_status, is_test, created_by, created_at,
-    table_id, guest_count, seated_at
+    table_id, guest_count, seated_at, carrier_id
   ) VALUES (
     v_id, v_number, now(), v_cust_id,
     COALESCE(v_cust->>'name',''), COALESCE(v_cust->>'phone',''),
@@ -996,7 +1009,8 @@ BEGIN
     NULLIF(p_input->>'tableId',''),
     NULLIF(p_input->>'guestCount','')::int,
     CASE WHEN NULLIF(p_input->>'tableId','') IS NOT NULL
-         THEN COALESCE(NULLIF(p_input->>'seatedAt','')::timestamptz, now()) END
+         THEN COALESCE(NULLIF(p_input->>'seatedAt','')::timestamptz, now()) END,
+    v_carrier_id
   );
 
   PERFORM order_write_items(v_id, v_items);
@@ -1266,6 +1280,10 @@ BEGIN
                             THEN COALESCE((p_input->>'isTest')::boolean, false) ELSE is_test END,
     delivery_type    = CASE WHEN p_input ? 'deliveryType'
                             THEN p_input->>'deliveryType' ELSE delivery_type END,
+    -- ĐVVC: chỉ đụng khi payload gửi 'carrierId'; id không khớp carriers → NULL (tránh vỡ FK).
+    carrier_id       = CASE WHEN p_input ? 'carrierId'
+                            THEN (SELECT c.id FROM carriers c WHERE c.id = NULLIF(p_input->>'carrierId',''))
+                            ELSE carrier_id END,
     -- Dine-in: chỉ đụng khi payload gửi field (giữ nguyên khi vắng).
     table_id         = CASE WHEN p_input ? 'tableId'
                             THEN NULLIF(p_input->>'tableId','') ELSE table_id END,

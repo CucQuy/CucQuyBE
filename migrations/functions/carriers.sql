@@ -4,16 +4,24 @@
 -- Trả jsonb camelCase.
 -- ============================================================
 
+-- orderCount = số đơn (chưa huỷ) đã gắn hãng này → thống kê "đã gửi cho ĐVVC nào".
 CREATE OR REPLACE FUNCTION carrier_list()
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
     jsonb_agg(jsonb_build_object(
-      'id', id, 'name', name, 'phone', phone, 'note', note,
-      'type', COALESCE(type, 'express'), 'route', route, 'station', station,
-      'active', active, 'sortOrder', sort_order
-    ) ORDER BY sort_order, lower(name)),
+      'id', c.id, 'name', c.name, 'phone', c.phone, 'note', c.note,
+      'type', COALESCE(c.type, 'express'), 'route', c.route, 'station', c.station,
+      'active', c.active, 'sortOrder', c.sort_order,
+      'orderCount', COALESCE(oc.cnt, 0)
+    ) ORDER BY c.sort_order, lower(c.name)),
     '[]'::jsonb)
-  FROM carriers;
+  FROM carriers c
+  LEFT JOIN (
+    SELECT carrier_id, count(*) AS cnt
+    FROM orders
+    WHERE carrier_id IS NOT NULL AND status <> 'CANCELLED'
+    GROUP BY carrier_id
+  ) oc ON oc.carrier_id = c.id;
 $$;
 
 -- Thêm/sửa 1 ĐVVC. id rỗng → tạo mới; có id → cập nhật.
