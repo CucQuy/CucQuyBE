@@ -11,6 +11,7 @@ import { SsoLoginController } from './auth/sso-login.controller';
 import { CommissionModule } from './modules/commission/commission.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { CarriersModule } from './modules/carriers/carriers.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { AssetsModule } from './modules/assets/assets.module';
 import { ManualExpensesModule } from './modules/manual-expenses/manual-expenses.module';
@@ -68,6 +69,7 @@ import { RecipesModule } from './modules/recipes/recipes.module';
     CommissionModule,
     ProductsModule,
     CustomersModule,
+    CarriersModule,
     TransactionsModule,
     AssetsModule,
     ManualExpensesModule,
