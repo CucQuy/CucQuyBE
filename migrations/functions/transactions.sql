@@ -106,10 +106,22 @@ BEGIN
     );
   END IF;
 
-  -- Trích mã đơn ORD<digits> -> ORD-<digits> từ description.
-  v_match := substring(COALESCE(p_body->>'description', '') FROM 'ORD\d+');
+  -- Trích mã đơn ORD<digits> -> ORD-<digits> từ description + content.
+  -- Chấp nhận dấu cách/gạch giữa ORD và số: "ORD 000594", "ORD-000594",
+  -- "ORD000594", "CORD000517" (SePay đôi khi chèn khoảng trắng).
+  v_match := substring(
+    upper(COALESCE(p_body->>'description', '') || ' ' || COALESCE(p_body->>'content', ''))
+    FROM 'ORD[ -]*\d+');
   v_order_number := CASE WHEN v_match IS NULL THEN NULL
-                         ELSE regexp_replace(v_match, '^ORD(\d+)$', 'ORD-\1') END;
+                         ELSE 'ORD-' || regexp_replace(v_match, '^ORD[ -]*', '') END;
+
+  -- Chỉ gắn nếu đơn TỒN TẠI. Nếu không, để NULL: tránh vi phạm FK
+  -- transactions.order_number -> orders làm INSERT fail -> MẤT giao dịch;
+  -- mã không khớp sẽ rơi vào fallback khớp số tiền / đối soát tay.
+  IF v_order_number IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM orders WHERE order_number = v_order_number) THEN
+    v_order_number := NULL;
+  END IF;
 
   INSERT INTO transactions (
     id, sepay_id, gateway, transaction_date, account_number, code, content,
