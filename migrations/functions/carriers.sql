@@ -5,6 +5,7 @@
 -- ============================================================
 
 -- orderCount = số đơn (chưa huỷ) đã gắn hãng này → thống kê "đã gửi cho ĐVVC nào".
+-- provinces = phân bố theo tỉnh đích [{province,count}] (order_province từ address; trống → 'Khác').
 CREATE OR REPLACE FUNCTION carrier_list()
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
@@ -13,16 +14,22 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
       'type', COALESCE(c.type, 'express'), 'route', c.route, 'station', c.station,
       'offices', COALESCE(c.offices, '[]'::jsonb), 'routes', COALESCE(c.routes, '[]'::jsonb),
       'active', c.active, 'sortOrder', c.sort_order,
-      'orderCount', COALESCE(oc.cnt, 0)
+      'orderCount', st.cnt,
+      'provinces', st.provinces
     ) ORDER BY c.sort_order, lower(c.name)),
     '[]'::jsonb)
   FROM carriers c
-  LEFT JOIN (
-    SELECT carrier_id, count(*) AS cnt
-    FROM orders
-    WHERE carrier_id IS NOT NULL AND status <> 'CANCELLED'
-    GROUP BY carrier_id
-  ) oc ON oc.carrier_id = c.id;
+  LEFT JOIN LATERAL (
+    SELECT
+      COALESCE(SUM(pc), 0)::int AS cnt,
+      COALESCE(jsonb_agg(jsonb_build_object('province', prov, 'count', pc) ORDER BY pc DESC, prov), '[]'::jsonb) AS provinces
+    FROM (
+      SELECT order_province(o.address) AS prov, count(*) AS pc
+      FROM orders o
+      WHERE o.carrier_id = c.id AND o.status <> 'CANCELLED'
+      GROUP BY order_province(o.address)
+    ) p
+  ) st ON true;
 $$;
 
 -- Thêm/sửa 1 ĐVVC. id rỗng → tạo mới; có id → cập nhật.

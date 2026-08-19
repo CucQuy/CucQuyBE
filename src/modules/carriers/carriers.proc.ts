@@ -20,6 +20,8 @@ export interface Carrier {
   sortOrder: number;
   /** Số đơn (chưa huỷ) đã gửi qua hãng — BE tính. */
   orderCount?: number;
+  /** Phân bố tỉnh đích [{province,count}] — BE tính. */
+  provinces?: { province: string; count: number }[];
 }
 
 /** Tầng gọi stored function carrier_* (jsonb). */
