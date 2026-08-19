@@ -10,7 +10,8 @@
 
 -- ==================== SCREEN VISIBILITY ====================
 
--- Trả map {route: visible} (visible mặc định true nếu null).
+-- Trả { screenVisibility: {route: bool}, screenRoles: {route: [role,..]} }.
+--   screenRoles chỉ chứa route CÓ override role (roles IS NOT NULL); route khác → FE dùng mặc định.
 CREATE OR REPLACE FUNCTION screen_visibility_get()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -19,13 +20,19 @@ LANGUAGE sql STABLE AS $$
     COALESCE(
       (SELECT jsonb_object_agg(route, COALESCE(visible, true)) FROM screen_visibility),
       '{}'::jsonb
+    ),
+    'screenRoles',
+    COALESCE(
+      (SELECT jsonb_object_agg(route, roles) FROM screen_visibility WHERE roles IS NOT NULL),
+      '{}'::jsonb
     )
   );
 $$;
 
--- Ghi đè toàn bộ map screen visibility từ jsonb {route: bool}.
--- p_map: jsonb object camelCase {"/path": true, ...}. Bỏ route rỗng; visible !== false → true.
-CREATE OR REPLACE FUNCTION screen_visibility_save(p_map jsonb)
+-- Ghi đè toàn bộ map screen visibility + role override.
+--   p_map:   {"/path": true, ...} (visible !== false → true).
+--   p_roles: {"/path": ["admin","staff"], ...} — mảng rỗng/thiếu → NULL (dùng mặc định hard-code).
+CREATE OR REPLACE FUNCTION screen_visibility_save(p_map jsonb, p_roles jsonb DEFAULT '{}'::jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -36,12 +43,15 @@ BEGIN
     WHERE e.route = screen_visibility.route AND COALESCE(e.route, '') <> ''
   );
 
-  -- upsert: visible = (val !== false)
-  INSERT INTO screen_visibility (route, visible)
-  SELECT e.route, (e.val <> 'false'::jsonb)
+  -- upsert: visible = (val !== false); roles = mảng role nếu có (>0 phần tử), else NULL.
+  INSERT INTO screen_visibility (route, visible, roles)
+  SELECT e.route, (e.val <> 'false'::jsonb),
+    CASE WHEN jsonb_typeof(p_roles->e.route) = 'array' AND jsonb_array_length(p_roles->e.route) > 0
+         THEN p_roles->e.route ELSE NULL END
   FROM jsonb_each(COALESCE(p_map, '{}'::jsonb)) AS e(route, val)
   WHERE COALESCE(e.route, '') <> ''
-  ON CONFLICT (route) DO UPDATE SET visible = EXCLUDED.visible;
+  ON CONFLICT (route) DO UPDATE
+    SET visible = EXCLUDED.visible, roles = EXCLUDED.roles;
 
   RETURN screen_visibility_get();
 END;

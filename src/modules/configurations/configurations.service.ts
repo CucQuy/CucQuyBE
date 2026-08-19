@@ -24,9 +24,10 @@ export class ConfigurationsService {
 
   async saveScreenConfiguration(
     screenVisibility: unknown,
+    screenRoles: unknown,
     _updatedBy?: string,
   ): Promise<ScreenConfiguration> {
-    const [row] = await this.proc.screenVisibilitySave(screenVisibility);
+    const [row] = await this.proc.screenVisibilitySave(screenVisibility, screenRoles);
     return row.data;
   }
 

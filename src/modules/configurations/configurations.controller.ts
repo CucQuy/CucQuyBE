@@ -20,6 +20,7 @@ import {
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ScreenVisibilityMap,
+  ScreenRolesMap,
   ShippingConfiguration,
   ZaloGroupsConfiguration,
 } from './configurations.types';
@@ -40,11 +41,12 @@ export class ConfigurationsController {
   @Put('screen')
   @ResponseMessage('Đã lưu cấu hình màn hình')
   saveScreen(
-    @Body() body: { screenVisibility: ScreenVisibilityMap },
+    @Body() body: { screenVisibility: ScreenVisibilityMap; screenRoles?: ScreenRolesMap },
     @CurrentUser() user: AuthUser,
   ): Promise<ScreenConfiguration> {
     return this.service.saveScreenConfiguration(
       body?.screenVisibility,
+      body?.screenRoles,
       user.displayName || user.email || user.uid,
     );
   }

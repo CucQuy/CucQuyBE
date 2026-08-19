@@ -27,9 +27,13 @@ export class ConfigurationProc {
 
   screenVisibilitySave(
     screenVisibility: unknown,
+    screenRoles: unknown,
   ): Promise<{ data: ScreenConfiguration }[]> {
     return this.db.sql<{ data: ScreenConfiguration }[]>`
-      SELECT screen_visibility_save(${this.db.json(screenVisibility ?? {})}::jsonb) AS data`;
+      SELECT screen_visibility_save(
+        ${this.db.json(screenVisibility ?? {})}::jsonb,
+        ${this.db.json(screenRoles ?? {})}::jsonb
+      ) AS data`;
   }
 
   // ==================== ZALO GROUPS ====================
