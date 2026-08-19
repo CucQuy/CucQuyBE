@@ -34,6 +34,11 @@ export class ConfigurationProc {
     return this.db.sql<{ data: Role[] }[]>`SELECT role_delete(${key}) AS data`;
   }
 
+  roleSetPermissions(key: string, perms: unknown): Promise<{ data: Role[] }[]> {
+    return this.db.sql<{ data: Role[] }[]>`
+      SELECT role_set_permissions(${key}, ${this.db.json(perms ?? {})}::jsonb) AS data`;
+  }
+
   // ==================== SCREEN ====================
 
   screenVisibilityGet(): Promise<{ data: ScreenConfiguration }[]> {

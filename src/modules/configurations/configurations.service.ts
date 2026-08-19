@@ -28,6 +28,11 @@ export class ConfigurationsService {
     return row.data;
   }
 
+  async setRolePermissions(key: string, perms: unknown): Promise<Role[]> {
+    const [row] = await this.proc.roleSetPermissions(key, perms);
+    return row.data;
+  }
+
   async deleteRole(key: string): Promise<Role[]> {
     try {
       const [row] = await this.proc.roleDelete(key);

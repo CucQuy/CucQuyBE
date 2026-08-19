@@ -50,6 +50,17 @@ export class ConfigurationsController {
     return this.service.saveRole(body);
   }
 
+  /** Lưu phân quyền module×hành động của 1 role — chỉ super_admin. */
+  @Put('roles/:key/permissions')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ResponseMessage('Đã lưu phân quyền')
+  setRolePermissions(
+    @Param('key') key: string,
+    @Body() body: { permissions?: Record<string, Record<string, boolean>> },
+  ): Promise<Role[]> {
+    return this.service.setRolePermissions(key, body?.permissions ?? {});
+  }
+
   /** Xoá vai trò (không xoá được role gốc / role đang có user) — chỉ super_admin. */
   @Delete('roles/:key')
   @Roles(UserRole.SUPER_ADMIN)

@@ -6,10 +6,23 @@ CREATE OR REPLACE FUNCTION role_list()
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
     jsonb_agg(jsonb_build_object(
-      'key', key, 'name', name, 'sortOrder', sort_order, 'builtIn', built_in
+      'key', key, 'name', name, 'sortOrder', sort_order, 'builtIn', built_in,
+      'permissions', COALESCE(permissions, '{}'::jsonb)
     ) ORDER BY sort_order, name),
     '[]'::jsonb)
   FROM roles;
+$$;
+
+-- Lưu ma trận phân quyền module×hành động cho 1 role. p_perms: { module: {view,create,edit,delete} }.
+CREATE OR REPLACE FUNCTION role_set_permissions(p_key text, p_perms jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM roles WHERE key = p_key) THEN
+    RAISE EXCEPTION 'ROLE_NOT_FOUND';
+  END IF;
+  UPDATE roles SET permissions = COALESCE(p_perms, '{}'::jsonb) WHERE key = p_key;
+  RETURN role_list();
+END;
 $$;
 
 -- Thêm/sửa 1 role. key mới → slug hoá (a-z0-9_); key đã có → chỉ đổi name/sort_order.

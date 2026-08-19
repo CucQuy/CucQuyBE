@@ -11,12 +11,18 @@ export type ScreenVisibilityMap = Record<string, boolean>;
 /** Override role được truy cập mỗi màn: { '/path': ['admin','staff'] }. Thiếu route → dùng mặc định FE. */
 export type ScreenRolesMap = Record<string, string[]>;
 
+/** Quyền hành động 1 module: { view, create, edit, delete }. */
+export type ModuleActions = Record<string, boolean>;
+/** Phân quyền module×hành động của 1 role: { orders: {view,create,...}, ... }. */
+export type RolePermissions = Record<string, ModuleActions>;
+
 /** Vai trò động (CRUD ở Cài đặt). built_in = role gốc, không cho xoá. */
 export interface Role {
   key: string;
   name: string;
   sortOrder: number;
   builtIn: boolean;
+  permissions?: RolePermissions;
 }
 
 export interface ScreenConfiguration {
