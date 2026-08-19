@@ -31,6 +31,8 @@ export class CarriersController {
       type?: string;
       route?: string;
       station?: string;
+      offices?: unknown[];
+      routes?: unknown[];
       active?: boolean;
       sortOrder?: number;
     },

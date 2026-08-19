@@ -11,6 +11,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     jsonb_agg(jsonb_build_object(
       'id', c.id, 'name', c.name, 'phone', c.phone, 'note', c.note,
       'type', COALESCE(c.type, 'express'), 'route', c.route, 'station', c.station,
+      'offices', COALESCE(c.offices, '[]'::jsonb), 'routes', COALESCE(c.routes, '[]'::jsonb),
       'active', c.active, 'sortOrder', c.sort_order,
       'orderCount', COALESCE(oc.cnt, 0)
     ) ORDER BY c.sort_order, lower(c.name)),
@@ -36,9 +37,10 @@ BEGIN
   IF v_name = '' THEN RAISE EXCEPTION 'Thiếu tên đơn vị vận chuyển'; END IF;
   IF v_id IS NULL THEN
     v_id := 'car_' || encode(gen_random_bytes(9), 'hex');
-    INSERT INTO carriers (id, name, phone, note, type, route, station, active, sort_order)
+    INSERT INTO carriers (id, name, phone, note, type, route, station, offices, routes, active, sort_order)
     VALUES (v_id, v_name, NULLIF(p->>'phone',''), NULLIF(p->>'note',''),
             v_type, NULLIF(p->>'route',''), NULLIF(p->>'station',''),
+            COALESCE(p->'offices', '[]'::jsonb), COALESCE(p->'routes', '[]'::jsonb),
             COALESCE((p->>'active')::boolean, true),
             COALESCE(NULLIF(p->>'sortOrder','')::int, 100));
   ELSE
@@ -49,6 +51,9 @@ BEGIN
       type = v_type,
       route = NULLIF(p->>'route',''),
       station = NULLIF(p->>'station',''),
+      -- offices/routes: chỉ đụng khi payload gửi (giữ nguyên khi vắng).
+      offices = CASE WHEN p ? 'offices' THEN COALESCE(p->'offices', '[]'::jsonb) ELSE offices END,
+      routes  = CASE WHEN p ? 'routes'  THEN COALESCE(p->'routes',  '[]'::jsonb) ELSE routes END,
       active = COALESCE((p->>'active')::boolean, active),
       sort_order = COALESCE(NULLIF(p->>'sortOrder','')::int, sort_order)
     WHERE id = v_id;

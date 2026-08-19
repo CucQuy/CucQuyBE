@@ -12,8 +12,14 @@ export interface Carrier {
   route: string | null;
   /** Bến đỗ / điểm gửi-nhận (xe khách). */
   station: string | null;
+  /** Văn phòng gửi/nhận (xe khách) — [{ name?, address, landmark?, phone? }]. */
+  offices?: unknown[];
+  /** Tuyến (xe khách) — [{ from, to, price?, departTime?, arriveTime?, note? }]. */
+  routes?: unknown[];
   active: boolean;
   sortOrder: number;
+  /** Số đơn (chưa huỷ) đã gửi qua hãng — BE tính. */
+  orderCount?: number;
 }
 
 /** Tầng gọi stored function carrier_* (jsonb). */
