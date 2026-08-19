@@ -22,7 +22,18 @@ export class CarriersController {
   @Put()
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   save(
-    @Body() body: { id?: string; name: string; phone?: string; note?: string; active?: boolean; sortOrder?: number },
+    @Body()
+    body: {
+      id?: string;
+      name: string;
+      phone?: string;
+      note?: string;
+      type?: string;
+      route?: string;
+      station?: string;
+      active?: boolean;
+      sortOrder?: number;
+    },
   ): Promise<Carrier[]> {
     return this.service.save(body);
   }

@@ -6,6 +6,12 @@ export interface Carrier {
   name: string;
   phone: string | null;
   note: string | null;
+  /** 'express' (truyền thống) | 'coach' (xe khách). */
+  type: string;
+  /** Tuyến chạy (xe khách). */
+  route: string | null;
+  /** Bến đỗ / điểm gửi-nhận (xe khách). */
+  station: string | null;
   active: boolean;
   sortOrder: number;
 }
