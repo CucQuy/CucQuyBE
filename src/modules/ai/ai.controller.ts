@@ -12,7 +12,8 @@ import { SpxAddressOldService } from './tasks/spx-address-old/spx-address-old.se
 
 @ApiTags('AI')
 @Controller('ai')
-// Endpoint AI tốn quota/CPU: 200 lần/phút/IP (đủ cho bulk import ~2 AI/bill, chặn lạm dụng).
+// Endpoint AI tốn quota/CPU (chủ yếu spx-address/spx-ward khi xuất đơn SPX):
+// 200 lần/phút/IP — dư cho xuất hàng loạt, chặn lạm dụng.
 @Throttle({ default: { limit: 200, ttl: 60000 } })
 @UseGuards(IpThrottlerGuard, SsoAuthGuard)
 export class AiController {

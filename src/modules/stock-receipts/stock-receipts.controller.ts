@@ -10,8 +10,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser, UserRole } from '../../auth/user.types';
@@ -36,6 +38,10 @@ export class StockReceiptsController {
   ) {}
 
   /** OCR + AI + gating: xử lý ảnh bill thành phiếu nhập (chưa lưu). */
+  // Endpoint đắt tiền (OCR+AI, ~10s/bill). 60/phút/IP: dư cho bulk import
+  // (concurrency 3 ~ tối đa ~18/phút) nhưng chặn lạm dụng.
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @UseGuards(IpThrottlerGuard)
   @Post('process-bill')
   processBill(@Body() dto: ProcessBillDto) {
     return this.billPipeline.processBill(dto.imageBase64);
