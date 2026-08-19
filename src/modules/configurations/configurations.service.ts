@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigurationProc } from './configurations.proc';
 import {
   CreatePaymentAccountPayload,
   DEFAULT_SHIPPING_CONFIG,
   PaymentAccount,
+  Role,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ShippingConfiguration,
@@ -14,6 +15,34 @@ import {
 @Injectable()
 export class ConfigurationsService {
   constructor(private readonly proc: ConfigurationProc) {}
+
+  // ==================== ROLES (vai trò động) ====================
+
+  async listRoles(): Promise<Role[]> {
+    const [row] = await this.proc.roleList();
+    return row.data;
+  }
+
+  async saveRole(p: unknown): Promise<Role[]> {
+    const [row] = await this.proc.roleSave(p);
+    return row.data;
+  }
+
+  async deleteRole(key: string): Promise<Role[]> {
+    try {
+      const [row] = await this.proc.roleDelete(key);
+      return row.data;
+    } catch (e) {
+      const msg = String((e as { message?: string })?.message ?? '');
+      if (msg.includes('ROLE_BUILTIN')) {
+        throw new BadRequestException('Không thể xoá vai trò mặc định.');
+      }
+      if (msg.includes('ROLE_IN_USE')) {
+        throw new BadRequestException('Vai trò đang được gán cho người dùng — gỡ trước khi xoá.');
+      }
+      throw e;
+    }
+  }
 
   // ==================== SCREEN ====================
 

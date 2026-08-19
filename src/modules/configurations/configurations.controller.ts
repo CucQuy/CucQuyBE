@@ -10,13 +10,16 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { AuthUser } from '../../auth/user.types';
+import { AuthUser, UserRole } from '../../auth/user.types';
 import { ResponseMessage } from '../../common/response-message.decorator';
 import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import {
   PaymentAccount,
+  Role,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ScreenVisibilityMap,
@@ -27,9 +30,33 @@ import {
 
 @ApiTags('Cấu hình')
 @Controller('configurations')
-@UseGuards(SsoAuthGuard)
+@UseGuards(SsoAuthGuard, RolesGuard)
 export class ConfigurationsController {
   constructor(private readonly service: ConfigurationsService) {}
+
+  // ==================== ROLES (vai trò động) ====================
+
+  /** Danh sách vai trò (cho dropdown gán role + chip phân quyền màn). Mọi user đã đăng nhập. */
+  @Get('roles')
+  listRoles(): Promise<Role[]> {
+    return this.service.listRoles();
+  }
+
+  /** Thêm/sửa vai trò — chỉ super_admin. */
+  @Put('roles')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ResponseMessage('Đã lưu vai trò')
+  saveRole(@Body() body: { key?: string; name: string; sortOrder?: number }): Promise<Role[]> {
+    return this.service.saveRole(body);
+  }
+
+  /** Xoá vai trò (không xoá được role gốc / role đang có user) — chỉ super_admin. */
+  @Delete('roles/:key')
+  @Roles(UserRole.SUPER_ADMIN)
+  @ResponseMessage('Đã xoá vai trò')
+  deleteRole(@Param('key') key: string): Promise<Role[]> {
+    return this.service.deleteRole(key);
+  }
 
   // ==================== SCREEN ====================
 

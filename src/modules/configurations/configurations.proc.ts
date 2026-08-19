@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
 import {
   PaymentAccount,
+  Role,
   ScreenConfiguration,
   ShippingConfiguration,
   ZaloGroupsConfiguration,
@@ -17,6 +18,21 @@ import {
 @Injectable()
 export class ConfigurationProc {
   constructor(private readonly db: DbService) {}
+
+  // ==================== ROLES (vai trò động) ====================
+
+  roleList(): Promise<{ data: Role[] }[]> {
+    return this.db.sql<{ data: Role[] }[]>`SELECT role_list() AS data`;
+  }
+
+  roleSave(p: unknown): Promise<{ data: Role[] }[]> {
+    return this.db.sql<{ data: Role[] }[]>`
+      SELECT role_save(${this.db.json(p ?? {})}::jsonb) AS data`;
+  }
+
+  roleDelete(key: string): Promise<{ data: Role[] }[]> {
+    return this.db.sql<{ data: Role[] }[]>`SELECT role_delete(${key}) AS data`;
+  }
 
   // ==================== SCREEN ====================
 
