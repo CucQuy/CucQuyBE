@@ -1,5 +1,7 @@
-import { Controller, Get, Res } from '@nestjs/common';
+import { Controller, Get, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
+import { IpThrottlerGuard } from '../common/ip-throttler.guard';
 
 /**
  * Broker đăng nhập Google (luồng redirect server-side).
@@ -29,6 +31,9 @@ export class SsoLoginController {
     return (first || '').replace(/\/+$/, '');
   }
 
+  // Chống spam khởi tạo đăng nhập: 10 lần/phút/IP.
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @UseGuards(IpThrottlerGuard)
   @Get('start')
   async start(@Res() res: Response): Promise<void> {
     const web = this.webOrigin();

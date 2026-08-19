@@ -1,6 +1,8 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
+import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { ReceiptValidateService } from './tasks/receipt-validate/receipt-validate.service';
 import { ReceiptStructureService } from './tasks/receipt-structure/receipt-structure.service';
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
@@ -10,7 +12,9 @@ import { SpxAddressOldService } from './tasks/spx-address-old/spx-address-old.se
 
 @ApiTags('AI')
 @Controller('ai')
-@UseGuards(SsoAuthGuard)
+// Endpoint AI tốn quota/CPU: 200 lần/phút/IP (đủ cho bulk import ~2 AI/bill, chặn lạm dụng).
+@Throttle({ default: { limit: 200, ttl: 60000 } })
+@UseGuards(IpThrottlerGuard, SsoAuthGuard)
 export class AiController {
   constructor(
     private readonly receiptValidate: ReceiptValidateService,

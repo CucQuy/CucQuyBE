@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { bullConnection } from './queue/queue.constants';
 import { DbModule } from './db/db.module';
@@ -48,6 +49,9 @@ import { RecipesModule } from './modules/recipes/recipes.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Rate-limit tầng app — chỉ áp cho vài route nhạy cảm (login/AI/OCR/webhook)
+    // qua @Throttle + IpThrottlerGuard, KHÔNG phủ toàn cục. ttl tính bằng ms.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
     DbModule,
     RedisModule,
     MqttModule,

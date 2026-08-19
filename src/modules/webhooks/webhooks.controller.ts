@@ -1,9 +1,11 @@
-import { Body, Controller, Logger, Post, Res } from '@nestjs/common';
+import { Body, Controller, Logger, Post, Res, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { Response } from 'express';
 import { Public } from '../../auth/roles.decorator';
+import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { WebhooksService } from './webhooks.service';
 import { QUEUE_WEBHOOKS } from '../../queue/queue.constants';
 
@@ -26,7 +28,10 @@ export class WebhooksController {
     @InjectQueue(QUEUE_WEBHOOKS) private readonly queue: Queue,
   ) {}
 
+  // Webhook SePay: 60 lần/phút/IP (SePay thực tế không vượt; chặn flood giả webhook).
   @Public()
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @UseGuards(IpThrottlerGuard)
   @Post('sepay')
   async sepay(@Body() body: any, @Res() res: Response) {
     try {
