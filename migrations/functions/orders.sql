@@ -260,7 +260,8 @@ LANGUAGE sql STABLE AS $$
     -- ĐVVC đã gửi (danh bạ carriers) — dùng để thống kê số đơn theo hãng.
     'carrierId',            o.carrier_id,
     'carrierName',          (SELECT name FROM carriers WHERE id = o.carrier_id),
-    'carrierRoute',         o.carrier_route
+    'carrierRoute',         o.carrier_route,
+    'carrierOffice',        o.carrier_office
   );
 $$;
 
@@ -412,7 +413,8 @@ LANGUAGE sql STABLE AS $$
     -- ĐVVC đã gửi (danh bạ carriers) — dùng để thống kê số đơn theo hãng.
     'carrierId',            o.carrier_id,
     'carrierName',          (SELECT name FROM carriers WHERE id = o.carrier_id),
-    'carrierRoute',         o.carrier_route
+    'carrierRoute',         o.carrier_route,
+    'carrierOffice',        o.carrier_office
   );
 $$;
 
@@ -979,7 +981,7 @@ BEGIN
     payment_status, payment_method, status, delivery_type,
     delivery_date, delivery_time, note, tracking_number, sepay_id,
     commission_status, is_test, created_by, created_at,
-    table_id, guest_count, seated_at, carrier_id, carrier_route
+    table_id, guest_count, seated_at, carrier_id, carrier_route, carrier_office
   ) VALUES (
     v_id, v_number, now(), v_cust_id,
     COALESCE(v_cust->>'name',''), COALESCE(v_cust->>'phone',''),
@@ -1013,7 +1015,8 @@ BEGIN
     CASE WHEN NULLIF(p_input->>'tableId','') IS NOT NULL
          THEN COALESCE(NULLIF(p_input->>'seatedAt','')::timestamptz, now()) END,
     v_carrier_id,
-    NULLIF(p_input->>'carrierRoute','')
+    NULLIF(p_input->>'carrierRoute',''),
+    NULLIF(p_input->>'carrierOffice','')
   );
 
   PERFORM order_write_items(v_id, v_items);
@@ -1289,6 +1292,8 @@ BEGIN
                             ELSE carrier_id END,
     carrier_route    = CASE WHEN p_input ? 'carrierRoute'
                             THEN NULLIF(p_input->>'carrierRoute','') ELSE carrier_route END,
+    carrier_office   = CASE WHEN p_input ? 'carrierOffice'
+                            THEN NULLIF(p_input->>'carrierOffice','') ELSE carrier_office END,
     -- Dine-in: chỉ đụng khi payload gửi field (giữ nguyên khi vắng).
     table_id         = CASE WHEN p_input ? 'tableId'
                             THEN NULLIF(p_input->>'tableId','') ELSE table_id END,
