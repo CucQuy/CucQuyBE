@@ -1,5 +1,5 @@
 /** Loại lịch tự động (khớp compose function). */
-export type ScheduleType = 'daily_summary' | 'production_tomorrow';
+export type ScheduleType = 'daily_summary' | 'production_tomorrow' | 'delivery_today_tomorrow';
 
 export interface NotificationSchedule {
   id: string;

@@ -48,6 +48,13 @@ export class NotificationSchedulesService {
       const [r] = await this.proc.composeProduction(addDays(today, 1));
       return r?.msg ?? null;
     }
+    if (type === 'delivery_today_tomorrow') {
+      // Đơn cần giao HÔM NAY + NGÀY MAI (theo ngày giao) — 2 khối nối nhau.
+      const [rt] = await this.proc.composeProduction(today);
+      const [rm] = await this.proc.composeProduction(addDays(today, 1));
+      const parts = [rt?.msg, rm?.msg].filter((m): m is string => !!m);
+      return parts.length ? parts.join('\n\n') : null;
+    }
     return null;
   }
 
