@@ -125,7 +125,6 @@ BEGIN
   SELECT string_agg(
            t.rn || '. ' || t.customer_name || ' — ' || t.qty::int || ' gói'
              || COALESCE(E'\n   🎂 ' || t.products, '')
-             || COALESCE(E'\n   🍰 ' || t.flavors, '')
              || COALESCE(E'\n   📝 ' || t.note, ''),
            E'\n' ORDER BY t.rn)
   INTO v_body
@@ -133,15 +132,24 @@ BEGIN
     SELECT o.id,
       COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
       sum(oi.quantity) AS qty,
-      -- SP cụ thể: "Bánh A ×5, Bánh B ×3" (nhiều nhất trước)
-      (SELECT string_agg(pn.name || ' ×' || pn.q::int, ', ' ORDER BY pn.q DESC, pn.name)
-       FROM (SELECT COALESCE(NULLIF(p.product_name, ''), '(SP)') AS name, sum(p.quantity) AS q
-             FROM order_items p WHERE p.order_id = o.id GROUP BY 1) pn) AS products,
-      (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
-       FROM (SELECT f AS fl, count(*) AS cnt
-             FROM order_items x, unnest(x.flavors) f
-             WHERE x.order_id = o.id AND NULLIF(f, '') IS NOT NULL
-             GROUP BY f) fb) AS flavors,
+      -- SP cụ thể + vị CÙNG DÒNG: "Bánh A ×5 (3 Matcha, 2 Socola) · Bánh B ×3"
+      (SELECT string_agg(
+                prod.name || ' ×' || prod.q::int || COALESCE(' (' || fl.flavors || ')', ''),
+                ' · ' ORDER BY prod.q DESC, prod.name)
+       FROM (
+         SELECT COALESCE(NULLIF(p.product_name, ''), '(SP)') AS name, sum(p.quantity) AS q
+         FROM order_items p WHERE p.order_id = o.id
+         GROUP BY COALESCE(NULLIF(p.product_name, ''), '(SP)')
+       ) prod
+       LEFT JOIN LATERAL (
+         SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl) AS flavors
+         FROM (SELECT f AS fl, count(*) AS cnt
+               FROM order_items x, unnest(x.flavors) f
+               WHERE x.order_id = o.id
+                 AND COALESCE(NULLIF(x.product_name, ''), '(SP)') = prod.name
+                 AND NULLIF(f, '') IS NOT NULL
+               GROUP BY f) fb
+       ) fl ON true) AS products,
       NULLIF(trim(o.note), '') AS note,
       row_number() OVER (ORDER BY COALESCE(NULLIF(o.customer_name, ''), '(?)')) AS rn
     FROM orders o JOIN order_items oi ON oi.order_id = o.id
@@ -188,18 +196,26 @@ BEGIN
         (SELECT string_agg(
             '   ' || t.rn || '. ' || t.customer_name || ' — ' || t.qty::int || ' gói'
               || COALESCE(E'\n      🎂 ' || t.products, '')
-              || COALESCE(E'\n      🍰 ' || t.flavors, '')
               || COALESCE(E'\n      📝 ' || t.note, ''),
             E'\n' ORDER BY t.rn)
          FROM (
            SELECT o.id, COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
              sum(oi.quantity) AS qty,
-             (SELECT string_agg(pn.name || ' ×' || pn.q::int, ', ' ORDER BY pn.q DESC, pn.name)
-              FROM (SELECT COALESCE(NULLIF(p.product_name, ''), '(SP)') AS name, sum(p.quantity) AS q
-                    FROM order_items p WHERE p.order_id = o.id GROUP BY 1) pn) AS products,
-             (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
-              FROM (SELECT f AS fl, count(*) AS cnt FROM order_items z, unnest(z.flavors) f
-                    WHERE z.order_id = o.id AND NULLIF(f, '') IS NOT NULL GROUP BY f) fb) AS flavors,
+             (SELECT string_agg(
+                       prod.name || ' ×' || prod.q::int || COALESCE(' (' || fl.flavors || ')', ''),
+                       ' · ' ORDER BY prod.q DESC, prod.name)
+              FROM (
+                SELECT COALESCE(NULLIF(p.product_name, ''), '(SP)') AS name, sum(p.quantity) AS q
+                FROM order_items p WHERE p.order_id = o.id
+                GROUP BY COALESCE(NULLIF(p.product_name, ''), '(SP)')
+              ) prod
+              LEFT JOIN LATERAL (
+                SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl) AS flavors
+                FROM (SELECT f AS fl, count(*) AS cnt FROM order_items z, unnest(z.flavors) f
+                      WHERE z.order_id = o.id
+                        AND COALESCE(NULLIF(z.product_name, ''), '(SP)') = prod.name
+                        AND NULLIF(f, '') IS NOT NULL GROUP BY f) fb
+              ) fl ON true) AS products,
              NULLIF(trim(o.note), '') AS note,
              row_number() OVER (ORDER BY COALESCE(NULLIF(o.customer_name, ''), '(?)')) AS rn
            FROM orders o JOIN order_items oi ON oi.order_id = o.id
