@@ -38,6 +38,16 @@ export class NotificationSchedulesService {
     await this.proc.remove(id);
   }
 
+  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định) — dùng cho nút thủ công. */
+  async sendNow(type: string): Promise<{ sent: boolean }> {
+    const [d] = await this.proc.todayVN();
+    const today = d?.today ?? new Date().toISOString().slice(0, 10);
+    const msg = await this.compose(type, today);
+    if (!msg) return { sent: false };
+    await this.zalo.send({ message: msg });
+    return { sent: true };
+  }
+
   /** Soạn nội dung cho 1 loại lịch (today = yyyy-mm-dd VN). */
   private async compose(type: string, today: string): Promise<string | null> {
     if (type === 'daily_summary') {

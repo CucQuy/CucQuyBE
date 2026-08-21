@@ -5,7 +5,7 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { UserRole } from '../../auth/user.types';
 import { NotificationSchedulesService } from './notification-schedules.service';
-import { ScheduleInput } from './notification-schedules.types';
+import { ScheduleInput, ScheduleType } from './notification-schedules.types';
 
 /** Lịch tự động gửi thông báo — chỉ super_admin/admin. */
 @ApiTags('Lịch thông báo')
@@ -34,5 +34,11 @@ export class NotificationSchedulesController {
   async remove(@Param('id') id: string) {
     await this.service.remove(id);
     return { id };
+  }
+
+  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định). Dùng cho nút thủ công. */
+  @Post('send-now')
+  sendNow(@Body() body: { type: ScheduleType }) {
+    return this.service.sendNow(body.type);
   }
 }

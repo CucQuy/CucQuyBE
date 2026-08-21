@@ -49,4 +49,9 @@ export class NotificationScheduleProc {
     return this.db.sql<Array<{ msg: string | null }>>`
       SELECT notification_compose_delivery_by_day(${from}, ${days}) AS msg`;
   }
+
+  todayVN(): Promise<Array<{ today: string }>> {
+    return this.db.sql<Array<{ today: string }>>`
+      SELECT to_char(now() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD') AS today`;
+  }
 }
