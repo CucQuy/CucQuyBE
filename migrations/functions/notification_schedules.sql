@@ -92,12 +92,23 @@ RETURNS void LANGUAGE sql AS $$
 $$;
 
 -- ─────────── Soạn nội dung (khớp format FE) ───────────
--- Cần giao ngày p_date: 1 dòng / đơn -> "Tên KH - N gói - <breakdown vị> - <note>".
--- Breakdown vị = đếm số lần mỗi vị trong order_items.flavors của đơn (rỗng thì bỏ). Note = order.note.
+
+-- Nhãn thứ tiếng Việt ngắn (CN/T2..T7) cho 1 date.
+CREATE OR REPLACE FUNCTION vn_weekday_short(d date)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE extract(dow FROM d)::int
+    WHEN 0 THEN 'CN' WHEN 1 THEN 'T2' WHEN 2 THEN 'T3' WHEN 3 THEN 'T4'
+    WHEN 4 THEN 'T5' WHEN 5 THEN 'T6' WHEN 6 THEN 'T7' END;
+$$;
+
+-- Cần giao ngày p_date — format TƯỜNG MINH: mỗi đơn 1 khối đánh số,
+-- dòng vị (🍰) + dòng ghi chú (📝) thụt lề riêng. Breakdown vị = đếm số lần
+-- mỗi vị trong order_items.flavors (rỗng thì bỏ). Note = order.note.
 CREATE OR REPLACE FUNCTION notification_compose_production(p_date text)
 RETURNS text LANGUAGE plpgsql STABLE AS $$
 DECLARE
-  v_disp text := to_char(to_date(p_date, 'YYYY-MM-DD'), 'DD/MM/YYYY');
+  v_d date := to_date(p_date, 'YYYY-MM-DD');
+  v_disp text := to_char(v_d, 'DD/MM/YYYY') || ' (' || vn_weekday_short(v_d) || ')';
   v_orders int;
   v_items numeric;
   v_body text;
@@ -112,31 +123,93 @@ BEGIN
   END IF;
 
   SELECT string_agg(
-           '• ' || t.customer_name || ' - ' || t.qty::int || ' gói'
-             || COALESCE(' - ' || t.flavors, '')
-             || COALESCE(' - ' || t.note, ''),
-           E'\n' ORDER BY t.customer_name)
+           t.rn || '. ' || t.customer_name || ' — ' || t.qty::int || ' gói'
+             || COALESCE(E'\n   🍰 ' || t.flavors, '')
+             || COALESCE(E'\n   📝 ' || t.note, ''),
+           E'\n' ORDER BY t.rn)
   INTO v_body
   FROM (
     SELECT o.id,
       COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
       sum(oi.quantity) AS qty,
-      -- gộp vị: "11 matcha, 10 socola, ..." (nhiều nhất trước)
       (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
        FROM (SELECT f AS fl, count(*) AS cnt
              FROM order_items x, unnest(x.flavors) f
              WHERE x.order_id = o.id AND NULLIF(f, '') IS NOT NULL
              GROUP BY f) fb) AS flavors,
-      NULLIF(trim(o.note), '') AS note
+      NULLIF(trim(o.note), '') AS note,
+      row_number() OVER (ORDER BY COALESCE(NULLIF(o.customer_name, ''), '(?)')) AS rn
     FROM orders o JOIN order_items oi ON oi.order_id = o.id
     WHERE o.delivery_date = p_date AND COALESCE(o.is_test, false) = false
     GROUP BY o.id, o.customer_name, o.note
   ) t;
 
-  RETURN '🚚 CẦN GIAO · ' || v_disp || E'\n' ||
-         '─────────────────────────' || E'\n' ||
+  RETURN '🚚 ĐƠN CẦN GIAO · ' || v_disp || E'\n' ||
+         '━━━━━━━━━━━━━━━━' || E'\n' ||
          '📊 ' || v_orders || ' đơn · ' || v_items::int || ' gói' || E'\n\n' ||
          v_body;
+END;
+$$;
+
+-- Đơn CẦN GIAO gom theo NGÀY, cho p_days ngày kể từ p_from (mặc định 3).
+-- Chỉ đơn còn phải giao (loại DELIVERED/CANCELLED/RETURNED + đơn test). Bỏ qua ngày trống.
+CREATE OR REPLACE FUNCTION notification_compose_delivery_by_day(p_from text, p_days int DEFAULT 3)
+RETURNS text LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_from date := to_date(p_from, 'YYYY-MM-DD');
+  v_days int := GREATEST(1, LEAST(COALESCE(p_days, 3), 14));
+  v_body text;
+BEGIN
+  SELECT string_agg(blk.day_block, E'\n\n' ORDER BY blk.d)
+  INTO v_body
+  FROM (
+    SELECT x.d,
+      '▸ ' ||
+        CASE (x.d - v_from) WHEN 0 THEN 'HÔM NAY' WHEN 1 THEN 'MAI' WHEN 2 THEN 'NGÀY KIA'
+             ELSE vn_weekday_short(x.d) END
+        || ' · ' || to_char(x.d, 'DD/MM') || ' (' || vn_weekday_short(x.d) || ') — '
+        || x.o_cnt || ' đơn · ' || x.i_cnt::int || ' gói' || E'\n' || x.lines AS day_block
+    FROM (
+      SELECT gs::date AS d,
+        (SELECT count(DISTINCT o.id) FROM orders o
+           WHERE o.delivery_date = to_char(gs::date, 'YYYY-MM-DD')
+             AND COALESCE(o.is_test, false) = false
+             AND COALESCE(o.status, '') NOT IN ('DELIVERED', 'CANCELLED', 'RETURNED')) AS o_cnt,
+        (SELECT COALESCE(sum(oi.quantity), 0)
+           FROM orders o JOIN order_items oi ON oi.order_id = o.id
+           WHERE o.delivery_date = to_char(gs::date, 'YYYY-MM-DD')
+             AND COALESCE(o.is_test, false) = false
+             AND COALESCE(o.status, '') NOT IN ('DELIVERED', 'CANCELLED', 'RETURNED')) AS i_cnt,
+        (SELECT string_agg(
+            '   ' || t.rn || '. ' || t.customer_name || ' — ' || t.qty::int || ' gói'
+              || COALESCE(E'\n      🍰 ' || t.flavors, '')
+              || COALESCE(E'\n      📝 ' || t.note, ''),
+            E'\n' ORDER BY t.rn)
+         FROM (
+           SELECT o.id, COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
+             sum(oi.quantity) AS qty,
+             (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
+              FROM (SELECT f AS fl, count(*) AS cnt FROM order_items z, unnest(z.flavors) f
+                    WHERE z.order_id = o.id AND NULLIF(f, '') IS NOT NULL GROUP BY f) fb) AS flavors,
+             NULLIF(trim(o.note), '') AS note,
+             row_number() OVER (ORDER BY COALESCE(NULLIF(o.customer_name, ''), '(?)')) AS rn
+           FROM orders o JOIN order_items oi ON oi.order_id = o.id
+           WHERE o.delivery_date = to_char(gs::date, 'YYYY-MM-DD')
+             AND COALESCE(o.is_test, false) = false
+             AND COALESCE(o.status, '') NOT IN ('DELIVERED', 'CANCELLED', 'RETURNED')
+           GROUP BY o.id, o.customer_name, o.note
+         ) t) AS lines
+      FROM generate_series(v_from, v_from + (v_days - 1), interval '1 day') AS gs
+    ) x
+    WHERE x.o_cnt > 0
+  ) blk;
+
+  IF v_body IS NULL THEN
+    RETURN '✅ Không có đơn cần giao trong ' || v_days || ' ngày tới (từ ' || to_char(v_from, 'DD/MM') || ').';
+  END IF;
+
+  RETURN '📅 LỊCH GIAO SẮP TỚI · ' || v_days || ' ngày' || E'\n' ||
+         '━━━━━━━━━━━━━━━━' || E'\n\n' || v_body;
 END;
 $$;
 

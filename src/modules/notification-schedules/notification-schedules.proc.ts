@@ -44,4 +44,9 @@ export class NotificationScheduleProc {
     return this.db.sql<Array<{ msg: string | null }>>`
       SELECT notification_compose_production(${date}) AS msg`;
   }
+
+  composeDeliveryByDay(from: string, days: number): Promise<Array<{ msg: string | null }>> {
+    return this.db.sql<Array<{ msg: string | null }>>`
+      SELECT notification_compose_delivery_by_day(${from}, ${days}) AS msg`;
+  }
 }

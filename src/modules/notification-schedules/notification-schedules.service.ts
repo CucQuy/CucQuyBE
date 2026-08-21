@@ -55,6 +55,11 @@ export class NotificationSchedulesService {
       const parts = [rt?.msg, rm?.msg].filter((m): m is string => !!m);
       return parts.length ? parts.join('\n\n') : null;
     }
+    if (type === 'delivery_by_day') {
+      // Đơn CÒN cần giao, gom theo ngày trong 3 ngày tới (hôm nay + 2).
+      const [r] = await this.proc.composeDeliveryByDay(today, 3);
+      return r?.msg ?? null;
+    }
     return null;
   }
 
