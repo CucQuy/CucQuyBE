@@ -124,6 +124,7 @@ BEGIN
 
   SELECT string_agg(
            t.rn || '. ' || t.customer_name || ' — ' || t.qty::int || ' gói'
+             || COALESCE(E'\n   🎂 ' || t.products, '')
              || COALESCE(E'\n   🍰 ' || t.flavors, '')
              || COALESCE(E'\n   📝 ' || t.note, ''),
            E'\n' ORDER BY t.rn)
@@ -132,6 +133,10 @@ BEGIN
     SELECT o.id,
       COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
       sum(oi.quantity) AS qty,
+      -- SP cụ thể: "Bánh A ×5, Bánh B ×3" (nhiều nhất trước)
+      (SELECT string_agg(pn.name || ' ×' || pn.q::int, ', ' ORDER BY pn.q DESC, pn.name)
+       FROM (SELECT COALESCE(NULLIF(p.product_name, ''), '(SP)') AS name, sum(p.quantity) AS q
+             FROM order_items p WHERE p.order_id = o.id GROUP BY 1) pn) AS products,
       (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
        FROM (SELECT f AS fl, count(*) AS cnt
              FROM order_items x, unnest(x.flavors) f
@@ -182,12 +187,16 @@ BEGIN
              AND COALESCE(o.status, '') NOT IN ('DELIVERED', 'CANCELLED', 'RETURNED')) AS i_cnt,
         (SELECT string_agg(
             '   ' || t.rn || '. ' || t.customer_name || ' — ' || t.qty::int || ' gói'
+              || COALESCE(E'\n      🎂 ' || t.products, '')
               || COALESCE(E'\n      🍰 ' || t.flavors, '')
               || COALESCE(E'\n      📝 ' || t.note, ''),
             E'\n' ORDER BY t.rn)
          FROM (
            SELECT o.id, COALESCE(NULLIF(o.customer_name, ''), '(?)') AS customer_name,
              sum(oi.quantity) AS qty,
+             (SELECT string_agg(pn.name || ' ×' || pn.q::int, ', ' ORDER BY pn.q DESC, pn.name)
+              FROM (SELECT COALESCE(NULLIF(p.product_name, ''), '(SP)') AS name, sum(p.quantity) AS q
+                    FROM order_items p WHERE p.order_id = o.id GROUP BY 1) pn) AS products,
              (SELECT string_agg(fb.cnt::int || ' ' || fb.fl, ', ' ORDER BY fb.cnt DESC, fb.fl)
               FROM (SELECT f AS fl, count(*) AS cnt FROM order_items z, unnest(z.flavors) f
                     WHERE z.order_id = o.id AND NULLIF(f, '') IS NOT NULL GROUP BY f) fb) AS flavors,
