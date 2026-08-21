@@ -17,8 +17,10 @@ import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser, UserRole } from '../../auth/user.types';
+import { NotFoundException } from '@nestjs/common';
 import { StockReceiptsService } from './stock-receipts.service';
 import { BillPipelineService } from './bill-pipeline.service';
+import { BillJobService } from './bill-job.service';
 import { ProcessBillDto } from './dto/process-bill.dto';
 import { ReceiptReconcileApplyDto } from './dto/reconcile-apply.dto';
 import {
@@ -36,6 +38,7 @@ export class StockReceiptsController {
   constructor(
     private readonly service: StockReceiptsService,
     private readonly billPipeline: BillPipelineService,
+    private readonly billJobs: BillJobService,
   ) {}
 
   /** OCR + AI + gating: xử lý ảnh bill thành phiếu nhập (chưa lưu). */
@@ -46,6 +49,25 @@ export class StockReceiptsController {
   @Post('process-bill')
   processBill(@Body() dto: ProcessBillDto) {
     return this.billPipeline.processBill(dto.imageBase64);
+  }
+
+  /**
+   * OCR bill dạng JOB NỀN — trả jobId NGAY (không giữ kết nối lâu → tránh 520 qua
+   * Cloudflare Tunnel). FE poll GET process-bill/:jobId để lấy kết quả.
+   */
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @UseGuards(IpThrottlerGuard)
+  @Post('process-bill/start')
+  startBill(@Body() dto: ProcessBillDto) {
+    return { jobId: this.billJobs.start(dto.imageBase64) };
+  }
+
+  /** Trạng thái + kết quả job OCR bill. status: processing | done | error. */
+  @Get('process-bill/:jobId')
+  getBillJob(@Param('jobId') jobId: string) {
+    const job = this.billJobs.get(jobId);
+    if (!job) throw new NotFoundException('Job OCR không tồn tại hoặc đã hết hạn — nhập lại ảnh.');
+    return job;
   }
 
   /** Danh sách NCC đã nhập. */

@@ -5,10 +5,11 @@ import { StockReceiptsController } from './stock-receipts.controller';
 import { StockReceiptsService } from './stock-receipts.service';
 import { StockReceiptProc } from './stock-receipts.proc';
 import { BillPipelineService } from './bill-pipeline.service';
+import { BillJobService } from './bill-job.service';
 
 @Module({
   imports: [OcrModule, AiModule],
   controllers: [StockReceiptsController],
-  providers: [StockReceiptsService, StockReceiptProc, BillPipelineService],
+  providers: [StockReceiptsService, StockReceiptProc, BillPipelineService, BillJobService],
 })
 export class StockReceiptsModule {}
