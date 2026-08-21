@@ -60,6 +60,7 @@ const mapSupplier = (r: SupplierRow): ImportedSupplierSummary => ({
   category: r.category,
   channel: r.channel ?? undefined,
   notes: r.notes,
+  pinned: r.pinned === true,
 });
 
 const mapMaterial = (r: MaterialRow): ImportedMaterialSummary => ({
@@ -205,7 +206,7 @@ export class StockReceiptsService {
 
   async updateSupplier(
     id: string,
-    patch: Partial<SupplierContactInfo> & { name?: string },
+    patch: Partial<SupplierContactInfo> & { name?: string; pinned?: boolean },
   ): Promise<void> {
     await this.proc.supplierUpdate(id, patch);
   }

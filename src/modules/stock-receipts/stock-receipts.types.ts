@@ -98,6 +98,8 @@ export interface ImportedSupplierSummary extends SupplierContactInfo {
   receiptCount: number;
   totalAmount: number;
   lastReceiptDate?: string;
+  /** Ghim NCC lên đầu danh bạ (hay gọi ship). */
+  pinned?: boolean;
 }
 
 export interface ImportedMaterialSummary {

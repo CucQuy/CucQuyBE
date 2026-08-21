@@ -69,6 +69,7 @@ export type SupplierRow = {
   category: string | null;
   channel: string | null;
   notes: string | null;
+  pinned: boolean | null;
 };
 
 export type MaterialRow = {
@@ -298,7 +299,7 @@ export class StockReceiptProc {
 
   supplierUpdate(
     id: string,
-    patch: Partial<SupplierContactInfo> & { name?: string },
+    patch: Partial<SupplierContactInfo> & { name?: string; pinned?: boolean },
   ): Promise<unknown> {
     return this.db.sql`
       SELECT stock_receipt_supplier_update(${id}, ${this.db.json(patch ?? {})}::jsonb)`;

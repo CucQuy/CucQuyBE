@@ -146,10 +146,12 @@ $$;
 -- ── READ ───────────────────────────────────────────────────────────────────
 
 -- Danh sách NCC đã nhập (mới cập nhật trước).
+-- NCC đã ghim (pinned) lên đầu, còn lại mới cập nhật trước.
 CREATE OR REPLACE FUNCTION stock_receipt_supplier_list()
 RETURNS SETOF suppliers
 LANGUAGE sql STABLE AS $$
-  SELECT * FROM suppliers ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST;
+  SELECT * FROM suppliers
+  ORDER BY pinned DESC, updated_at DESC NULLS LAST, created_at DESC NULLS LAST;
 $$;
 
 -- Danh sách nguyên liệu đã nhập (mới cập nhật trước).
@@ -270,6 +272,9 @@ BEGIN
   END IF;
   IF p_patch ? 'notes' THEN
     UPDATE suppliers SET notes = NULLIF(trim(COALESCE(p_patch->>'notes','')), '') WHERE id = p_id;
+  END IF;
+  IF p_patch ? 'pinned' THEN
+    UPDATE suppliers SET pinned = COALESCE((p_patch->>'pinned')::boolean, false) WHERE id = p_id;
   END IF;
 
   UPDATE suppliers SET updated_at = now() WHERE id = p_id;

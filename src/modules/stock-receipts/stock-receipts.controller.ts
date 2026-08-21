@@ -125,7 +125,7 @@ export class StockReceiptsController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async updateSupplier(
     @Param('id') id: string,
-    @Body() body: Partial<SupplierContactInfo> & { name?: string },
+    @Body() body: Partial<SupplierContactInfo> & { name?: string; pinned?: boolean },
   ) {
     await this.service.updateSupplier(id, body);
     return { id };
