@@ -195,8 +195,11 @@ export class StockReceiptsController {
     return this.service.findDuplicate(body);
   }
 
-  /** Lưu phiếu nhập (tạo receipt + lines + upsert supplier/materials). */
-  @Post('draft')
+  /**
+   * Lưu phiếu nhập (tạo receipt + lines + upsert supplier/materials).
+   * Route chính: POST /stock-receipts (tên đúng nghĩa). Giữ alias 'draft' cho FE cache cũ.
+   */
+  @Post(['', 'draft'])
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   saveStockReceiptDraft(
     @Body() body: SaveStockReceiptDraftInput,
