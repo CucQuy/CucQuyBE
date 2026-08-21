@@ -283,6 +283,47 @@ BEGIN
 END;
 $$;
 
+-- Tạo NCC THỦ CÔNG (không qua phiếu nhập). Dedup theo normalized_name → trả id cũ nếu trùng.
+-- p_input: jsonb camelCase {name*, phone, address, contactPerson, email, taxCode, category, channel, notes, pinned}.
+CREATE OR REPLACE FUNCTION stock_receipt_supplier_create(p_input jsonb)
+RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_name text;
+  v_key  text;
+  v_id   text;
+  v_now  timestamptz := now();
+BEGIN
+  v_name := trim(COALESCE(p_input->>'name', ''));
+  IF v_name = '' THEN RAISE EXCEPTION 'Tên NCC không được rỗng'; END IF;
+  v_key := sr_supplier_key(v_name);
+  IF v_key = '' THEN RAISE EXCEPTION 'Tên NCC không hợp lệ'; END IF;
+
+  -- đã tồn tại theo key → trả id cũ, không tạo trùng
+  SELECT id INTO v_id FROM suppliers WHERE normalized_name = v_key LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+
+  v_id := sr_gen_id();
+  INSERT INTO suppliers (
+    id, name, normalized_name, receipt_count, total_amount,
+    phone, address, contact_person, email, tax_code, category, channel, notes,
+    pinned, created_at, updated_at
+  ) VALUES (
+    v_id, v_name, v_key, 0, 0,
+    NULLIF(trim(COALESCE(p_input->>'phone','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'address','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'contactPerson','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'email','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'taxCode','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'category','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'channel','')), ''),
+    NULLIF(trim(COALESCE(p_input->>'notes','')), ''),
+    COALESCE((p_input->>'pinned')::boolean, false), v_now, v_now
+  );
+  RETURN v_id;
+END;
+$$;
+
 -- ── WRITE phức tạp: tạo phiếu nhập (1 transaction) ──────────────────────────
 -- p_input: jsonb camelCase, gồm:
 --   structured {supplierName,supplierPhone,supplierAddress,invoiceNumber,storeOrBranch,

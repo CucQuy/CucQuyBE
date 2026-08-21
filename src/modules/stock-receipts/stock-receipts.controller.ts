@@ -24,6 +24,7 @@ import { ReceiptReconcileApplyDto } from './dto/reconcile-apply.dto';
 import {
   MaterialUpdatePatch,
   MaterialCreateInput,
+  SupplierCreateInput,
   SaveStockReceiptDraftInput,
   SupplierContactInfo,
 } from './stock-receipts.types';
@@ -121,6 +122,14 @@ export class StockReceiptsController {
   }
 
   /** Cập nhật thông tin NCC. */
+  /** Tạo NCC thủ công (không qua phiếu nhập). */
+  @Post('suppliers')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async createSupplier(@Body() body: SupplierCreateInput) {
+    const id = await this.service.createSupplier(body);
+    return { id };
+  }
+
   @Patch('suppliers/:id')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   async updateSupplier(

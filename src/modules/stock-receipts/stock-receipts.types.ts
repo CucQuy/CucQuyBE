@@ -143,6 +143,19 @@ export interface MaterialUpdatePatch {
 }
 
 /** Tạo NVL thủ công (không qua phiếu nhập). */
+export interface SupplierCreateInput {
+  name: string;
+  phone?: string | null;
+  address?: string | null;
+  contactPerson?: string | null;
+  email?: string | null;
+  taxCode?: string | null;
+  category?: string | null;
+  channel?: string | null;
+  notes?: string | null;
+  pinned?: boolean;
+}
+
 export interface MaterialCreateInput {
   name: string;
   unit?: string | null;

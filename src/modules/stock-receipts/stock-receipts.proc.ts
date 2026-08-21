@@ -4,6 +4,7 @@ import {
   MaterialMergeSuggestion,
   MaterialUpdatePatch,
   MaterialCreateInput,
+  SupplierCreateInput,
   SaveStockReceiptDraftInput,
   SupplierContactInfo,
 } from './stock-receipts.types';
@@ -343,6 +344,12 @@ export class StockReceiptProc {
   async materialCreate(input: MaterialCreateInput): Promise<string> {
     const [row] = await this.db.sql<{ id: string }[]>`
       SELECT stock_receipt_material_create(${this.db.json(input)}::jsonb) AS id`;
+    return row.id;
+  }
+
+  async supplierCreate(input: SupplierCreateInput): Promise<string> {
+    const [row] = await this.db.sql<{ id: string }[]>`
+      SELECT stock_receipt_supplier_create(${this.db.json(input)}::jsonb) AS id`;
     return row.id;
   }
 }

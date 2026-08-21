@@ -19,6 +19,7 @@ import {
   MaterialPriceOption,
   MaterialUpdatePatch,
   MaterialCreateInput,
+  SupplierCreateInput,
   SavedStockReceiptDetail,
   SavedStockReceiptSummary,
   SaveStockReceiptDraftInput,
@@ -308,6 +309,10 @@ export class StockReceiptsService {
   /** Tạo NVL thủ công (không qua phiếu nhập). Trả id (idempotent theo key). */
   async createMaterial(input: MaterialCreateInput): Promise<string> {
     return this.proc.materialCreate(input);
+  }
+
+  async createSupplier(input: SupplierCreateInput): Promise<string> {
+    return this.proc.supplierCreate(input);
   }
 
   // ── Đối soát phiếu nhập ↔ giao dịch tiền ra (009) ──────────────────────────
