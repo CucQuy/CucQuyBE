@@ -17,6 +17,11 @@ export class WagesProc {
       SELECT wage_rate_add(${this.db.json(input)}::jsonb) AS result`;
   }
 
+  update(id: string, input: WageRateInput): Promise<Array<{ result: WageRate }>> {
+    return this.db.sql<Array<{ result: WageRate }>>`
+      SELECT wage_rate_update(${id}, ${this.db.json(input)}::jsonb) AS result`;
+  }
+
   remove(id: string): Promise<Array<{ result: { ok: boolean; reason?: string } }>> {
     return this.db.sql<Array<{ result: { ok: boolean; reason?: string } }>>`
       SELECT wage_rate_remove(${id}) AS result`;

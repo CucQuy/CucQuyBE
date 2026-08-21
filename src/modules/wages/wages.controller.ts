@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -33,6 +34,12 @@ export class WagesController {
   @Post()
   add(@Body() body: WageRateInput) {
     return this.service.add(body);
+  }
+
+  /** Sửa 1 bản ghi mức lương. */
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: WageRateInput) {
+    return this.service.update(id, body);
   }
 
   /** Xoá 1 bản ghi mức lương. */

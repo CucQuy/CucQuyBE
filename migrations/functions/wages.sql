@@ -54,6 +54,33 @@ BEGIN
 END;
 $$;
 
+-- Sửa 1 bản ghi mức lương (position/hourlyRate/weekdays/effectiveDate/note).
+CREATE OR REPLACE FUNCTION wage_rate_update(p_id text, p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_position text := NULLIF(trim(p_input->>'position'), '');
+  v_rate     numeric := NULLIF(p_input->>'hourlyRate', '')::numeric;
+  v_row      wage_rates%ROWTYPE;
+BEGIN
+  IF v_position IS NULL THEN RAISE EXCEPTION 'Vị trí là bắt buộc'; END IF;
+  IF v_rate IS NULL OR v_rate < 0 THEN RAISE EXCEPTION 'Mức lương/giờ không hợp lệ'; END IF;
+  IF NULLIF(p_input->>'effectiveDate','') IS NULL THEN RAISE EXCEPTION 'Ngày áp dụng là bắt buộc'; END IF;
+
+  UPDATE wage_rates SET
+    position       = v_position,
+    hourly_rate    = v_rate,
+    weekdays       = CASE WHEN p_input ? 'weekdays'
+                          THEN ARRAY(SELECT jsonb_array_elements_text(p_input->'weekdays')::int)
+                          ELSE weekdays END,
+    effective_date = (p_input->>'effectiveDate')::date,
+    note           = NULLIF(trim(COALESCE(p_input->>'note','')), '')
+  WHERE id = p_id
+  RETURNING * INTO v_row;
+  IF v_row.id IS NULL THEN RAISE EXCEPTION 'Không tìm thấy mức lương'; END IF;
+  RETURN wage_rate_to_json(v_row);
+END;
+$$;
+
 -- Xoá 1 bản ghi mức lương.
 CREATE OR REPLACE FUNCTION wage_rate_remove(p_id text)
 RETURNS jsonb LANGUAGE plpgsql AS $$
