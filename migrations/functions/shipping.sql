@@ -1,11 +1,13 @@
 -- ============================================================
 -- VẬN CHUYỂN — thống kê theo ĐƠN VỊ VẬN CHUYỂN (DVVC).
--- DVVC suy từ tiền tố tracking_number (chưa có field carrier riêng).
+-- DVVC lấy từ carrier ĐÃ GÁN (orders.carrier_id → carriers, gồm cả xe khách/coach);
+-- đơn chưa gán → suy từ tiền tố tracking_number (fallback).
 -- Read-only, STABLE. order_province tái định nghĩa ở đây (dùng cho phân bố tỉnh).
 -- ============================================================
 
--- DVVC từ mã vận đơn. SPX (Shopee Express) là chính; mở rộng khi có mã hãng khác.
--- Đơn không có mã → 'Chưa có mã / Tự giao' (pickup / ship nội thành / chưa sync).
+-- DVVC từ mã vận đơn (fallback khi đơn chưa gán carrier_id).
+-- SPX (Shopee Express) là chính; mở rộng khi có mã hãng khác.
+-- Đơn không có mã → 'Chưa gán / Tự giao' (pickup / ship nội thành / chưa sync).
 CREATE OR REPLACE FUNCTION order_carrier(p_tracking text)
 RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE
@@ -15,15 +17,15 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
     WHEN p_tracking ILIKE 'JT%' OR p_tracking ILIKE 'J&T%' THEN 'J&T Express'
     WHEN p_tracking ILIKE 'VTP%' OR p_tracking ILIKE 'VIETTEL%' THEN 'Viettel Post'
     WHEN COALESCE(p_tracking, '') <> ''                   THEN 'Khác'
-    ELSE 'Chưa có mã / Tự giao'
+    ELSE 'Chưa gán / Tự giao'
   END;
 $$;
 
--- Chuẩn hoá TỈNH/THÀNH từ address free-text (khớp không dấu; 5 TP lớn có alias).
-CREATE OR REPLACE FUNCTION order_province(p_address text)
-RETURNS text LANGUAGE sql IMMUTABLE AS $$
-  WITH a AS (SELECT ' ' || unaccent(lower(coalesce(p_address, ''))) || ' ' AS s),
-  provs(ord, canon, pat) AS (VALUES
+-- Bảng gốc TỈNH/THÀNH: (ord, canon, pat-không-dấu). Dùng chung cho order_province
+-- (match address) + provinceCoverage (liệt kê toàn bộ tỉnh, kể cả tỉnh chưa có đơn).
+CREATE OR REPLACE FUNCTION vn_province_patterns()
+RETURNS TABLE(ord int, canon text, pat text) LANGUAGE sql IMMUTABLE AS $$
+  SELECT * FROM (VALUES
     (1,  'TP. Hồ Chí Minh', 'ho chi minh|hcm|tphcm|sai gon|thu duc|go vap|tan binh|tan phu|binh tan|binh chanh|phu nhuan|nha be|hoc mon|cu chi|can gio|q7|q9|q12'),
     (2,  'Hà Nội',          'ha noi| hn |,hn|\.hn|hai ba trung|cau giay|tu liem|ha dong|hoang mai|long bien|thanh xuan|dong da'),
     (3,  'Đà Nẵng',         'da nang'),
@@ -87,38 +89,54 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
     (61, 'Sóc Trăng',       'soc trang'),
     (62, 'Bạc Liêu',        'bac lieu'),
     (63, 'Cà Mau',          'ca mau')
-  )
+  ) AS t(ord, canon, pat);
+$$;
+
+-- Chuẩn hoá TỈNH/THÀNH từ address free-text (khớp không dấu; 5 TP lớn có alias).
+CREATE OR REPLACE FUNCTION order_province(p_address text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  WITH a AS (SELECT ' ' || unaccent(lower(coalesce(p_address, ''))) || ' ' AS s)
   SELECT COALESCE(
-    (SELECT canon FROM provs, a WHERE a.s ~ ('[ ,\./-]' || pat) ORDER BY ord LIMIT 1),
+    (SELECT p.canon FROM vn_province_patterns() p, a
+      WHERE a.s ~ ('[ ,\./-]' || p.pat) ORDER BY p.ord LIMIT 1),
     'Khác');
 $$;
 
 -- Thống kê chỉ số theo DVVC trong kỳ (p_from/p_to NULL = toàn bộ). Đơn KHÔNG test/huỷ.
 -- Trả jsonb:
---   carriers[]: mỗi DVVC → số đơn, doanh thu, AOV, phí ship TB; đã giao/đang giao/kẹt;
---               thời gian giao (count/avg/min/max) + histogram 1/2/3/4/5+ ngày.
+--   carriers[]: mỗi DVVC (kể cả xe khách) → loại; số đơn, doanh thu, AOV, phí ship TB;
+--               đã giao/đang giao/kẹt; thời gian giao (count/avg/min/max) + histogram.
 --   stuckOrders[]: đơn đã gửi ≥4 ngày chưa có mốc giao (theo DVVC).
---   byProvince[]: đơn ship tỉnh gộp theo (DVVC, tỉnh) → số đơn, đã giao, TB ngày giao.
+--   provinceCoverage[]: TOÀN BỘ tỉnh (kể cả tỉnh chưa có đơn) → số đơn, đã giao, TB ngày giao.
 CREATE OR REPLACE FUNCTION shipping_analytics(p_from date DEFAULT NULL, p_to date DEFAULT NULL)
 RETURNS jsonb LANGUAGE sql STABLE AS $$
   WITH valid AS (
-    SELECT *, order_carrier(tracking_number) AS carrier
-    FROM orders
-    WHERE COALESCE(is_test, false) = false
-      AND COALESCE(status, '') <> 'CANCELLED'
-      AND (p_from IS NULL OR order_date >= p_from)
-      AND (p_to   IS NULL OR order_date <  (p_to + 1))
+    SELECT o.*,
+           COALESCE(NULLIF(c.name, ''), order_carrier(o.tracking_number)) AS carrier,
+           COALESCE(c.type, 'express') AS carrier_type
+    FROM orders o
+    LEFT JOIN carriers c ON c.id = o.carrier_id
+    WHERE COALESCE(o.is_test, false) = false
+      AND COALESCE(o.status, '') <> 'CANCELLED'
+      AND (p_from IS NULL OR o.order_date >= p_from)
+      AND (p_to   IS NULL OR o.order_date <  (p_to + 1))
   ),
   dur AS (
     SELECT carrier,
            ((delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
              - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS days
     FROM valid WHERE shipped_at IS NOT NULL AND delivered_at IS NOT NULL
+  ),
+  -- Tính order_province 1 LẦN/đơn (đơn ship tỉnh) rồi mới join phủ toàn bộ tỉnh.
+  prov AS (
+    SELECT order_province(address) AS province, order_number, delivered_at, shipped_at
+    FROM valid WHERE delivery_type = 'SHIP_PROVINCE'
   )
   SELECT jsonb_build_object(
     'carriers', (
       SELECT COALESCE(jsonb_agg(t ORDER BY t.orders DESC), '[]'::jsonb) FROM (
         SELECT v.carrier AS carrier,
+          max(v.carrier_type) AS carrier_type,
           count(*) AS orders,
           COALESCE(sum(total), 0) AS revenue,
           CASE WHEN count(*) > 0 THEN round(COALESCE(sum(total), 0) / count(*)) ELSE 0 END AS aov,
@@ -155,16 +173,18 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
         ORDER BY age_days DESC LIMIT 50
       ) x
     ),
-    'byProvince', (
-      SELECT COALESCE(jsonb_agg(t ORDER BY t.orders DESC), '[]'::jsonb) FROM (
-        SELECT carrier, order_province(address) AS province,
-               count(*) AS orders,
-               count(*) FILTER (WHERE delivered_at IS NOT NULL AND shipped_at IS NOT NULL) AS delivered,
-               round(avg(((delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
-                          - (shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
-                     FILTER (WHERE delivered_at IS NOT NULL AND shipped_at IS NOT NULL)::numeric, 1) AS avg_days
-        FROM valid WHERE delivery_type = 'SHIP_PROVINCE'
-        GROUP BY carrier, order_province(address)
+    'provinceCoverage', (
+      SELECT COALESCE(jsonb_agg(t ORDER BY t.orders DESC, t.province), '[]'::jsonb) FROM (
+        SELECT src.canon AS province,
+               count(p.order_number) AS orders,
+               count(p.order_number) FILTER (WHERE p.delivered_at IS NOT NULL AND p.shipped_at IS NOT NULL) AS delivered,
+               round(avg(((p.delivered_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+                          - (p.shipped_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
+                     FILTER (WHERE p.delivered_at IS NOT NULL AND p.shipped_at IS NOT NULL)::numeric, 1) AS avg_days
+        FROM (SELECT ord, canon FROM vn_province_patterns()
+              UNION ALL SELECT 999, 'Khác') src
+        LEFT JOIN prov p ON p.province = src.canon
+        GROUP BY src.ord, src.canon
       ) t
     ),
     'generatedAt', now()
