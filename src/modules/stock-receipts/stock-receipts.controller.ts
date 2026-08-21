@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,8 +8,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
@@ -52,14 +56,17 @@ export class StockReceiptsController {
   }
 
   /**
-   * OCR bill dạng JOB NỀN — trả jobId NGAY (không giữ kết nối lâu → tránh 520 qua
-   * Cloudflare Tunnel). FE poll GET process-bill/:jobId để lấy kết quả.
+   * OCR bill dạng JOB NỀN — nhận ảnh NHỊ PHÂN (multipart 'file', KHÔNG base64 để
+   * payload nhỏ + stream), trả jobId NGAY. FE poll GET process-bill/:jobId lấy kết quả.
+   * Không giữ kết nối lâu → tránh 520 qua Cloudflare Tunnel / mạng nhà chập chờn.
    */
   @Throttle({ default: { limit: 60, ttl: 60000 } })
   @UseGuards(IpThrottlerGuard)
   @Post('process-bill/start')
-  startBill(@Body() dto: ProcessBillDto) {
-    return { jobId: this.billJobs.start(dto.imageBase64) };
+  @UseInterceptors(FileInterceptor('file'))
+  startBill(@UploadedFile() file: { buffer: Buffer } | undefined) {
+    if (!file?.buffer?.length) throw new BadRequestException('Thiếu ảnh bill.');
+    return { jobId: this.billJobs.start(file.buffer.toString('base64')) };
   }
 
   /** Trạng thái + kết quả job OCR bill. status: processing | done | error. */
