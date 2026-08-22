@@ -134,17 +134,6 @@ BEGIN
   RETURN receipt_alloc_summary(v_receipt);
 END;
 $$;
-
--- Gỡ TẤT CẢ phân bổ của 1 bill (unreconcile).
-CREATE OR REPLACE FUNCTION receipt_alloc_clear(p_receipt_id text)
-RETURNS jsonb LANGUAGE plpgsql AS $$
-BEGIN
-  DELETE FROM receipt_tx_allocations WHERE receipt_id = p_receipt_id;
-  PERFORM receipt_alloc_recompute(p_receipt_id);
-  RETURN receipt_alloc_summary(p_receipt_id);
-END;
-$$;
-
 -- Đánh dấu / bỏ đánh dấu "đã khớp DÙ LỆCH" cho 1 bill (không bắt buộc paid >= total).
 --  * forced=true: cần đã gắn ≥ 1 GD (paid > 0); phần lệch chỉ để cảnh báo ở FE, không chặn.
 --  * forced=false: bỏ đánh dấu → bill quay lại chỉ "đã khớp" khi thực sự đủ tiền.

@@ -38,14 +38,6 @@ RETURNS SETOF products
 LANGUAGE sql STABLE AS $$
   SELECT * FROM products ORDER BY created_at DESC NULLS LAST, id;
 $$;
-
--- Lấy 1 sản phẩm theo id.
-CREATE OR REPLACE FUNCTION product_get(p_id text)
-RETURNS SETOF products
-LANGUAGE sql STABLE AS $$
-  SELECT * FROM products WHERE id = p_id;
-$$;
-
 -- Tạo sản phẩm mới từ JSON client (camelCase). Tự sinh id, resolve category_id.
 -- p: {name,price,costPrice,description,status,category,categoryId,tags,image,
 --     gallery,recipeId,cakesPerProduct}

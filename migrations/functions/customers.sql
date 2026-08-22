@@ -9,14 +9,6 @@ RETURNS SETOF customers
 LANGUAGE sql STABLE AS $$
   SELECT * FROM customers ORDER BY created_at DESC NULLS LAST, name;
 $$;
-
--- Lấy 1 khách hàng theo id.
-CREATE OR REPLACE FUNCTION customer_get(p_id text)
-RETURNS SETOF customers
-LANGUAGE sql STABLE AS $$
-  SELECT * FROM customers WHERE id = p_id;
-$$;
-
 -- Tạo khách hàng mới từ JSON client (camelCase: {name, phone}).
 -- Tự sinh id (gen_random_uuid) + created_at = now(). Trả về dòng vừa tạo.
 -- Lọc: bỏ qua nếu thiếu name.

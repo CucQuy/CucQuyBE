@@ -29,13 +29,6 @@ BEGIN
   RETURN v_total;
 END;
 $$;
-
--- Giá thành / đơn vị (VND) ---------------------------------------------------
-CREATE OR REPLACE FUNCTION cost_recipe_unit(p_id integer)
-RETURNS numeric LANGUAGE sql STABLE AS $$
-  SELECT cost_recipe_batch(p_id) / NULLIF((SELECT yield_qty FROM cost_recipes WHERE id = p_id), 0);
-$$;
-
 -- Chi tiết cost (jsonb) cho FE ----------------------------------------------
 CREATE OR REPLACE FUNCTION recipe_cost_detail(p_id integer)
 RETURNS jsonb LANGUAGE plpgsql STABLE AS $$

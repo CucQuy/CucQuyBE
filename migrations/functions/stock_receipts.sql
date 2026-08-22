@@ -768,30 +768,6 @@ BEGIN
   RETURN v_count;
 END;
 $$;
-
--- Dry-run: trả các material lệch aggregate HOẶC có đơn vị lẫn (không ghi gì).
-CREATE OR REPLACE FUNCTION material_recompute_preview()
-RETURNS jsonb LANGUAGE sql STABLE AS $$
-  SELECT COALESCE(jsonb_agg(jsonb_build_object(
-    'id', m.id, 'name', m.name,
-    'curQty', m.total_qty, 'newQty', a.qty,
-    'curAmount', m.total_amount, 'newAmount', a.amount,
-    'curCount', COALESCE(m.import_count,0), 'newCount', a.cnt,
-    'curUnit', m.canonical_unit, 'unitKinds', a.unit_kinds
-  ) ORDER BY a.unit_kinds DESC, m.name)
-    FILTER (WHERE m.total_qty IS DISTINCT FROM a.qty
-                OR m.total_amount IS DISTINCT FROM a.amount
-                OR COALESCE(m.import_count,0) <> a.cnt
-                OR a.unit_kinds > 1), '[]'::jsonb)
-  FROM materials m
-  JOIN (
-    SELECT material_id, count(*) cnt, sum(COALESCE(quantity,0)) qty,
-           sum(COALESCE(line_total,0)) amount,
-           count(DISTINCT NULLIF(trim(unit),'')) unit_kinds
-    FROM stock_receipt_lines GROUP BY material_id
-  ) a ON a.material_id = m.id;
-$$;
-
 -- ── MERGE nguyên liệu ────────────────────────────────────────────────────────
 -- Gộp các nguyên liệu trùng vào root: lines trỏ về root, cộng dồn thống kê, xoá dup.
 CREATE OR REPLACE FUNCTION stock_receipt_merge_materials(p_root_id text, p_dup_ids jsonb)

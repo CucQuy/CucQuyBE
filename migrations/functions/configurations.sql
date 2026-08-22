@@ -154,26 +154,6 @@ LANGUAGE sql STABLE AS $$
     '[]'::jsonb
   );
 $$;
-
--- Tài khoản đang active (jsonb) hoặc null — tiện cho chỗ sinh QR đơn.
-CREATE OR REPLACE FUNCTION payment_account_active()
-RETURNS jsonb
-LANGUAGE sql STABLE AS $$
-  SELECT COALESCE(
-    (SELECT jsonb_build_object(
-              'id', a.id,
-              'bankCode', a.bank_code,
-              'accountNumber', a.account_number,
-              'accountHolder', a.account_holder,
-              'qrTemplate', a.qr_template,
-              'isActive', a.is_active,
-              'createdAt', a.created_at
-            )
-     FROM payment_accounts a WHERE a.is_active LIMIT 1),
-    'null'::jsonb
-  );
-$$;
-
 -- Tạo tài khoản mới từ jsonb {bankCode, accountNumber, accountHolder, qrTemplate}.
 -- Nếu là tài khoản ĐẦU TIÊN (bảng đang rỗng) → set is_active=true. Trả payment_accounts_list().
 CREATE OR REPLACE FUNCTION payment_account_create(p_data jsonb)

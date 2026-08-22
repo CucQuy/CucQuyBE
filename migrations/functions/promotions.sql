@@ -88,14 +88,6 @@ LANGUAGE sql STABLE AS $$
   SELECT COALESCE(jsonb_agg(promotion_to_json(p) ORDER BY COALESCE(p.priority,0) DESC, p.id), '[]'::jsonb)
   FROM promotions p;
 $$;
-
--- Lấy 1 promotion theo id.
-CREATE OR REPLACE FUNCTION promotion_get(p_id text)
-RETURNS jsonb
-LANGUAGE sql STABLE AS $$
-  SELECT promotion_to_json(p) FROM promotions p WHERE p.id = p_id;
-$$;
-
 -- Tạo mới. p_input camelCase. Tự sinh id nếu thiếu. Trả {id}.
 CREATE OR REPLACE FUNCTION promotion_create(p_input jsonb)
 RETURNS jsonb

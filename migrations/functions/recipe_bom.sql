@@ -24,14 +24,6 @@ BEGIN
   RETURN QUERY SELECT * FROM material_stocktake WHERE id = v_id;
 END;
 $$;
-
-CREATE OR REPLACE FUNCTION material_stocktake_latest()
-RETURNS jsonb LANGUAGE sql STABLE AS $$
-  SELECT COALESCE(jsonb_object_agg(material_id, jsonb_build_object('date', count_date, 'qty', counted_qty)), '{}'::jsonb)
-  FROM (SELECT DISTINCT ON (material_id) material_id, count_date, counted_qty
-        FROM material_stocktake ORDER BY material_id, count_date DESC, created_at DESC) t;
-$$;
-
 -- ── Tồn dư ước tính (neo kiểm kê) ──
 CREATE OR REPLACE FUNCTION material_stock_estimate()
 RETURNS jsonb LANGUAGE sql STABLE AS $$
