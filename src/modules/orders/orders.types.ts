@@ -67,12 +67,6 @@ export interface RefundListItem {
   reconcileMethod?: 'sepay' | 'cash' | null;
 }
 
-/** Payload tuỳ chọn khi cập nhật đơn để ghi nhận hoàn tiền. */
-export interface OrderRefundInput {
-  amount?: number; // nếu bỏ trống → BE tính = total_cũ − total_mới
-  reason?: string;
-}
-
 export interface OrderFieldChange {
   field: string;
   label?: string;
@@ -181,8 +175,3 @@ export interface OrderDeleteResult {
   id: string;
   prevOrder: Order | null;
 }
-
-/** Enum default mirror FE (frontend/types/enums.ts). */
-export const PAYMENT_STATUS_UNPAID = 'UNPAID';
-export const PAYMENT_METHOD_CASH = 'CASH';
-export const DELIVERY_TYPE_SHIP = 'SHIP';
