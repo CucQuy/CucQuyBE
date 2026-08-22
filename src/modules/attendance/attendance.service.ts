@@ -97,6 +97,43 @@ export class AttendanceService {
     return r?.result ?? null;
   }
 
+  // ── Bảng công & lương (payroll) + bổ sung công (admin) ──
+
+  /** Tổng hợp công/giờ/lương theo kỳ (mặc định tháng hiện tại). */
+  async payroll(input: { from?: string; to?: string; employeeId?: string }) {
+    const [r] = await this.proc.payroll({
+      from: input.from,
+      to: input.to,
+      employeeId: input.employeeId,
+    });
+    return r?.result ?? null;
+  }
+
+  async listAdjustments(input: { employeeId?: string; from?: string; to?: string }) {
+    const [r] = await this.proc.adjustmentList(input);
+    return r?.result ?? [];
+  }
+
+  /** Thêm 1 bổ sung công cho NV. createdBy = email admin đang đăng nhập. */
+  async addAdjustment(
+    createdBy: string | undefined,
+    input: { employeeId: string; workDate: string; hours: number; reason?: string },
+  ) {
+    const [r] = await this.proc.adjustmentAdd({
+      employeeId: input.employeeId,
+      workDate: input.workDate,
+      hours: input.hours,
+      reason: input.reason,
+      createdBy,
+    });
+    return r?.result ?? null;
+  }
+
+  async removeAdjustment(id: string): Promise<{ ok: boolean }> {
+    const [r] = await this.proc.adjustmentRemove(id);
+    return r?.result ?? { ok: false };
+  }
+
   /**
    * Đăng ký 1 mẫu khuôn mặt CHO 1 nhân viên. CHỈ super_admin (guard chặn ở controller).
    * Gọi nhiều lần cho nhiều góc mặt; reset=true ở lần đầu để xoá mẫu cũ.

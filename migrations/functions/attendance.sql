@@ -237,6 +237,7 @@ DECLARE
   v_out_min int;
   v_shifts  jsonb;
   v_cong    numeric := 0;
+  v_hours   numeric := 0;   -- tổng GIỜ hợp lệ (thời gian chấm cắt trong khung ca hợp lệ)
 BEGIN
   IF v_emp IS NULL THEN RETURN NULL; END IF;
 
@@ -263,27 +264,35 @@ BEGIN
     SELECT ws.code, ws.name, ws.cong_factor, ws.sort_order,
            EXISTS (SELECT 1 FROM shift_assignments a
                     WHERE a.employee_id = v_emp AND a.work_date = v_date AND a.shift_code = ws.code) AS reg,
-           CASE
-             WHEN v_in_min IS NULL OR v_out_min IS NULL THEN false
-             ELSE GREATEST(0,
-                    LEAST(v_out_min, (EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))::int)
-                  - GREATEST(v_in_min, (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int)
-                  ) >= 0.5 * ((EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))::int
-                            - (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int)
-           END AS worked
+           -- Số phút thời gian chấm [in…out] phủ lên khung ca (0 nếu chưa đủ dữ liệu chấm).
+           CASE WHEN v_in_min IS NULL OR v_out_min IS NULL THEN 0
+                ELSE GREATEST(0,
+                       LEAST(v_out_min, (EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))::int)
+                     - GREATEST(v_in_min, (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int))
+           END AS overlap_min,
+           ((EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))::int
+          - (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int) AS dur_min
     FROM work_shifts ws WHERE ws.active
+  ), c2 AS (
+    -- worked = phủ ≥ 50% thời lượng ca. GIỜ hợp lệ = overlap_min/60 (chỉ tính ca hợp lệ).
+    SELECT code, name, cong_factor, sort_order, reg,
+           (overlap_min >= 0.5 * dur_min AND dur_min > 0) AS worked,
+           overlap_min
+    FROM c
   )
   SELECT jsonb_agg(jsonb_build_object(
            'code', code, 'name', name, 'congFactor', cong_factor,
            'registered', reg, 'worked', worked, 'valid', (reg AND worked),
+           'hours', CASE WHEN reg AND worked THEN round(overlap_min / 60.0, 2) ELSE 0 END,
            'status', CASE WHEN reg AND worked THEN 'valid'
                           WHEN reg THEN 'missed'
                           WHEN worked THEN 'unregistered'
                           ELSE 'off' END
          ) ORDER BY sort_order),
-         COALESCE(sum(cong_factor) FILTER (WHERE reg AND worked), 0)
-    INTO v_shifts, v_cong
-  FROM c;
+         COALESCE(sum(cong_factor) FILTER (WHERE reg AND worked), 0),
+         COALESCE(round(sum(overlap_min) FILTER (WHERE reg AND worked) / 60.0, 2), 0)
+    INTO v_shifts, v_cong, v_hours
+  FROM c2;
 
   RETURN jsonb_build_object(
     'employeeId', v_emp,
@@ -291,6 +300,7 @@ BEGIN
     'in',         v_in,
     'out',        v_out,
     'cong',       v_cong,
+    'hours',      v_hours,
     'shifts',     COALESCE(v_shifts, '[]'::jsonb)
   );
 END;

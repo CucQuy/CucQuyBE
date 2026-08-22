@@ -1,10 +1,12 @@
 import {
   IsBoolean,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /** Chấm công vào/ra (ảnh gửi kèm dạng multipart field 'file'). */
 export class CheckDto {
@@ -46,4 +48,22 @@ export class UpsertNetworkDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+}
+
+/** Admin bổ sung công (giờ) cho 1 NV trong 1 ngày. */
+export class AddAdjustmentDto {
+  @IsString()
+  employeeId!: string;
+
+  @IsString()
+  workDate!: string; // yyyy-mm-dd
+
+  @Type(() => Number)
+  @IsNumber()
+  hours!: number; // giờ bổ sung (âm = trừ)
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
 }

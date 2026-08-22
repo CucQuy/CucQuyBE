@@ -21,7 +21,12 @@ import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser, UserRole } from '../../auth/user.types';
 import { AttendanceService } from './attendance.service';
-import { CheckDto, RegisterFaceDto, UpsertNetworkDto } from './dto/attendance.dto';
+import {
+  AddAdjustmentDto,
+  CheckDto,
+  RegisterFaceDto,
+  UpsertNetworkDto,
+} from './dto/attendance.dto';
 
 type UploadFile = { buffer: Buffer; originalname: string; mimetype: string };
 
@@ -162,5 +167,42 @@ export class AttendanceController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   clearFace(@Param('employeeId') employeeId: string) {
     return this.service.clearFace(employeeId);
+  }
+
+  // ---- Bảng công & lương (admin) ----
+
+  /** Tổng hợp công/giờ/lương theo kỳ (mặc định tháng hiện tại). */
+  @Get('payroll')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  payroll(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('employeeId') employeeId?: string,
+  ) {
+    return this.service.payroll({ from, to, employeeId });
+  }
+
+  /** Danh sách bổ sung công (lọc theo NV / khoảng ngày). */
+  @Get('adjustments')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  adjustments(
+    @Query('employeeId') employeeId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.listAdjustments({ employeeId, from, to });
+  }
+
+  /** Admin bổ sung công (giờ) cho 1 NV — khi quên chấm / làm bù. */
+  @Post('adjustments')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  addAdjustment(@CurrentUser() user: AuthUser, @Body() dto: AddAdjustmentDto) {
+    return this.service.addAdjustment(user.email, dto);
+  }
+
+  @Delete('adjustments/:id')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  deleteAdjustment(@Param('id') id: string) {
+    return this.service.removeAdjustment(id);
   }
 }

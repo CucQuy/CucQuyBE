@@ -132,4 +132,28 @@ export class AttendanceProc {
     return this.db.sql<Array<{ result: unknown }>>`
       SELECT attendance_day_compute(${this.db.json(input)}::jsonb) AS result`;
   }
+
+  // ── Bảng công & lương (payroll) + bổ sung công ──
+  /** Tổng hợp công/giờ/lương theo kỳ (tháng). input: {from?, to?, employeeId?}. */
+  payroll(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT payroll_compute(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** Danh sách bổ sung công. input: {employeeId?, from?, to?}. */
+  adjustmentList(input: Record<string, unknown>): Promise<Array<{ result: unknown[] }>> {
+    return this.db.sql<Array<{ result: unknown[] }>>`
+      SELECT attendance_adjustment_list(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** Thêm 1 bổ sung công. input: {employeeId, workDate, hours, reason?, createdBy?}. */
+  adjustmentAdd(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT attendance_adjustment_add(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  adjustmentRemove(id: string): Promise<Array<{ result: { ok: boolean } }>> {
+    return this.db.sql<Array<{ result: { ok: boolean } }>>`
+      SELECT attendance_adjustment_remove(${id}) AS result`;
+  }
 }
