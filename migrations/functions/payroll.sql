@@ -109,6 +109,9 @@ BEGIN
       pd.id, pd.name, pd.position, pd.d, pd.rate, pd.adj_hours,
       COALESCE((pd.dc->>'cong')::numeric, 0)  AS cong,
       COALESCE((pd.dc->>'hours')::numeric, 0) AS work_hours,
+      pd.dc->'in'  AS in_at,          -- giờ vào (chấm) — null nếu không chấm
+      pd.dc->'out' AS out_at,         -- giờ ra
+      COALESCE(pd.dc->'shifts', '[]'::jsonb) AS shifts,  -- chi tiết từng ca (đăng ký/làm/hợp lệ)
       COALESCE(sc.reg_cnt, 0)   AS reg_cnt,
       COALESCE(sc.valid_cnt, 0) AS valid_cnt
     FROM per_day pd
@@ -143,8 +146,14 @@ BEGIN
         'rate',       rate,
         'pay',        day_pay,
         'registered', reg_cnt,
-        'valid',      valid_cnt
-      ) ORDER BY d) FILTER (WHERE day_hours <> 0 OR adj_hours <> 0 OR reg_cnt > 0) AS days
+        'valid',      valid_cnt,
+        'in',         in_at,
+        'out',        out_at,
+        'shifts',     shifts
+      ) ORDER BY d)
+        -- Chỉ giữ ngày CÓ hoạt động. Lưu ý: dc->'in' trả jsonb 'null' (không phải SQL NULL)
+        -- khi không chấm công → phải lọc bằng jsonb_typeof = 'string' (có giờ chấm thật).
+        FILTER (WHERE day_hours <> 0 OR adj_hours <> 0 OR reg_cnt > 0 OR jsonb_typeof(in_at) = 'string') AS days
     FROM per_day3
     GROUP BY id, name, position
   )
