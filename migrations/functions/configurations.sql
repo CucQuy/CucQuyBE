@@ -57,6 +57,47 @@ BEGIN
 END;
 $$;
 
+-- ==================== NETWORK GUARD (per-screen) ====================
+
+-- Danh sách route YÊU CẦU mạng được duyệt (chỉ route enabled).
+CREATE OR REPLACE FUNCTION network_guard_get()
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    (SELECT jsonb_agg(route ORDER BY route) FROM screen_network_guard WHERE enabled),
+    '[]'::jsonb);
+$$;
+
+-- Ghi đè toàn bộ: p_routes = ["/orders", "/attendance", ...] (mảng route bật guard).
+CREATE OR REPLACE FUNCTION network_guard_save(p_routes jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+BEGIN
+  DELETE FROM screen_network_guard;
+  INSERT INTO screen_network_guard (route, enabled)
+  SELECT DISTINCT value, true
+  FROM jsonb_array_elements_text(COALESCE(p_routes, '[]'::jsonb)) AS value
+  WHERE COALESCE(value, '') <> '';
+  RETURN network_guard_get();
+END;
+$$;
+
+-- Trạng thái mạng cho 1 IP (dùng CHUNG danh sách attendance_allowed_networks):
+-- {configured: có dải nào active?, allowed: IP này có thuộc dải nào?, ip}.
+CREATE OR REPLACE FUNCTION network_ip_status(p_ip text)
+RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_configured boolean := EXISTS(SELECT 1 FROM attendance_allowed_networks WHERE active);
+  v_allowed boolean := false;
+BEGIN
+  BEGIN
+    v_allowed := EXISTS(
+      SELECT 1 FROM attendance_allowed_networks
+      WHERE active AND p_ip::inet <<= ip_cidr);
+  EXCEPTION WHEN others THEN v_allowed := false;
+  END;
+  RETURN jsonb_build_object('configured', v_configured, 'allowed', v_allowed, 'ip', p_ip);
+END;
+$$;
+
 -- ==================== SHIPPING ====================
 
 -- Trả {shopOrigin, tiers[], overFee, overLabel}. Không có row → trả jsonb 'null'

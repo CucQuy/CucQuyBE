@@ -25,6 +25,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { StockReceiptsModule } from './modules/stock-receipts/stock-receipts.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
+import { NetworkModule } from './modules/network/network.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { WagesModule } from './modules/wages/wages.module';
@@ -83,6 +84,7 @@ import { RecipesModule } from './modules/recipes/recipes.module';
     StockReceiptsModule,
     EmployeesModule,
     AttendanceModule,
+    NetworkModule,
     ShiftsModule,
     CalendarModule,
     DineInModule,
