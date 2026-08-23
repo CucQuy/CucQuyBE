@@ -101,7 +101,8 @@ BEGIN
       attendance_day_compute(jsonb_build_object('employeeId', e.id, 'date', to_char(d.d, 'YYYY-MM-DD'))) AS dc,
       COALESCE((SELECT sum(a.hours) FROM attendance_adjustments a
                 WHERE a.employee_id = e.id AND a.work_date = d.d), 0) AS adj_hours,
-      wage_rate_effective(e.position, d.d, EXTRACT(isodow FROM d.d)::int) AS rate
+      -- Mức lương/giờ theo TỪNG NV (deal riêng), theo ngày áp dụng — KHÔNG theo vị trí nữa.
+      employee_wage_effective(e.id, d.d) AS rate
     FROM emps e CROSS JOIN days d
   ),
   per_day2 AS (

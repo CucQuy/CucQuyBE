@@ -14,6 +14,8 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     'phone',      e.phone,
     'startDate',  to_char(e.start_date, 'YYYY-MM-DD'),
     'baseSalary', e.base_salary,
+    -- Mức lương/giờ ĐANG áp dụng (deal riêng NV) — dùng cho hiển thị nhanh.
+    'hourlyRate', employee_wage_effective(e.id, (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date),
     'status',     e.status,
     'note',       e.note,
     'createdAt',  e.created_at,

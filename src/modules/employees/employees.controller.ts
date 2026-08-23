@@ -14,7 +14,7 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { UserRole } from '../../auth/user.types';
 import { EmployeesService } from './employees.service';
-import { EmployeeInput } from './employees.types';
+import { EmployeeInput, EmployeeWageInput } from './employees.types';
 
 /** Quản lý hồ sơ nhân sự — chỉ super_admin/admin. */
 @ApiTags('Nhân viên')
@@ -42,5 +42,25 @@ export class EmployeesController {
   @Delete(':id')
   delete(@Param('id') id: string) {
     return this.service.delete(id);
+  }
+
+  // ── Mức lương/giờ theo NV (deal riêng + lịch sử) ──
+
+  /** Lịch sử mức lương/giờ của 1 NV (mới áp dụng trước). */
+  @Get(':id/wages')
+  listWages(@Param('id') id: string) {
+    return this.service.listWages(id);
+  }
+
+  /** Thêm 1 mức lương/giờ cho NV (áp dụng từ ngày chỉ định). */
+  @Post(':id/wages')
+  addWage(@Param('id') id: string, @Body() body: EmployeeWageInput) {
+    return this.service.addWage(id, body);
+  }
+
+  /** Xoá 1 mức lương/giờ. */
+  @Delete('wages/:wageId')
+  removeWage(@Param('wageId') wageId: string) {
+    return this.service.removeWage(wageId);
   }
 }

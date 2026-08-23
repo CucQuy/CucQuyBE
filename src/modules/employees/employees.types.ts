@@ -9,10 +9,27 @@ export interface Employee {
   phone: string | null;
   startDate: string | null; // yyyy-mm-dd
   baseSalary: number | null; // VND
+  hourlyRate: number | null; // mức lương/giờ đang áp dụng (deal riêng NV). null = chưa đặt.
   status: EmployeeStatus;
   note: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** 1 mức lương/giờ theo ngày áp dụng của 1 NV (có lịch sử). */
+export interface EmployeeWageRate {
+  id: string;
+  employeeId: string;
+  hourlyRate: number; // VND/giờ
+  effectiveDate: string; // yyyy-mm-dd
+  note: string | null;
+  createdAt?: string;
+}
+
+export interface EmployeeWageInput {
+  hourlyRate: number;
+  effectiveDate: string;
+  note?: string | null;
 }
 
 export interface EmployeeInput {
