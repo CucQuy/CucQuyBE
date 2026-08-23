@@ -274,23 +274,24 @@ BEGIN
           - (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int) AS dur_min
     FROM work_shifts ws WHERE ws.active
   ), c2 AS (
-    -- worked = phủ ≥ 50% thời lượng ca. GIỜ hợp lệ = overlap_min/60 (chỉ tính ca hợp lệ).
+    -- worked = phủ ≥ 50% thời lượng ca. Ca hợp lệ tính TRỌN thời lượng ca (dur_min),
+    -- KHÔNG tính giờ chấm lẻ → giờ/lương ra số chẵn (mỗi ca = 4h).
     SELECT code, name, cong_factor, sort_order, reg,
            (overlap_min >= 0.5 * dur_min AND dur_min > 0) AS worked,
-           overlap_min
+           dur_min
     FROM c
   )
   SELECT jsonb_agg(jsonb_build_object(
            'code', code, 'name', name, 'congFactor', cong_factor,
            'registered', reg, 'worked', worked, 'valid', (reg AND worked),
-           'hours', CASE WHEN reg AND worked THEN round(overlap_min / 60.0, 2) ELSE 0 END,
+           'hours', CASE WHEN reg AND worked THEN round(dur_min / 60.0, 2) ELSE 0 END,
            'status', CASE WHEN reg AND worked THEN 'valid'
                           WHEN reg THEN 'missed'
                           WHEN worked THEN 'unregistered'
                           ELSE 'off' END
          ) ORDER BY sort_order),
          COALESCE(sum(cong_factor) FILTER (WHERE reg AND worked), 0),
-         COALESCE(round(sum(overlap_min) FILTER (WHERE reg AND worked) / 60.0, 2), 0)
+         COALESCE(round(sum(dur_min) FILTER (WHERE reg AND worked) / 60.0, 2), 0)
     INTO v_shifts, v_cong, v_hours
   FROM c2;
 

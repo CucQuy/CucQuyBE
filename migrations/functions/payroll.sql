@@ -125,9 +125,10 @@ BEGIN
     ) sc ON true
   ),
   per_day3 AS (
+    -- Tối đa 12 giờ/ngày (3 ca × 4h) — tránh cộng dồn quá 1 ngày làm.
     SELECT p.*,
-      (p.work_hours + p.adj_hours) AS day_hours,
-      round((p.work_hours + p.adj_hours) * COALESCE(p.rate, 0)) AS day_pay
+      LEAST(12, p.work_hours + p.adj_hours) AS day_hours,
+      round(LEAST(12, p.work_hours + p.adj_hours) * COALESCE(p.rate, 0)) AS day_pay
     FROM per_day2 p
   ),
   emp_rows AS (
