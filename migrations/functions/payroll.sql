@@ -16,6 +16,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     'employeeName', (SELECT e.name FROM employees e WHERE e.id = a.employee_id),
     'workDate',     to_char(a.work_date, 'YYYY-MM-DD'),
     'hours',        a.hours,
+    'shiftCode',    a.shift_code,
     'reason',       a.reason,
     'createdBy',    a.created_by,
     'createdAt',    a.created_at
@@ -34,7 +35,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     AND (NULLIF(p_input->>'to','')   IS NULL OR a.work_date <= (p_input->>'to')::date);
 $$;
 
--- Thêm 1 bổ sung công. p_input: { employeeId, workDate, hours, reason?, createdBy? }.
+-- Thêm 1 bổ sung công. p_input: { employeeId, workDate, hours, shiftCode?, reason?, createdBy? }.
 CREATE OR REPLACE FUNCTION attendance_adjustment_add(p_input jsonb)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
@@ -42,6 +43,7 @@ DECLARE
   v_emp   text := NULLIF(p_input->>'employeeId', '');
   v_date  date := NULLIF(p_input->>'workDate', '')::date;
   v_hours numeric := NULLIF(p_input->>'hours', '')::numeric;
+  v_shift text := NULLIF(p_input->>'shiftCode', '');
   v_row   attendance_adjustments%ROWTYPE;
 BEGIN
   IF v_emp IS NULL THEN RAISE EXCEPTION 'Thiếu nhân viên'; END IF;
@@ -50,9 +52,9 @@ BEGIN
   IF NOT EXISTS(SELECT 1 FROM employees WHERE id = v_emp) THEN
     RAISE EXCEPTION 'Không tìm thấy nhân viên %', v_emp;
   END IF;
-  INSERT INTO attendance_adjustments (id, employee_id, work_date, hours, reason, created_by)
+  INSERT INTO attendance_adjustments (id, employee_id, work_date, hours, shift_code, reason, created_by)
   VALUES (
-    v_id, v_emp, v_date, v_hours,
+    v_id, v_emp, v_date, v_hours, v_shift,
     NULLIF(trim(COALESCE(p_input->>'reason','')), ''),
     NULLIF(p_input->>'createdBy','')
   )

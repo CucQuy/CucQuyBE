@@ -64,6 +64,10 @@ export class AddAdjustmentDto {
 
   @IsOptional()
   @IsString()
+  shiftCode?: string; // 'ca1'|'ca2'|'ca3' — bổ sung cho ca cụ thể; bỏ trống = giờ chung
+
+  @IsOptional()
+  @IsString()
   @MaxLength(300)
   reason?: string;
 }

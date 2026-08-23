@@ -117,12 +117,13 @@ export class AttendanceService {
   /** Thêm 1 bổ sung công cho NV. createdBy = email admin đang đăng nhập. */
   async addAdjustment(
     createdBy: string | undefined,
-    input: { employeeId: string; workDate: string; hours: number; reason?: string },
+    input: { employeeId: string; workDate: string; hours: number; shiftCode?: string; reason?: string },
   ) {
     const [r] = await this.proc.adjustmentAdd({
       employeeId: input.employeeId,
       workDate: input.workDate,
       hours: input.hours,
+      shiftCode: input.shiftCode,
       reason: input.reason,
       createdBy,
     });
