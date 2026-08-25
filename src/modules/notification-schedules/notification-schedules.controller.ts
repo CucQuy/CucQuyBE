@@ -36,9 +36,10 @@ export class NotificationSchedulesController {
     return { id };
   }
 
-  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định). Dùng cho nút thủ công. */
+  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định). Dùng cho nút thủ công.
+   *  fromDate/days (tuỳ chọn) chỉ áp dụng cho delivery_by_day. */
   @Post('send-now')
-  sendNow(@Body() body: { type: ScheduleType }) {
-    return this.service.sendNow(body.type);
+  sendNow(@Body() body: { type: ScheduleType; fromDate?: string; days?: number }) {
+    return this.service.sendNow(body.type, { fromDate: body.fromDate, days: body.days });
   }
 }

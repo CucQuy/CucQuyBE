@@ -38,18 +38,26 @@ export class NotificationSchedulesService {
     await this.proc.remove(id);
   }
 
-  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định) — dùng cho nút thủ công. */
-  async sendNow(type: string): Promise<{ sent: boolean }> {
+  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định) — dùng cho nút thủ công.
+   *  opts (chỉ dùng cho delivery_by_day): fromDate = ngày giao bắt đầu, days = số ngày gom. */
+  async sendNow(
+    type: string,
+    opts?: { fromDate?: string; days?: number },
+  ): Promise<{ sent: boolean }> {
     const [d] = await this.proc.todayVN();
     const today = d?.today ?? new Date().toISOString().slice(0, 10);
-    const msg = await this.compose(type, today);
+    const msg = await this.compose(type, today, opts);
     if (!msg) return { sent: false };
     await this.zalo.send({ message: msg });
     return { sent: true };
   }
 
   /** Soạn nội dung cho 1 loại lịch (today = yyyy-mm-dd VN). */
-  private async compose(type: string, today: string): Promise<string | null> {
+  private async compose(
+    type: string,
+    today: string,
+    opts?: { fromDate?: string; days?: number },
+  ): Promise<string | null> {
     if (type === 'daily_summary') {
       const [r] = await this.proc.composeDailySummary(today);
       return r?.msg ?? null;
@@ -66,8 +74,11 @@ export class NotificationSchedulesService {
       return parts.length ? parts.join('\n\n') : null;
     }
     if (type === 'delivery_by_day') {
-      // Đơn CÒN cần giao, gom theo ngày trong 3 ngày tới (hôm nay + 2).
-      const [r] = await this.proc.composeDeliveryByDay(today, 3);
+      // Đơn CÒN cần giao, gom theo ngày. Mặc định hôm nay + 3 ngày; cho phép chọn
+      // ngày bắt đầu (fromDate) + số ngày (days, SQL tự clamp 1..14).
+      const from = opts?.fromDate || today;
+      const days = Number.isFinite(opts?.days) && (opts?.days as number) > 0 ? (opts?.days as number) : 3;
+      const [r] = await this.proc.composeDeliveryByDay(from, days);
       return r?.msg ?? null;
     }
     return null;
