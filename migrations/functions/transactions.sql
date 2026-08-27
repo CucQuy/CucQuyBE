@@ -157,6 +157,50 @@ BEGIN
 END;
 $$;
 
+-- Ứng viên ĐƠN cho 1 GIAO DỊCH tiền VÀO (đối soát TAY, điều kiện CHẶT: số tiền = tổng đơn /
+-- còn thiếu / tiền cọc; đơn CHƯA thanh toán đủ; GD trong khoảng ~10 ngày quanh lúc tạo đơn).
+-- Trả jsonb array (rỗng nếu không có), mỗi phần tử kèm 'match' = total|remaining|deposit để FE badge.
+CREATE OR REPLACE FUNCTION transaction_in_candidate_orders(p_tx_id text)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  WITH tx AS (
+    SELECT transfer_amount AS amt, NULLIF(transaction_date, '')::timestamptz AS tx_date
+    FROM transactions WHERE id = p_tx_id AND transfer_type = 'in'
+  )
+  SELECT COALESCE(jsonb_agg(c ORDER BY created_at DESC NULLS LAST), '[]'::jsonb)
+  FROM (
+    SELECT o.created_at AS created_at, jsonb_build_object(
+      'orderId',       o.id,
+      'orderNumber',   o.order_number,
+      'customer',      o.customer_name,
+      'total',         o.total,
+      'paid',          COALESCE(o.paid_amount, 0),
+      'remaining',     GREATEST(COALESCE(o.total, 0) - COALESCE(o.paid_amount, 0), 0),
+      'deposit',       COALESCE(o.deposit_amount, 0),
+      'status',        o.status,
+      'paymentStatus', o.payment_status,
+      'createdAt',     o.created_at,
+      'match', CASE
+                 WHEN o.total = tx.amt THEN 'total'
+                 WHEN COALESCE(o.total, 0) - COALESCE(o.paid_amount, 0) = tx.amt THEN 'remaining'
+                 WHEN COALESCE(o.deposit_amount, 0) = tx.amt THEN 'deposit'
+               END
+    ) AS c
+    FROM orders o, tx
+    WHERE o.order_number IS NOT NULL
+      AND o.payment_status IS DISTINCT FROM 'PAID'
+      AND o.created_at IS NOT NULL
+      AND tx.amt IS NOT NULL
+      AND (o.total = tx.amt
+           OR COALESCE(o.total, 0) - COALESCE(o.paid_amount, 0) = tx.amt
+           OR COALESCE(o.deposit_amount, 0) = tx.amt)
+      AND (tx.tx_date IS NULL
+           OR (tx.tx_date >= o.created_at - interval '1 day'
+               AND tx.tx_date <= o.created_at + interval '10 days'))
+    ORDER BY o.created_at DESC NULLS LAST
+    LIMIT 50
+  ) q;
+$$;
+
 -- ============================================================
 -- Đối soát hàng loạt (nút "Đồng bộ với đơn").
 -- Tiêu chí 1 đơn ứng viên: số tiền = total (trả đủ) HOẶC = deposit_amount (đặt cọc),

@@ -15,7 +15,9 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
      -- Category "không tính" (personal/owner/internal) đã coi như đã xử lý → không cần đối soát.
      AND (coalesce(t.expense_category, '') = '' OR expense_category_is_cost(t.expense_category))
      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
-     AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id);
+     AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
+     -- Đã gắn thanh toán ship (shipping_payments) → 1 GD chỉ 1 loại, không đối soát chi phí nữa.
+     AND NOT EXISTS (SELECT 1 FROM shipping_payments sp WHERE sp.transaction_id = t.id);
 $$;
 
 -- PREVIEW (dry-run, KHÔNG ghi): gợi ý cặp tiền-ra ↔ chi-phí-tay trùng SỐ TIỀN + gần NGÀY

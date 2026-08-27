@@ -14,6 +14,8 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
      AND coalesce(t.cost_excluded, false) = false
      AND NOT EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id)
      AND NOT EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
+     -- Đã gắn thanh toán ship (shipping_payments) → 1 GD chỉ 1 loại, không rải phiếu nhập nữa.
+     AND NOT EXISTS (SELECT 1 FROM shipping_payments sp WHERE sp.transaction_id = t.id)
      AND receipt_tx_remaining(t.id) > 0;
 $$;
 

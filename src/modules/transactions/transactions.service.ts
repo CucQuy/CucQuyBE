@@ -9,6 +9,8 @@ import {
   LedgerResult,
   LedgerItem,
   TxReceiptAllocSummary,
+  InCandidateOrder,
+  ShippingPaymentSummary,
 } from './transactions.proc';
 import { TxReceiptAllocItem } from './dto/receipt-alloc.dto';
 
@@ -260,6 +262,77 @@ export class TransactionsService {
     const rows = await this.proc.receiptAllocRemove(allocId);
     return normalizeTxReceiptAlloc(rows[0]?.result);
   }
+
+  /** Ứng viên ĐƠN cho 1 GD tiền vào (đối soát tay chặt). Coerce số (jsonb untrusted). */
+  async fetchInCandidateOrders(txId: string): Promise<InCandidateOrder[]> {
+    const rows = await this.proc.inCandidateOrders(txId);
+    const arr = Array.isArray(rows[0]?.result) ? rows[0].result : [];
+    const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v) || 0);
+    return arr.map((o) => ({
+      orderId: String(o.orderId ?? ''),
+      orderNumber: o.orderNumber == null ? null : String(o.orderNumber),
+      customer: o.customer == null ? null : String(o.customer),
+      total: o.total == null ? null : num(o.total),
+      paid: num(o.paid),
+      remaining: num(o.remaining),
+      deposit: num(o.deposit),
+      status: o.status == null ? null : String(o.status),
+      paymentStatus: o.paymentStatus == null ? null : String(o.paymentStatus),
+      createdAt: o.createdAt == null ? null : String(o.createdAt),
+      match: o.match ?? null,
+    }));
+  }
+
+  /** Link ship hiện tại của 1 GD tiền ra (hoặc null). */
+  async fetchShipping(txId: string): Promise<ShippingPaymentSummary> {
+    const rows = await this.proc.shippingSummary(txId);
+    return normalizeShipping(rows[0]?.result);
+  }
+
+  /** Gắn ship (đơn / nhà xe) cho 1 GD tiền ra → trả link mới. */
+  async createShipping(
+    txId: string,
+    input: { orderId?: string | null; carrierId?: string | null; amount?: number | null; note?: string | null },
+  ): Promise<ShippingPaymentSummary> {
+    const rows = await this.proc.shippingCreate({
+      transactionId: txId,
+      orderId: input.orderId ?? null,
+      carrierId: input.carrierId ?? null,
+      amount: input.amount ?? null,
+      note: input.note ?? null,
+    });
+    return normalizeShipping(rows[0]?.result);
+  }
+
+  /** Gỡ ship khỏi 1 GD tiền ra → số bản ghi đã gỡ. */
+  async unlinkShipping(txId: string): Promise<{ unlinked: number }> {
+    const rows = await this.proc.shippingUnlink(txId);
+    return { unlinked: Number(rows[0]?.result?.unlinked) || 0 };
+  }
+}
+
+/** Coerce summary ship từ jsonb (numeric có thể ra string) — untrusted. */
+function normalizeShipping(r: unknown): ShippingPaymentSummary {
+  const o = (r ?? {}) as Record<string, unknown>;
+  const p = o.payment as Record<string, unknown> | null | undefined;
+  const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v) || 0);
+  const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+  return {
+    transactionId: typeof o.transactionId === 'string' ? o.transactionId : '',
+    txAmount: num(o.txAmount),
+    payment: p
+      ? {
+          id: String(p.id ?? ''),
+          amount: num(p.amount),
+          note: str(p.note),
+          orderId: str(p.orderId),
+          orderNumber: str(p.orderNumber),
+          customer: str(p.customer),
+          carrierId: str(p.carrierId),
+          carrierName: str(p.carrierName),
+        }
+      : null,
+  };
 }
 
 /** Coerce số từ jsonb (numeric có thể ra string) — coi dữ liệu là untrusted. */

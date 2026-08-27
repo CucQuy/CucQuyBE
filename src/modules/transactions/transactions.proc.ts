@@ -30,7 +30,7 @@ export type TransactionRow = {
 /** Trạng thái thống nhất 1 giao dịch (BE derive). */
 export type LedgerStatus =
   | 'matched' | 'external' | 'unmatched' // tiền vào
-  | 'refund' | 'settled' | 'excluded' | 'expense'; // tiền ra
+  | 'refund' | 'shipping' | 'settled' | 'excluded' | 'expense'; // tiền ra
 
 /** 1 dòng sổ giao dịch (đã camelCase từ SQL, kèm status). */
 export type LedgerItem = {
@@ -259,7 +259,65 @@ export class TransactionProc {
     return this.db.sql<{ result: TxReceiptAllocSummary }[]>`
       SELECT tx_receipt_alloc_remove(${allocId}) AS result`;
   }
+
+  /** Ứng viên ĐƠN cho 1 GD tiền VÀO (đối soát tay chặt: số tiền = tổng/còn thiếu/cọc, ~10 ngày). */
+  inCandidateOrders(txId: string): Promise<{ result: InCandidateOrder[] }[]> {
+    return this.db.sql<{ result: InCandidateOrder[] }[]>`
+      SELECT transaction_in_candidate_orders(${txId}) AS result`;
+  }
+
+  /** Link thanh toán ship hiện tại của 1 GD tiền ra (hoặc null). */
+  shippingSummary(txId: string): Promise<{ result: ShippingPaymentSummary }[]> {
+    return this.db.sql<{ result: ShippingPaymentSummary }[]>`
+      SELECT shipping_payment_summary(${txId}) AS result`;
+  }
+
+  /** Gắn ship (đơn / nhà xe) cho 1 GD tiền ra. p_input = {transactionId, orderId?, carrierId?, amount?, note?}. */
+  shippingCreate(input: unknown): Promise<{ result: ShippingPaymentSummary }[]> {
+    return this.db.sql<{ result: ShippingPaymentSummary }[]>`
+      SELECT shipping_payment_create(${this.db.json(input ?? {})}::jsonb) AS result`;
+  }
+
+  /** Gỡ ship khỏi 1 GD tiền ra. */
+  shippingUnlink(txId: string): Promise<{ result: { unlinked: number } }[]> {
+    return this.db.sql<{ result: { unlinked: number } }[]>`
+      SELECT shipping_payment_unlink(${txId}) AS result`;
+  }
 }
+
+/** 1 đơn ứng viên cho GD tiền vào (đối soát tay). */
+export type InCandidateOrder = {
+  orderId: string;
+  orderNumber: string | null;
+  customer: string | null;
+  total: number | null;
+  paid: number;
+  remaining: number;
+  deposit: number;
+  status: string | null;
+  paymentStatus: string | null;
+  createdAt: string | null;
+  match: 'total' | 'remaining' | 'deposit' | null;
+};
+
+/** Thanh toán ship đang gắn với 1 GD (đơn hoặc nhà xe). */
+export type ShippingPayment = {
+  id: string;
+  amount: number;
+  note: string | null;
+  orderId: string | null;
+  orderNumber: string | null;
+  customer: string | null;
+  carrierId: string | null;
+  carrierName: string | null;
+};
+
+/** Summary ship theo phía GIAO DỊCH (link hiện tại + số tiền GD). */
+export type ShippingPaymentSummary = {
+  transactionId: string;
+  txAmount: number;
+  payment: ShippingPayment | null;
+};
 
 /** 1 phiếu GD đang gắn (phía transaction). */
 export type TxReceiptAllocation = {

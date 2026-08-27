@@ -11,6 +11,7 @@ import { ExpenseLinkDto } from './dto/expense-link.dto';
 import { SetExpenseDto } from './dto/set-expense.dto';
 import { SaveExpenseRulesDto } from './dto/expense-rules.dto';
 import { TxReceiptAllocAddDto } from './dto/receipt-alloc.dto';
+import { CreateShippingDto } from './dto/create-shipping.dto';
 
 @ApiTags('Giao dịch')
 @Controller('transactions')
@@ -178,5 +179,29 @@ export class TransactionsController {
   @Delete('receipt-allocations/:allocId')
   removeReceiptAllocation(@Param('allocId') allocId: string) {
     return this.service.removeReceiptAllocation(allocId);
+  }
+
+  /** Ứng viên ĐƠN cho 1 GD tiền vào (đối soát tay chặt: số tiền = tổng/còn thiếu/cọc, ~10 ngày). */
+  @Get(':id/in-candidate-orders')
+  fetchInCandidateOrders(@Param('id') id: string) {
+    return this.service.fetchInCandidateOrders(id);
+  }
+
+  /** Link thanh toán ship hiện tại của 1 GD tiền ra (hoặc null). */
+  @Get(':id/shipping')
+  fetchShipping(@Param('id') id: string) {
+    return this.service.fetchShipping(id);
+  }
+
+  /** Gắn ship (đơn / nhà xe) cho 1 GD tiền ra. */
+  @Post(':id/shipping')
+  createShipping(@Param('id') id: string, @Body() dto: CreateShippingDto) {
+    return this.service.createShipping(id, dto);
+  }
+
+  /** Gỡ ship khỏi 1 GD tiền ra (về "chưa khớp"). */
+  @Delete(':id/shipping')
+  unlinkShipping(@Param('id') id: string) {
+    return this.service.unlinkShipping(id);
   }
 }

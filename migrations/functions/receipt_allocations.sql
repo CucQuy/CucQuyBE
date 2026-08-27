@@ -89,10 +89,11 @@ BEGIN
   SELECT transfer_amount INTO v_tx_amount FROM transactions WHERE id = v_tx AND transfer_type = 'out';
   IF v_tx_amount IS NULL THEN RAISE EXCEPTION 'Giao dịch không hợp lệ (phải là tiền ra)'; END IF;
   IF NOT EXISTS (SELECT 1 FROM stock_receipts WHERE id = v_receipt) THEN RAISE EXCEPTION 'Không tìm thấy bill'; END IF;
-  -- Không cho dùng chéo GD đã gắn hoàn tiền / chi phí tay (chống đếm trùng).
+  -- Không cho dùng chéo GD đã gắn hoàn tiền / chi phí tay / thanh toán ship (chống đếm trùng).
   IF EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = v_tx)
-     OR EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = v_tx) THEN
-    RAISE EXCEPTION 'Giao dịch đã gắn hoàn tiền / chi phí khác';
+     OR EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = v_tx)
+     OR EXISTS (SELECT 1 FROM shipping_payments sp WHERE sp.transaction_id = v_tx) THEN
+    RAISE EXCEPTION 'Giao dịch đã gắn hoàn tiền / chi phí / ship khác';
   END IF;
 
   -- phần đang gắn của chính cặp này (nếu sửa) — được phép giữ lại.

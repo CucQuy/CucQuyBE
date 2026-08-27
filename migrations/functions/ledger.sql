@@ -9,7 +9,7 @@
 --
 -- status:
 --   Tiền VÀO (in):   matched | shopee | external | unmatched
---   Tiền RA  (out):  refund | settled | excluded | expense | stock | unmatched
+--   Tiền RA  (out):  refund | shipping | settled | excluded | expense | stock | unmatched
 --
 -- Ngày lọc dùng revenue_try_ts() (parse text an toàn, né bug iOS Invalid Date) —
 -- KHÔNG cần migrate transaction_date sang timestamptz.
@@ -39,6 +39,9 @@ RETURNS text LANGUAGE sql STABLE AS $$
     ELSE -- out
       CASE
         WHEN EXISTS (SELECT 1 FROM order_refunds r WHERE r.transaction_id = t.id) THEN 'refund'
+        -- Đã gắn thanh toán vận chuyển (ship cho đơn / nhà xe) — đặt TRƯỚC 'expense' để không
+        -- hiện 'expense' dù category='shipping' (shipping vẫn là chi phí, P&L đếm 1 lần).
+        WHEN EXISTS (SELECT 1 FROM shipping_payments sp WHERE sp.transaction_id = t.id) THEN 'shipping'
         WHEN COALESCE(t.settled_out, false) THEN 'settled'
         WHEN COALESCE(t.cost_excluded, false)
           OR t.expense_category IN ('personal', 'owner', 'internal') THEN 'excluded'
