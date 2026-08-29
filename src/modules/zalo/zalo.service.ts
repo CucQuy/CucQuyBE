@@ -7,8 +7,18 @@ import { NotificationsService } from '../notifications/notifications.service';
 const ZALO_ENDPOINT = {
   sendImageToGroup: '/zalo/sendImageToGroupZalo/2',
   sendMessToGroup: '/zalo/sendMessageToGroupZalo/2',
+  sendMessToNumber: '/zalo/sendMessageZalo/2', // gửi tin nhắn Zalo CÁ NHÂN theo SĐT
 };
 const ZALO_SENDER_NUMBER = '84776750418';
+
+/** Chuẩn hoá SĐT VN về dạng Zalo yêu cầu: 84xxxxxxxxx (bỏ khoảng trắng, +, 0 đầu). */
+export function toZaloNumber(raw: string): string | null {
+  const d = String(raw ?? '').replace(/[^\d]/g, '');
+  if (!d) return null;
+  if (d.startsWith('84')) return d;
+  if (d.startsWith('0')) return `84${d.slice(1)}`;
+  return `84${d}`;
+}
 
 /**
  * Payload body của POST /zalo/send. Bao đủ mọi biến thể mà lớp gửi HTTP của FE
@@ -20,6 +30,8 @@ const ZALO_SENDER_NUMBER = '84776750418';
 export interface ZaloSendPayload {
   message: string;
   groupIds?: string[];
+  /** Gửi tin nhắn CÁ NHÂN tới các SĐT (đã chuẩn hoá 84...). Ưu tiên hơn groupIds nếu có. */
+  toNumbers?: string[];
   image?: {
     caption: string;
     image_url: string[];
@@ -74,7 +86,10 @@ export class ZaloService {
           category: 'zalo_send',
           title: this.summarize(payload?.message ?? ''),
           body: payload?.message ?? '',
-          target: (payload?.groupIds ?? []).join(', ') || 'nhóm chính',
+          target:
+            (payload?.toNumbers ?? []).join(', ') ||
+            (payload?.groupIds ?? []).join(', ') ||
+            'nhóm chính',
           status: 'sent',
           payload,
           triggeredBy: opts.triggeredBy,
@@ -87,7 +102,10 @@ export class ZaloService {
           category: 'zalo_send',
           title: this.summarize(payload?.message ?? ''),
           body: payload?.message ?? '',
-          target: (payload?.groupIds ?? []).join(', ') || 'nhóm chính',
+          target:
+            (payload?.toNumbers ?? []).join(', ') ||
+            (payload?.groupIds ?? []).join(', ') ||
+            'nhóm chính',
           status: 'failed',
           error: err instanceof Error ? err.message : String(err),
           payload,
@@ -130,6 +148,38 @@ export class ZaloService {
 
     if (!baseUrl || !shopCode || !token) {
       throw new BadRequestException('Zalo configuration is missing');
+    }
+
+    // Gửi CÁ NHÂN theo SĐT (nhắc đăng ký ca…) — ưu tiên khi có toNumbers.
+    const toNumbers = Array.isArray(payload?.toNumbers)
+      ? payload.toNumbers.map((n) => toZaloNumber(n)).filter((n): n is string => !!n)
+      : [];
+    if (toNumbers.length > 0) {
+      const url = `${baseUrl}${ZALO_ENDPOINT.sendMessToNumber}/${shopCode}/${token}`;
+      await Promise.all(
+        toNumbers.map(async (num) => {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              send_from_number: ZALO_SENDER_NUMBER,
+              send_to_number: num,
+              message,
+              action: 'make_friend', // kèm yêu cầu kết bạn để NV chưa kết bạn vẫn nhận được
+            }),
+          });
+          if (!res.ok) {
+            let detail = '';
+            try {
+              detail = await res.text();
+            } catch {
+              // ignore
+            }
+            throw new Error(`Zalo personal send failed (${res.status}): ${detail}`);
+          }
+        }),
+      );
+      return;
     }
 
     // Nếu FE không truyền groupIds (tương đương sendZaloMessage cũ) → group chính từ env.

@@ -70,7 +70,14 @@ export class AttendanceService {
     const employee = await this.requireEmployee(email);
     const [wk] = await this.proc.myShiftWeek({ employeeId: employee.id, from, to });
     const [sh] = await this.proc.activeShifts();
-    return { employee, shifts: sh?.result ?? [], week: wk?.result ?? {} };
+    // Trạng thái "đã chốt" của tuần (weekStart = ngày đầu lưới = thứ 2).
+    const [st] = await this.proc.weekStatus({ employeeId: employee.id, weekStart: from });
+    return {
+      employee,
+      shifts: sh?.result ?? [],
+      week: wk?.result ?? {},
+      submission: st?.result ?? { submitted: false, submittedAt: null, submittedBy: null },
+    };
   }
 
   /** NV tự đăng ký ca CỦA MÌNH cho 1 ngày tương lai (thay trọn ngày). */
@@ -84,11 +91,45 @@ export class AttendanceService {
       });
       return r?.result ?? null;
     } catch (e) {
-      if (String((e as { message?: string })?.message ?? '').includes('REGISTER_PAST')) {
+      const msg = String((e as { message?: string })?.message ?? '');
+      if (msg.includes('WEEK_LOCKED')) {
+        throw new BadRequestException(
+          'Tuần này đã chốt đăng ký, không sửa được. Nhờ quản lý mở lại nếu cần.',
+        );
+      }
+      if (msg.includes('REGISTER_PAST')) {
         throw new BadRequestException('Chỉ đăng ký/sửa ca được cho ngày trong tương lai.');
       }
       throw e;
     }
+  }
+
+  /** NV CHỐT đăng ký cả tuần → khoá (không sửa được nữa cho tới khi admin mở lại). */
+  async submitMyWeek(email: string | undefined, weekStart: string) {
+    const employee = await this.requireEmployee(email);
+    if (!weekStart) throw new BadRequestException('Thiếu tuần cần chốt.');
+    const [r] = await this.proc.weekSubmit({
+      employeeId: employee.id,
+      weekStart,
+      submittedBy: email,
+    });
+    return r?.result ?? null;
+  }
+
+  /** Admin mở lại tuần (bỏ chốt) để NV đăng ký lại. */
+  async reopenWeek(employeeId: string, weekStart: string) {
+    if (!employeeId || !weekStart) {
+      throw new BadRequestException('Thiếu employeeId/weekStart.');
+    }
+    const [r] = await this.proc.weekReopen({ employeeId, weekStart });
+    return r?.result ?? null;
+  }
+
+  /** Danh sách NV đã chốt trong 1 tuần (bảng admin). */
+  async listWeekSubmissions(weekStart: string) {
+    if (!weekStart) throw new BadRequestException('Thiếu tuần.');
+    const [r] = await this.proc.weekSubmissionList({ weekStart });
+    return r?.result ?? [];
   }
 
   /** Đối chiếu đăng ký ↔ đã làm (ca hợp lệ + công) cho 1 NV/ngày (admin dùng để đối chiếu). */

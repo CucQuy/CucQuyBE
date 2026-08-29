@@ -3,6 +3,8 @@ export const QUEUE_NOTIFICATIONS = 'notifications';
 export const QUEUE_WEBHOOKS = 'webhooks';
 /** Queue cho cron lịch thông báo (repeatable tick mỗi phút). */
 export const QUEUE_SCHEDULES = 'schedules';
+/** Queue cho cron nhắc đăng ký ca hằng tuần (repeatable Thứ Bảy 9h VN). */
+export const QUEUE_SHIFT_REMINDERS = 'shift_reminders';
 
 /** Connection cho BullMQ, parse từ REDIS_URL (mặc định localhost:6379). */
 export function bullConnection(): { host: string; port: number } {

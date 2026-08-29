@@ -153,6 +153,14 @@ BEGIN
   IF v_date <= v_today THEN
     RAISE EXCEPTION 'REGISTER_PAST';  -- chỉ đăng ký cho ngày tương lai
   END IF;
+  -- Tuần chứa ngày này đã "chốt" => khoá, NV không sửa được (chỉ admin qua set_day / mở lại).
+  IF EXISTS (
+    SELECT 1 FROM shift_week_submissions s
+    WHERE s.employee_id = v_emp
+      AND s.week_start = date_trunc('week', v_date)::date
+  ) THEN
+    RAISE EXCEPTION 'WEEK_LOCKED';
+  END IF;
   IF EXISTS (SELECT 1 FROM unnest(v_codes) c WHERE NOT EXISTS (SELECT 1 FROM work_shifts w WHERE w.code = c)) THEN
     RAISE EXCEPTION 'Ca không hợp lệ';
   END IF;
@@ -188,4 +196,85 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
       AND work_date <= (p_input->>'to')::date
     GROUP BY work_date
   ) d;
+$$;
+
+-- ─────────────── Chốt đăng ký ca theo TUẦN (submit + khoá) ───────────────
+-- Chuẩn hoá weekStart về thứ 2 (ISO) của tuần.
+CREATE OR REPLACE FUNCTION shift_week_start(p_date date)
+RETURNS date LANGUAGE sql IMMUTABLE AS $$
+  SELECT date_trunc('week', p_date)::date;
+$$;
+
+-- Trạng thái chốt của 1 NV cho 1 tuần. p_input: { employeeId, weekStart:'yyyy-mm-dd' }.
+CREATE OR REPLACE FUNCTION shift_week_status(p_input jsonb)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE((
+    SELECT jsonb_build_object(
+      'submitted',   true,
+      'submittedAt', to_char(s.submitted_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'DD/MM/YYYY HH24:MI'),
+      'submittedBy', s.submitted_by
+    )
+    FROM shift_week_submissions s
+    WHERE s.employee_id = NULLIF(p_input->>'employeeId', '')
+      AND s.week_start  = shift_week_start((p_input->>'weekStart')::date)
+  ), jsonb_build_object('submitted', false, 'submittedAt', NULL, 'submittedBy', NULL));
+$$;
+
+-- NV (hoặc admin thay) CHỐT đăng ký cho 1 tuần → khoá. Idempotent.
+-- p_input: { employeeId, weekStart:'yyyy-mm-dd', submittedBy? }.
+CREATE OR REPLACE FUNCTION shift_week_submit(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_emp  text := NULLIF(p_input->>'employeeId', '');
+  v_week date := shift_week_start(NULLIF(p_input->>'weekStart', '')::date);
+  v_by   text := NULLIF(p_input->>'submittedBy', '');
+BEGIN
+  IF v_emp IS NULL OR v_week IS NULL THEN
+    RAISE EXCEPTION 'Thiếu employeeId/weekStart';
+  END IF;
+  INSERT INTO shift_week_submissions (id, employee_id, week_start, submitted_by)
+  VALUES ('sw_' || encode(gen_random_bytes(9), 'hex'), v_emp, v_week, v_by)
+  ON CONFLICT (employee_id, week_start) DO NOTHING;
+  RETURN shift_week_status(jsonb_build_object(
+    'employeeId', v_emp, 'weekStart', to_char(v_week, 'YYYY-MM-DD')));
+END;
+$$;
+
+-- Admin MỞ LẠI tuần (xoá bản ghi chốt) → NV đăng ký lại được.
+-- p_input: { employeeId, weekStart:'yyyy-mm-dd' }.
+CREATE OR REPLACE FUNCTION shift_week_reopen(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_emp  text := NULLIF(p_input->>'employeeId', '');
+  v_week date := shift_week_start(NULLIF(p_input->>'weekStart', '')::date);
+BEGIN
+  IF v_emp IS NULL OR v_week IS NULL THEN
+    RAISE EXCEPTION 'Thiếu employeeId/weekStart';
+  END IF;
+  DELETE FROM shift_week_submissions WHERE employee_id = v_emp AND week_start = v_week;
+  RETURN jsonb_build_object(
+    'submitted', false, 'employeeId', v_emp, 'weekStart', to_char(v_week, 'YYYY-MM-DD'));
+END;
+$$;
+
+-- Danh sách NV đã chốt trong 1 tuần (cho bảng admin). p_input: { weekStart:'yyyy-mm-dd' }.
+CREATE OR REPLACE FUNCTION shift_week_submission_list(p_input jsonb)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'employeeId',  s.employee_id,
+    'submittedAt', to_char(s.submitted_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'DD/MM/YYYY HH24:MI'),
+    'submittedBy', s.submitted_by
+  ) ORDER BY s.submitted_at), '[]'::jsonb)
+  FROM shift_week_submissions s
+  WHERE s.week_start = shift_week_start((p_input->>'weekStart')::date);
+$$;
+
+-- NV active có SĐT → nhận nhắc đăng ký ca hằng tuần qua Zalo cá nhân.
+CREATE OR REPLACE FUNCTION shift_reminder_recipients()
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'id', e.id, 'name', e.name, 'phone', e.phone
+  ) ORDER BY e.name), '[]'::jsonb)
+  FROM employees e
+  WHERE e.status = 'active' AND NULLIF(trim(e.phone), '') IS NOT NULL;
 $$;

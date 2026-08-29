@@ -21,6 +21,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser, UserRole } from '../../auth/user.types';
 import { AttendanceService } from './attendance.service';
+import { ShiftReminderService } from './shift-reminder.service';
 import {
   AddAdjustmentDto,
   CheckDto,
@@ -39,7 +40,10 @@ type UploadFile = { buffer: Buffer; originalname: string; mimetype: string };
 @Controller('attendance')
 @UseGuards(SsoAuthGuard, RolesGuard)
 export class AttendanceController {
-  constructor(private readonly service: AttendanceService) {}
+  constructor(
+    private readonly service: AttendanceService,
+    private readonly shiftReminder: ShiftReminderService,
+  ) {}
 
   /** IP thật của client sau Cloudflare Tunnel + k3s (giống request-logs). */
   private clientIp(req: Request): string {
@@ -86,6 +90,33 @@ export class AttendanceController {
       String(body?.workDate ?? ''),
       Array.isArray(body?.shiftCodes) ? body.shiftCodes : [],
     );
+  }
+
+  /** NV CHỐT đăng ký cả tuần (khoá). Body: { weekStart:'yyyy-mm-dd' (thứ 2). */
+  @Post('my-shifts/submit')
+  submitMyWeek(@CurrentUser() user: AuthUser, @Body() body: { weekStart?: string }) {
+    return this.service.submitMyWeek(user.email, String(body?.weekStart ?? ''));
+  }
+
+  /** Danh sách NV đã chốt trong 1 tuần — admin. */
+  @Get('shift-submissions')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  weekSubmissions(@Query('weekStart') weekStart: string) {
+    return this.service.listWeekSubmissions(weekStart ?? '');
+  }
+
+  /** Admin mở lại tuần (bỏ chốt) để NV đăng ký lại. */
+  @Post('shift-submissions/reopen')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  reopenWeek(@Body() body: { employeeId?: string; weekStart?: string }) {
+    return this.service.reopenWeek(String(body?.employeeId ?? ''), String(body?.weekStart ?? ''));
+  }
+
+  /** Chạy TAY nhắc đăng ký ca qua Zalo (test cron) — admin. */
+  @Post('shift-reminders/run')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  runShiftReminders() {
+    return this.shiftReminder.sendWeeklyReminders();
   }
 
   /** Đối chiếu đăng ký ↔ đã làm (ca hợp lệ + công) 1 NV/ngày — admin đối chiếu công. */

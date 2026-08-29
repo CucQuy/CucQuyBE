@@ -127,6 +127,36 @@ export class AttendanceProc {
       SELECT shift_register_self(${this.db.json(input)}::jsonb) AS result`;
   }
 
+  /** Trạng thái chốt của 1 NV cho 1 tuần. input: {employeeId, weekStart}. */
+  weekStatus(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT shift_week_status(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** NV (hoặc admin) chốt đăng ký 1 tuần → khoá. input: {employeeId, weekStart, submittedBy?}. */
+  weekSubmit(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT shift_week_submit(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** Admin mở lại tuần (bỏ chốt). input: {employeeId, weekStart}. */
+  weekReopen(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT shift_week_reopen(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** Danh sách NV đã chốt trong 1 tuần. input: {weekStart}. */
+  weekSubmissionList(input: Record<string, unknown>): Promise<Array<{ result: unknown[] }>> {
+    return this.db.sql<Array<{ result: unknown[] }>>`
+      SELECT shift_week_submission_list(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  /** NV active có SĐT (để nhắc đăng ký ca qua Zalo). */
+  reminderRecipients(): Promise<Array<{ result: Array<{ id: string; name: string; phone: string }> }>> {
+    return this.db.sql<Array<{ result: Array<{ id: string; name: string; phone: string }> }>>`
+      SELECT shift_reminder_recipients() AS result`;
+  }
+
   /** Đối chiếu đăng ký ↔ đã làm (ca hợp lệ + công) cho 1 NV/ngày. */
   dayCompute(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
     return this.db.sql<Array<{ result: unknown }>>`
