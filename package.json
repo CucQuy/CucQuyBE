@@ -28,6 +28,7 @@
     "bullmq": "^5.78.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "exceljs": "^4.4.0",
     "geoip-lite": "^2.0.2",
     "ioredis": "^5.11.1",
     "jpeg-js": "^0.4.4",

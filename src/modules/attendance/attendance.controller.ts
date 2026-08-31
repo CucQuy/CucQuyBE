@@ -22,6 +22,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser, UserRole } from '../../auth/user.types';
 import { AttendanceService } from './attendance.service';
 import { ShiftReminderService } from './shift-reminder.service';
+import { PayrollClosingService } from './payroll-closing.service';
 import {
   AddAdjustmentDto,
   CheckDto,
@@ -43,6 +44,7 @@ export class AttendanceController {
   constructor(
     private readonly service: AttendanceService,
     private readonly shiftReminder: ShiftReminderService,
+    private readonly payrollClosing: PayrollClosingService,
   ) {}
 
   /** IP thật của client sau Cloudflare Tunnel + k3s (giống request-logs). */
@@ -235,5 +237,24 @@ export class AttendanceController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   deleteAdjustment(@Param('id') id: string) {
     return this.service.removeAdjustment(id);
+  }
+
+  /**
+   * Chốt công + gửi bảng lương Excel qua Zalo NGAY (chạy tay — cron tự chạy 20h
+   * ngày cuối tháng). `dryRun=true` → chỉ sinh file tổng, trả link, KHÔNG gửi Zalo.
+   * `from`/`to` (yyyy-mm-dd) tuỳ chọn để chốt kỳ khác; mặc định tháng hiện tại.
+   */
+  @Post('payroll/close')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  closePayroll(
+    @Query('dryRun') dryRun?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.payrollClosing.runClosing({
+      from,
+      to,
+      dryRun: dryRun === 'true' || dryRun === '1',
+    });
   }
 }
