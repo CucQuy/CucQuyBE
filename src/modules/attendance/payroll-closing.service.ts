@@ -25,15 +25,15 @@ export interface ClosingResult {
   employeeCount: number; // số NV có công trong kỳ
   sent: number; // số NV đã gửi Zalo cá nhân
   skipped: number; // NV bỏ qua (không SĐT / không có công)
-  fullFileUrl: string | null; // link file tổng hợp
-  sentToGroup: boolean;
+  fullFileUrl: string | null; // link file tổng hợp (cho admin xem, KHÔNG gửi ai)
   dryRun: boolean;
 }
 
 /**
  * Chốt công cuối tháng: tính bảng lương tháng hiện tại → sinh Excel → gửi qua Zalo.
  * - Mỗi NV (có SĐT + có công): tin nhắn cá nhân tóm tắt lương + LINK file Excel riêng.
- * - Nhóm chính: LINK file Excel tổng hợp (mọi NV) cho chủ/quản lý.
+ *   CHỈ gửi cho từng NV tương ứng — KHÔNG gửi bản tổng vào nhóm.
+ * - File tổng hợp vẫn sinh + trả link (fullFileUrl) cho admin tự xem, không gửi ai.
  * Không khoá dữ liệu chấm công (chỉ sinh + gửi). Tái dùng payroll_compute.
  */
 @Injectable()
@@ -94,7 +94,7 @@ export class PayrollClosingService {
       (e) => (e.totalHours || 0) > 0,
     );
 
-    // ── File tổng hợp → link nhóm chính ──
+    // ── File tổng hợp: chỉ sinh + trả link cho admin tự xem, KHÔNG gửi ai ──
     const fullWb = this.exporter.buildFullWorkbook(payroll);
     const fullBuf = await this.exporter.toBuffer(fullWb);
     const fullFileUrl = await this.exporter.uploadXlsx(
@@ -103,22 +103,7 @@ export class PayrollClosingService {
       `Bang luong ${monthLabel}.xlsx`,
     );
 
-    let sentToGroup = false;
-    if (!dryRun) {
-      const groupMsg =
-        `📊 BẢNG LƯƠNG ${monthLabel.toUpperCase()}\n` +
-        `Kỳ: ${this.exporter.periodLabel(payroll)}\n` +
-        `Tổng chi lương: ${vnd(payroll.totalSalary)}đ • ${workedEmployees.length} nhân viên\n` +
-        `Tải file tổng hợp (Excel):\n${fullFileUrl}`;
-      try {
-        await this.zalo.send({ message: groupMsg }); // groupIds rỗng → nhóm chính (env)
-        sentToGroup = true;
-      } catch (err) {
-        this.logger.warn(`Gửi bảng lương tổng vào nhóm lỗi: ${String(err)}`);
-      }
-    }
-
-    // ── File riêng từng NV → Zalo cá nhân ──
+    // ── File riêng từng NV → Zalo cá nhân (chỉ gửi cho NV tương ứng) ──
     let sent = 0;
     let skipped = 0;
     if (!dryRun) {
@@ -157,7 +142,7 @@ export class PayrollClosingService {
     }
 
     this.logger.log(
-      `Chốt công ${monthLabel}: gửi ${sent}, bỏ qua ${skipped}, nhóm ${sentToGroup ? 'ok' : 'x'}${dryRun ? ' (dryRun)' : ''}.`,
+      `Chốt công ${monthLabel}: gửi ${sent}, bỏ qua ${skipped}${dryRun ? ' (dryRun)' : ''}.`,
     );
 
     return {
@@ -169,7 +154,6 @@ export class PayrollClosingService {
       sent,
       skipped,
       fullFileUrl,
-      sentToGroup,
       dryRun,
     };
   }
