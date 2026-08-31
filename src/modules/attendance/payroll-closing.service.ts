@@ -3,6 +3,7 @@ import { AttendanceProc } from './attendance.proc';
 import { ZaloService } from '../zalo/zalo.service';
 import { PayrollExportService } from './payroll-export.service';
 import { PayrollResult } from './payroll.types';
+import { signPayrollLink, verifyPayrollLink } from './payroll-link.util';
 
 /** Số tiền VND có dấu phân cách nghìn (vd 1.250.000). */
 function vnd(n: number): string {
@@ -17,6 +18,18 @@ function hrs(n: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
+/** Bỏ dấu tiếng Việt → tên file ASCII an toàn cho Content-Disposition. */
+function asciiSlug(s: string): string {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // bỏ dấu thanh
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
 export interface ClosingResult {
   month: string; // nhãn "tháng M/YYYY"
   from: string;
@@ -25,16 +38,16 @@ export interface ClosingResult {
   employeeCount: number; // số NV có công trong kỳ
   sent: number; // số NV đã gửi Zalo cá nhân
   skipped: number; // NV bỏ qua (không SĐT / không có công)
-  fullFileUrl: string | null; // link file tổng hợp (cho admin xem, KHÔNG gửi ai)
+  fullFileUrl: string | null; // link tải file tổng (cho admin xem, KHÔNG gửi ai)
   dryRun: boolean;
 }
 
 /**
- * Chốt công cuối tháng: tính bảng lương tháng hiện tại → sinh Excel → gửi qua Zalo.
- * - Mỗi NV (có SĐT + có công): tin nhắn cá nhân tóm tắt lương + LINK file Excel riêng.
- *   CHỈ gửi cho từng NV tương ứng — KHÔNG gửi bản tổng vào nhóm.
- * - File tổng hợp vẫn sinh + trả link (fullFileUrl) cho admin tự xem, không gửi ai.
- * Không khoá dữ liệu chấm công (chỉ sinh + gửi). Tái dùng payroll_compute.
+ * Chốt công cuối tháng: tính bảng lương → gửi Zalo cá nhân cho từng NV kèm LINK tải.
+ * - CHỈ gửi cho từng NV tương ứng (link file riêng), KHÔNG gửi bản tổng vào nhóm.
+ * - File KHÔNG lưu ở cloud/đĩa: Zalo gửi LINK có token hết hạn; khi NV bấm, BE mới
+ *   SINH file tại chỗ rồi stream (xem buildDownload + payroll-download.controller).
+ * Không khoá dữ liệu chấm công (chỉ tính + gửi). Tái dùng payroll_compute.
  */
 @Injectable()
 export class PayrollClosingService {
@@ -50,8 +63,13 @@ export class PayrollClosingService {
   private async computePayroll(input: {
     from?: string;
     to?: string;
+    employeeId?: string;
   }): Promise<PayrollResult | null> {
-    const [r] = await this.proc.payroll({ from: input.from, to: input.to });
+    const [r] = await this.proc.payroll({
+      from: input.from,
+      to: input.to,
+      employeeId: input.employeeId,
+    });
     return (r?.result as PayrollResult) ?? null;
   }
 
@@ -67,15 +85,66 @@ export class PayrollClosingService {
     return map;
   }
 
-  /** Prefix key lưu file theo tháng, vd "payroll/2026-08". */
-  private monthKeyPrefix(from: string): string {
-    const [y, m] = String(from ?? '').split('-');
-    return `payroll/${y ?? 'unknown'}-${m ?? '00'}`;
+  /** Base URL API công khai (để dựng link tải gửi Zalo). */
+  private apiBase(): string {
+    return (process.env.PUBLIC_API_URL || 'https://api.cucquy.site/api').replace(
+      /\/+$/,
+      '',
+    );
+  }
+
+  /** Link tải bảng lương (token hết hạn) — file sinh khi bấm, không lưu đâu. */
+  private downloadLink(
+    scope: 'emp' | 'full',
+    from: string,
+    to: string,
+    employeeId?: string,
+  ): string {
+    const token = signPayrollLink({ scope, employeeId, from, to });
+    return `${this.apiBase()}/payroll/download?token=${token}`;
   }
 
   /**
-   * Chạy chốt công. Mặc định gửi Zalo. `dryRun`=true → chỉ sinh + upload file
-   * tổng hợp, trả link, KHÔNG gửi Zalo (dùng để test).
+   * Sinh file .xlsx từ token tải (in-memory, không lưu). Trả buffer + tên file
+   * ASCII, hoặc null nếu token sai/hết hạn/không có dữ liệu.
+   */
+  async buildDownload(
+    token: string,
+  ): Promise<{ filename: string; buffer: Buffer } | null> {
+    const claims = verifyPayrollLink(token);
+    if (!claims) return null;
+
+    const payroll = await this.computePayroll({
+      from: claims.from,
+      to: claims.to,
+      employeeId: claims.scope === 'emp' ? claims.employeeId : undefined,
+    });
+    if (!payroll) return null;
+    const monthLabel = this.exporter.monthLabel(payroll);
+
+    if (claims.scope === 'emp') {
+      const emp = payroll.employees.find(
+        (e) => e.employeeId === claims.employeeId,
+      );
+      if (!emp) return null;
+      const buffer = await this.exporter.toBuffer(
+        this.exporter.buildEmployeeWorkbook(emp, payroll),
+      );
+      return {
+        filename: `bang-luong-${asciiSlug(emp.name)}-${asciiSlug(monthLabel)}.xlsx`,
+        buffer,
+      };
+    }
+
+    const buffer = await this.exporter.toBuffer(
+      this.exporter.buildFullWorkbook(payroll),
+    );
+    return { filename: `bang-luong-${asciiSlug(monthLabel)}.xlsx`, buffer };
+  }
+
+  /**
+   * Chạy chốt công. Mặc định gửi Zalo cá nhân cho từng NV. `dryRun`=true → chỉ
+   * trả link file tổng, KHÔNG gửi Zalo (dùng để test/xem trước).
    */
   async runClosing(
     opts: { from?: string; to?: string; dryRun?: boolean } = {},
@@ -86,24 +155,16 @@ export class PayrollClosingService {
     }
     const dryRun = !!opts.dryRun;
     const monthLabel = this.exporter.monthLabel(payroll);
-    const keyPrefix = this.monthKeyPrefix(payroll.from);
-    const ts = Date.now();
 
     // Chỉ tính NV có công trong kỳ (bỏ NV không đi làm để khỏi gửi lương 0đ).
     const workedEmployees = payroll.employees.filter(
       (e) => (e.totalHours || 0) > 0,
     );
 
-    // ── File tổng hợp: chỉ sinh + trả link cho admin tự xem, KHÔNG gửi ai ──
-    const fullWb = this.exporter.buildFullWorkbook(payroll);
-    const fullBuf = await this.exporter.toBuffer(fullWb);
-    const fullFileUrl = await this.exporter.uploadXlsx(
-      fullBuf,
-      `${keyPrefix}/bang-luong-tong-hop-${ts}.xlsx`,
-      `Bang luong ${monthLabel}.xlsx`,
-    );
+    // File tổng: chỉ dựng LINK cho admin tự xem (không gửi ai, không lưu file).
+    const fullFileUrl = this.downloadLink('full', payroll.from, payroll.to);
 
-    // ── File riêng từng NV → Zalo cá nhân (chỉ gửi cho NV tương ứng) ──
+    // ── Từng NV → Zalo cá nhân kèm link file riêng (chỉ gửi cho NV tương ứng) ──
     let sent = 0;
     let skipped = 0;
     if (!dryRun) {
@@ -115,19 +176,18 @@ export class PayrollClosingService {
           continue;
         }
         try {
-          const wb = this.exporter.buildEmployeeWorkbook(emp, payroll);
-          const buf = await this.exporter.toBuffer(wb);
-          const url = await this.exporter.uploadXlsx(
-            buf,
-            `${keyPrefix}/nv-${emp.employeeId}-${ts}.xlsx`,
-            `Bang luong ${emp.name} ${monthLabel}.xlsx`,
+          const url = this.downloadLink(
+            'emp',
+            payroll.from,
+            payroll.to,
+            emp.employeeId,
           );
           const msg =
             `Chào ${emp.name}! 💰\n` +
             `Bảng lương ${monthLabel} của bạn:\n` +
             `• Tổng giờ công: ${hrs(emp.totalHours)} giờ\n` +
             `• Tổng lương: ${vnd(emp.salary)}đ\n` +
-            `Xem chi tiết từng ngày (Excel):\n${url}`;
+            `Tải bảng lương chi tiết (Excel):\n${url}`;
           await this.zalo.send({ message: msg, toNumbers: [phone] });
           sent += 1;
         } catch (err) {

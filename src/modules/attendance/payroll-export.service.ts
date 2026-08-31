@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { ImagesService } from '../images/images.service';
 import { PayrollEmployee, PayrollResult } from './payroll.types';
-
-const XLSX_MIME =
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /** dd/mm/yyyy từ 'yyyy-mm-dd'. */
 function vnDate(iso: string): string {
@@ -33,14 +29,12 @@ const FMT_VND = '#,##0';
 const FMT_HOURS = '0.0';
 
 /**
- * Sinh file Excel (.xlsx) bảng lương từ kết quả payroll_compute + upload lên
- * RiceService (object storage) để lấy URL public gửi qua Zalo (bridge Zalo không
- * đính kèm file được → gửi LINK tải).
+ * Sinh file Excel (.xlsx) bảng lương từ kết quả payroll_compute (in-memory).
+ * KHÔNG lưu file ở đâu — buffer sinh tại chỗ để stream cho người tải (xem
+ * payroll-download.controller). Zalo chỉ gửi LINK tải (bridge không đính kèm file).
  */
 @Injectable()
 export class PayrollExportService {
-  constructor(private readonly images: ImagesService) {}
-
   /** Nhãn kỳ "dd/mm/yyyy – dd/mm/yyyy". */
   periodLabel(p: PayrollResult): string {
     return `${vnDate(p.from)} – ${vnDate(p.to)}`;
@@ -224,16 +218,5 @@ export class PayrollExportService {
   /** Xuất workbook ra Buffer .xlsx. */
   async toBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
     return Buffer.from(await wb.xlsx.writeBuffer());
-  }
-
-  /**
-   * Upload buffer .xlsx lên RiceService, trả URL public. `key` = đường dẫn lưu
-   * (vd "payroll/2026-08/tong-hop.xlsx").
-   */
-  async uploadXlsx(buffer: Buffer, key: string, filename: string): Promise<string> {
-    return this.images.upload(
-      { buffer, originalname: filename, mimetype: XLSX_MIME },
-      key,
-    );
   }
 }

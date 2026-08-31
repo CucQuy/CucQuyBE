@@ -15,6 +15,7 @@ import { ShiftReminderProcessor } from './shift-reminder.processor';
 import { PayrollExportService } from './payroll-export.service';
 import { PayrollClosingService } from './payroll-closing.service';
 import { PayrollClosingProcessor } from './payroll-closing.processor';
+import { PayrollDownloadController } from './payroll-download.controller';
 
 /** Chấm công nhân viên: Face ID (nhận diện server-side) + giới hạn IP mạng quán. */
 @Module({
@@ -26,7 +27,7 @@ import { PayrollClosingProcessor } from './payroll-closing.processor';
       { name: QUEUE_PAYROLL_CLOSING },
     ),
   ],
-  controllers: [AttendanceController],
+  controllers: [AttendanceController, PayrollDownloadController],
   providers: [
     AttendanceService,
     AttendanceProc,
