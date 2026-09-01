@@ -65,8 +65,6 @@ export class OrdersService {
     _currentUser: AuthUser,
   ): Promise<Order> {
     const order = await this.proc.create(orderData);
-    // Đơn ăn tại chỗ (có bàn) → báo mọi máy admin refetch danh sách bàn (realtime).
-    if (order.tableId) this.events.emitTablesChanged({ reason: 'open' });
     void this.notif.log({
       kind: 'inapp',
       category: 'order_new',
@@ -221,11 +219,6 @@ export class OrdersService {
       target: 'admins',
       triggeredBy: currentUser?.uid,
     });
-
-    // Đơn ăn tại chỗ (bàn cũ hoặc mới) → báo mọi máy admin refetch danh sách bàn.
-    if (r.order.tableId || existing.tableId) {
-      this.events.emitTablesChanged({ reason: 'update' });
-    }
 
     return { ...r.order, changes: r.changes, prevOrder: r.prevOrder };
   }

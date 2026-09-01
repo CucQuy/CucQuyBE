@@ -13,7 +13,6 @@ import { verifySsoToken } from '../../auth/sso.util';
 import {
   SOCKET_EVENTS,
   type OrderPaidEvent,
-  type TablesChangedEvent,
 } from './events.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MqttService } from '../../mqtt/mqtt.service';
@@ -92,13 +91,6 @@ export class EventsGateway implements OnGatewayConnection {
       }
     } catch {
       client.disconnect(true);
-    }
-  }
-
-  /** Bắn "trạng thái bàn đổi" tới các máy admin đang mở (đều ở room payments) → refetch. */
-  emitTablesChanged(event: TablesChangedEvent = {}): void {
-    if (this.server) {
-      this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.TABLES_CHANGED, event);
     }
   }
 

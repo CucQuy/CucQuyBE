@@ -45,7 +45,6 @@ import { PosModule } from './modules/pos/pos.module';
 import { NotificationSchedulesModule } from './modules/notification-schedules/notification-schedules.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { TtsModule } from './modules/tts/tts.module';
-import { DineInModule } from './modules/dine-in/dine-in.module';
 import { RecipesModule } from './modules/recipes/recipes.module';
 
 @Module({
@@ -87,7 +86,6 @@ import { RecipesModule } from './modules/recipes/recipes.module';
     NetworkModule,
     ShiftsModule,
     CalendarModule,
-    DineInModule,
     WagesModule,
     ImagesModule,
     WebhooksModule,

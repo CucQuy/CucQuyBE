@@ -9,7 +9,6 @@ import { NetworkProc, IpStatus, NetworkRange } from './network.proc';
  */
 const CONTROLLER_SCREENS: Record<string, string[]> = {
   orders: ['/orders'],
-  'dine-in': ['/dine-in'],
   shipping: ['/shipping'],
   promotions: ['/promotions'],
   transactions: ['/finance/overview', '/finance/ledger', '/finance/reconcile'],
