@@ -1,6 +1,15 @@
 // Kiểu dữ liệu cho kết quả payroll_compute (xem migrations/functions/payroll.sql).
 // Field camelCase khớp jsonb trả về. Số tiền: VND. Ngày: 'yyyy-mm-dd'.
 
+/** Chi tiết 1 ca trong ngày (đăng ký / đã làm / hợp lệ). */
+export interface PayrollShift {
+  code?: string;
+  name?: string;
+  registered?: boolean;
+  worked?: boolean;
+  valid?: boolean;
+}
+
 /** 1 ngày trong bảng công của NV. */
 export interface PayrollDay {
   date: string; // yyyy-mm-dd
@@ -14,7 +23,7 @@ export interface PayrollDay {
   valid: number; // số ca hợp lệ
   in: string | null; // giờ chấm vào (null nếu không chấm)
   out: string | null; // giờ chấm ra
-  shifts: unknown[];
+  shifts: PayrollShift[];
 }
 
 /** Tổng hợp 1 NV trong kỳ. */

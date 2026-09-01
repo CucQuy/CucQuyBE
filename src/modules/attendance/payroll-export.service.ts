@@ -1,6 +1,29 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { PayrollEmployee, PayrollResult } from './payroll.types';
+import { PayrollDay, PayrollEmployee, PayrollResult } from './payroll.types';
+
+/** yyyy-mm-dd hôm nay theo giờ VN (UTC+7). */
+function vnTodayIso(): string {
+  const vn = new Date(Date.now() + 7 * 3600 * 1000);
+  return vn.toISOString().slice(0, 10);
+}
+
+/**
+ * Nhãn + màu trạng thái công 1 ngày (khớp badge màn Sổ công): ưu tiên "Đã bổ sung"
+ * khi có giờ bổ sung; còn lại suy ra từ ca đăng ký/hợp lệ/chấm công so với hôm nay.
+ */
+function dayStatus(d: PayrollDay, today: string): { label: string; argb?: string } {
+  if ((d.adjHours || 0) !== 0) return { label: 'Đã bổ sung', argb: 'FF0369A1' };
+  if (d.date > today)
+    return d.registered > 0 ? { label: 'Chưa tới', argb: 'FF64748B' } : { label: '' };
+  const shifts = Array.isArray(d.shifts) ? d.shifts : [];
+  const workedUnreg = shifts.filter((s) => s?.worked && !s?.registered).length;
+  if (d.registered === 0 && workedUnreg === 0 && !d.in) return { label: '' };
+  if (d.registered > 0 && d.valid === 0) return { label: 'Vắng', argb: 'FFB91C1C' };
+  if (d.valid === d.registered && workedUnreg === 0)
+    return { label: 'Đủ công', argb: 'FF047857' };
+  return { label: 'Thiếu công', argb: 'FFB45309' };
+}
 
 /** dd/mm/yyyy từ 'yyyy-mm-dd'. */
 function vnDate(iso: string): string {
@@ -53,20 +76,21 @@ export class PayrollExportService {
     p: PayrollResult,
   ): void {
     ws.columns = [
-      { width: 10 }, // Ngày
-      { width: 8 }, // Công
-      { width: 8 }, // Vào
-      { width: 8 }, // Ra
-      { width: 10 }, // Giờ làm
-      { width: 12 }, // Giờ bổ sung
-      { width: 10 }, // Tổng giờ
-      { width: 14 }, // Mức/giờ
-      { width: 16 }, // Thành tiền
+      { width: 10 }, // 1 Ngày
+      { width: 8 }, // 2 Công
+      { width: 8 }, // 3 Vào
+      { width: 8 }, // 4 Ra
+      { width: 14 }, // 5 Trạng thái
+      { width: 10 }, // 6 Giờ làm
+      { width: 12 }, // 7 Giờ bổ sung
+      { width: 10 }, // 8 Tổng giờ
+      { width: 14 }, // 9 Mức/giờ
+      { width: 16 }, // 10 Thành tiền
     ];
 
     const title = ws.addRow([`BẢNG LƯƠNG — ${emp.name}`]);
     title.font = { bold: true, size: 14 };
-    ws.mergeCells(title.number, 1, title.number, 9);
+    ws.mergeCells(title.number, 1, title.number, 10);
 
     ws.addRow([`Kỳ: ${this.periodLabel(p)}`]);
     if (emp.position) ws.addRow([`Vị trí: ${emp.position}`]);
@@ -77,6 +101,7 @@ export class PayrollExportService {
       'Công',
       'Vào',
       'Ra',
+      'Trạng thái',
       'Giờ làm',
       'Giờ bổ sung',
       'Tổng giờ',
@@ -94,23 +119,29 @@ export class PayrollExportService {
       c.border = { bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } } };
     });
 
+    const today = vnTodayIso();
     for (const d of emp.days) {
+      const st = dayStatus(d, today);
       const row = ws.addRow([
         vnDayShort(d.date),
         d.cong,
         vnTime(d.in),
         vnTime(d.out),
+        st.label,
         d.workHours,
         d.adjHours,
         d.hours,
         d.rate,
         d.pay,
       ]);
-      row.getCell(5).numFmt = FMT_HOURS;
+      const statusCell = row.getCell(5);
+      statusCell.alignment = { horizontal: 'center' };
+      if (st.argb) statusCell.font = { color: { argb: st.argb }, bold: true };
       row.getCell(6).numFmt = FMT_HOURS;
       row.getCell(7).numFmt = FMT_HOURS;
-      row.getCell(8).numFmt = FMT_VND;
+      row.getCell(8).numFmt = FMT_HOURS;
       row.getCell(9).numFmt = FMT_VND;
+      row.getCell(10).numFmt = FMT_VND;
     }
 
     ws.addRow([]);
@@ -121,13 +152,14 @@ export class PayrollExportService {
       '',
       '',
       '',
+      '',
       emp.totalHours,
       '',
       emp.salary,
     ]);
     total.font = { bold: true };
-    total.getCell(7).numFmt = FMT_HOURS;
-    total.getCell(9).numFmt = FMT_VND;
+    total.getCell(8).numFmt = FMT_HOURS;
+    total.getCell(10).numFmt = FMT_VND;
   }
 
   /** Workbook chỉ chứa bảng của 1 NV (gửi riêng cho NV đó). */
