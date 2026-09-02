@@ -46,6 +46,7 @@ import { NotificationSchedulesModule } from './modules/notification-schedules/no
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { TtsModule } from './modules/tts/tts.module';
 import { RecipesModule } from './modules/recipes/recipes.module';
+import { PrintModule } from './modules/print/print.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { RecipesModule } from './modules/recipes/recipes.module';
     ShippingModule,
     TtsModule,
     RecipesModule,
+    PrintModule,
   ],
   controllers: [HealthController, SsoLoginController],
 })

@@ -22,6 +22,8 @@ export type { OrderPaidEvent };
 
 /** Room nhận noti thanh toán — chỉ Owner (super_admin) + Admin được join. */
 const PAYMENTS_ROOM = 'payments';
+/** Room của agent máy in ở quán (connect bằng PRINT_AGENT_TOKEN, không phải user). */
+const PRINTERS_ROOM = 'printers';
 const NOTIFY_ROLES = new Set<UserRole>([UserRole.SUPER_ADMIN, UserRole.ADMIN]);
 
 /** Chuẩn hoá role thô về UserRole (giống guard/FE). */
@@ -61,6 +63,22 @@ export class EventsGateway implements OnGatewayConnection {
 
   async handleConnection(client: Socket): Promise<void> {
     try {
+      // Agent máy in ở quán: xác thực bằng PRINT_AGENT_TOKEN (không phải user SSO).
+      // Khớp token → join room 'printers' để nhận job in. Sai/thiếu env → từ chối.
+      const printerToken = client.handshake.auth?.printerToken as
+        | string
+        | undefined;
+      if (printerToken !== undefined) {
+        const expected = process.env.PRINT_AGENT_TOKEN;
+        if (expected && printerToken === expected) {
+          client.join(PRINTERS_ROOM);
+          this.logger.log('printer agent connected');
+        } else {
+          client.disconnect(true);
+        }
+        return;
+      }
+
       const token =
         (client.handshake.auth?.token as string | undefined) ||
         (client.handshake.query?.token as string | undefined);
@@ -92,6 +110,36 @@ export class EventsGateway implements OnGatewayConnection {
     } catch {
       client.disconnect(true);
     }
+  }
+
+  /**
+   * Đẩy job in (ESC/POS base64) tới agent máy in đang online ở quán.
+   * Trả số agent nhận được (0 = không có máy in nào online → FE báo lỗi).
+   */
+  emitPrintJob(base64: string): number {
+    if (!this.server) return 0;
+    const room = this.server.sockets.adapter.rooms.get(PRINTERS_ROOM);
+    const n = room?.size ?? 0;
+    if (n > 0) {
+      this.server.to(PRINTERS_ROOM).emit(SOCKET_EVENTS.PRINT_JOB, { base64 });
+    }
+    this.logger.log(`print:job → ${n} agent(s), ${base64.length} b64 chars`);
+    return n;
+  }
+
+  /**
+   * Bắn "đơn hàng mới" tới Owner/Admin đang online → máy quán (kiosk, có bật
+   * chế độ máy quán ở FE) phát âm "bạn có đơn mới" + tự in phiếu bếp.
+   */
+  emitOrderCreated(order: { id?: string; orderNumber?: string }): void {
+    if (!this.server) return;
+    const payload = {
+      id: String(order?.id ?? ''),
+      orderNumber: String(order?.orderNumber ?? ''),
+    };
+    if (!payload.id) return;
+    this.server.to(PAYMENTS_ROOM).emit(SOCKET_EVENTS.ORDER_CREATED, payload);
+    this.logger.log(`order:created → ${payload.orderNumber || payload.id}`);
   }
 
   /** Bắn noti "đơn đã thanh toán" tới Owner/Admin đang online + lưu vào hộp thư in-app. */

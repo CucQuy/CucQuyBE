@@ -73,6 +73,20 @@ export class TtsService {
     return `Đã nhận ${this.numberToVietnameseWords(amount)} đồng`;
   }
 
+  /** Câu cố định báo có đơn hàng mới. */
+  private static readonly NEW_ORDER_SENTENCE = 'Bạn có đơn hàng mới từ Cúc Quy';
+
+  /** MP3 câu "đơn hàng mới" (memo — câu cố định nên chỉ synth 1 lần). */
+  private newOrderBuf?: Buffer;
+
+  /** Lấy MP3 câu báo đơn mới (cache 1 lần). Ném lỗi nếu provider TTS lỗi. */
+  async newOrderAudio(): Promise<Buffer> {
+    if (this.newOrderBuf) return this.newOrderBuf;
+    const buf = await this.synthesize(TtsService.NEW_ORDER_SENTENCE);
+    this.newOrderBuf = buf;
+    return buf;
+  }
+
   /** Lấy MP3 cho số tiền (có cache). Ném lỗi nếu nhà cung cấp TTS trả lỗi. */
   async paymentAudio(amount: number): Promise<Buffer> {
     const key = Math.max(0, Math.min(Math.floor(amount || 0), 999_999_999_999));

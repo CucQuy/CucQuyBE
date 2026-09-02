@@ -73,6 +73,8 @@ export class OrdersService {
       target: 'admins',
       triggeredBy: _currentUser?.uid,
     });
+    // Báo máy quán (kiosk): phát âm "đơn mới" + tự in phiếu bếp (fire-and-forget).
+    this.events.emitOrderCreated({ id: order.id, orderNumber: order.orderNumber });
     return order;
   }
 

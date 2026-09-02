@@ -34,4 +34,18 @@ export class TtsController {
       res.status(502).json({ success: false, error: 'TTS provider lỗi' });
     }
   }
+
+  /** Câu cố định "Bạn có đơn hàng mới từ Cúc Quy" — loa máy quán phát khi có đơn mới. */
+  @Public()
+  @Get('new-order')
+  async newOrder(@Res() res: Response): Promise<void> {
+    try {
+      const mp3 = await this.service.newOrderAudio();
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.status(200).send(mp3);
+    } catch {
+      res.status(502).json({ success: false, error: 'TTS provider lỗi' });
+    }
+  }
 }
