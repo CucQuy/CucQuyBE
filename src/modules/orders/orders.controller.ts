@@ -76,6 +76,24 @@ export class OrdersController {
   }
 
   /**
+   * Ma trận ĐƠN × kênh thông báo cho màn "Thông báo": mỗi dòng 1 đơn, kèm trạng thái
+   * tin Zalo đơn hàng / tin khuyến mãi / Facebook (khi có). Khai báo TRƯỚC :id.
+   * query: filter=sent|failed|none (trống = tất cả), limit, offset.
+   */
+  @Get('notify-matrix')
+  orderNotifyMatrix(
+    @Query('filter') filter?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.service.orderNotifyMatrix({
+      filter,
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    });
+  }
+
+  /**
    * Nhật ký gửi tin Zalo cho KHÁCH: đơn nào gửi thành công / lỗi (kèm lý do).
    * query: status=sent|failed (trống = tất cả), limit, offset. Khai báo TRƯỚC :id.
    */

@@ -2041,3 +2041,86 @@ LANGUAGE sql STABLE AS $$
     )
   );
 $$;
+
+-- ═══════ Màn "Thông báo" trong khu vực Đơn hàng: MA TRẬN đơn × kênh thông báo ═══════
+-- Mỗi dòng = 1 ĐƠN, kèm trạng thái MỚI NHẤT của từng loại tin đã gửi cho khách.
+-- Loại tin phân biệt bằng notifications.category (payload->>'orderId' để nối về đơn):
+--   'customer_order' → tin đơn hàng (cảm ơn + COD + vận đơn)
+--   'customer_promo' → tin khuyến mãi (chưa có tính năng gửi, cột đã sẵn)
+-- Kênh (channel) nằm trong payload->>'channel', mặc định 'zalo' — mai này thêm
+-- 'facebook' chỉ cần gửi kèm channel, KHÔNG phải sửa hàm này.
+-- p_filter: 'sent' (đã gửi tin đơn) | 'failed' | 'none' (chưa gửi) | '' (tất cả).
+CREATE OR REPLACE FUNCTION order_notify_matrix(p_filter text, p_limit int, p_offset int)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH logs AS (
+    SELECT n.payload->>'orderId'                        AS order_id,
+           n.category                                   AS category,
+           COALESCE(n.payload->>'channel', 'zalo')      AS channel,
+           n.status                                     AS status,
+           COALESCE(n.error, '')                        AS error,
+           n.created_at                                 AS created_at,
+           n.id                                         AS notif_id,
+           ROW_NUMBER() OVER (
+             PARTITION BY n.payload->>'orderId', n.category, COALESCE(n.payload->>'channel','zalo')
+             ORDER BY n.created_at DESC
+           ) AS rn
+      FROM notifications n
+     WHERE n.kind = 'zalo'
+       AND n.category IN ('customer_order', 'customer_promo')
+       AND COALESCE(n.payload->>'orderId', '') <> ''
+  ),
+  latest AS (SELECT * FROM logs WHERE rn = 1),
+  base AS (
+    SELECT o.*,
+           (SELECT l.status   FROM latest l WHERE l.order_id = o.id AND l.category='customer_order' AND l.channel='zalo') AS zo_status,
+           (SELECT l.error    FROM latest l WHERE l.order_id = o.id AND l.category='customer_order' AND l.channel='zalo') AS zo_error,
+           (SELECT l.created_at FROM latest l WHERE l.order_id = o.id AND l.category='customer_order' AND l.channel='zalo') AS zo_at,
+           (SELECT l.notif_id FROM latest l WHERE l.order_id = o.id AND l.category='customer_order' AND l.channel='zalo') AS zo_id,
+           (SELECT l.status   FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_status,
+           (SELECT l.created_at FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_at,
+           (SELECT l.notif_id FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_id,
+           (SELECT l.status   FROM latest l WHERE l.order_id = o.id AND l.channel='facebook' AND l.category='customer_order') AS fb_status,
+           (SELECT l.created_at FROM latest l WHERE l.order_id = o.id AND l.channel='facebook' AND l.category='customer_order') AS fb_at
+      FROM orders o
+  ),
+  filtered AS (
+    SELECT * FROM base b
+     WHERE CASE COALESCE(p_filter, '')
+             WHEN 'sent'   THEN b.zo_status = 'sent'
+             WHEN 'failed' THEN b.zo_status = 'failed'
+             WHEN 'none'   THEN b.zo_status IS NULL
+             ELSE true
+           END
+     ORDER BY b.created_at DESC
+     LIMIT GREATEST(1, COALESCE(p_limit, 50))
+    OFFSET GREATEST(0, COALESCE(p_offset, 0))
+  )
+  SELECT jsonb_build_object(
+    'items', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id',            f.id,
+        'orderNumber',   COALESCE(f.order_number, ''),
+        'customerName',  COALESCE(f.customer_name, ''),
+        'phone',         COALESCE(f.phone, ''),
+        'status',        COALESCE(f.status, ''),
+        'deliveryType',  COALESCE(f.delivery_type, ''),
+        'total',         COALESCE(f.total, 0),
+        'paidAmount',    COALESCE(f.paid_amount, 0),
+        'createdAt',     f.created_at,
+        'notifiedAt',    f.customer_notified_at,
+        'zaloOrder',     jsonb_build_object('status', f.zo_status, 'at', f.zo_at, 'error', COALESCE(f.zo_error,''), 'notifId', f.zo_id),
+        'zaloPromo',     jsonb_build_object('status', f.zp_status, 'at', f.zp_at, 'notifId', f.zp_id),
+        'facebook',      jsonb_build_object('status', f.fb_status, 'at', f.fb_at)
+      ) ORDER BY f.created_at DESC)
+      FROM filtered f), '[]'::jsonb),
+    'counts', (
+      SELECT jsonb_build_object(
+        'total',  COUNT(*),
+        'sent',   COUNT(*) FILTER (WHERE zo_status = 'sent'),
+        'failed', COUNT(*) FILTER (WHERE zo_status = 'failed'),
+        'none',   COUNT(*) FILTER (WHERE zo_status IS NULL)
+      ) FROM base
+    )
+  );
+$$;

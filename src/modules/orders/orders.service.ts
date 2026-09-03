@@ -94,6 +94,19 @@ export class OrdersService {
     return this.customerNotify.previewMessage();
   }
 
+  /** Ma trận đơn × kênh thông báo (màn "Thông báo" trong khu vực Đơn hàng). */
+  async orderNotifyMatrix(params: {
+    filter?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.customerNotify.matrix(
+      String(params?.filter ?? ''),
+      Number(params?.limit) || 50,
+      Number(params?.offset) || 0,
+    );
+  }
+
   /** Nhật ký gửi tin cho khách: đơn nào gửi OK / lỗi (màn "Trạng thái thông báo"). */
   async customerNotifyLog(params: {
     status?: string;

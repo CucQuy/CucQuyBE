@@ -95,6 +95,17 @@ export class ZaloProc {
     return row?.data ?? { items: [], counts: { sent: 0, failed: 0, total: 0 } };
   }
 
+  /** Ma trận đơn × kênh thông báo cho màn "Thông báo" trong khu vực Đơn hàng. */
+  async orderNotifyMatrix(
+    filter: string,
+    limit: number,
+    offset: number,
+  ): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT order_notify_matrix(${filter}, ${limit}, ${offset}) AS data`;
+    return row?.data ?? { items: [], counts: { total: 0, sent: 0, failed: 0, none: 0 } };
+  }
+
   /** Dữ liệu đơn cho trang tra cứu CÔNG KHAI (null nếu token sai). */
   async publicOrderByToken(token: string): Promise<Record<string, unknown> | null> {
     const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
