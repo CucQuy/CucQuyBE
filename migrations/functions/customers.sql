@@ -45,7 +45,11 @@ LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE customers SET
     name  = CASE WHEN p_data ? 'name'  THEN COALESCE(NULLIF(p_data->>'name',''), name) ELSE name END,
-    phone = CASE WHEN p_data ? 'phone' THEN NULLIF(p_data->>'phone','') ELSE phone END
+    phone = CASE WHEN p_data ? 'phone' THEN NULLIF(p_data->>'phone','') ELSE phone END,
+    -- Khách không muốn nhận tin Zalo (084) → auto-notify bỏ qua.
+    notify_opt_out = CASE WHEN p_data ? 'notifyOptOut'
+                          THEN COALESCE((p_data->>'notifyOptOut')::boolean, false)
+                          ELSE notify_opt_out END
   WHERE id = p_id;
 
   RETURN QUERY SELECT * FROM customers WHERE id = p_id;

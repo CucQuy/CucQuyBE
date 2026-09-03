@@ -270,7 +270,10 @@ LANGUAGE sql STABLE AS $$
     'spx2Status',           o.spx2_status,
     'spx2Manual',           COALESCE(o.spx2_manual, false),
     'spx2Source',           o.spx2_source,
-    'spx2ResolvedAt',       o.spx2_resolved_at
+    'spx2ResolvedAt',       o.spx2_resolved_at,
+    -- Thông báo Zalo cho khách (084): token trang tra cứu + đã gửi lúc nào.
+    'publicToken',          o.public_token,
+    'customerNotifiedAt',   o.customer_notified_at
   );
 $$;
 
@@ -461,7 +464,10 @@ LANGUAGE sql STABLE AS $$
     'spx2Status',           o.spx2_status,
     'spx2Manual',           COALESCE(o.spx2_manual, false),
     'spx2Source',           o.spx2_source,
-    'spx2ResolvedAt',       o.spx2_resolved_at
+    'spx2ResolvedAt',       o.spx2_resolved_at,
+    -- Thông báo Zalo cho khách (084): token trang tra cứu + đã gửi lúc nào.
+    'publicToken',          o.public_token,
+    'customerNotifiedAt',   o.customer_notified_at
   );
 $$;
 
@@ -1870,4 +1876,114 @@ BEGIN
     'unmatchedCount', jsonb_array_length(v_unmatched),
     'duplicateCount', jsonb_array_length(v_duplicate));
 END;
+$$;
+
+-- ═══════════ Thông báo Zalo cho KHÁCH HÀNG (084) ═══════════
+-- Token link tra cứu đơn công khai (/don/<token>). Sinh LAZY (chỉ khi thật sự gửi cho khách)
+-- → đơn cũ không cần backfill. Idempotent: đã có thì trả lại token cũ.
+CREATE OR REPLACE FUNCTION order_ensure_public_token(p_id text)
+RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_token text;
+BEGIN
+  SELECT public_token INTO v_token FROM orders WHERE id = p_id;
+  IF v_token IS NOT NULL AND btrim(v_token) <> '' THEN
+    RETURN v_token;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM orders WHERE id = p_id) THEN
+    RETURN NULL;
+  END IF;
+  v_token := replace(gen_random_uuid()::text, '-', '');
+  UPDATE orders SET public_token = v_token WHERE id = p_id;
+  RETURN v_token;
+END;
+$$;
+
+-- Dữ liệu đơn cho trang tra cứu CÔNG KHAI (khách không đăng nhập).
+-- CHỈ field an toàn: KHÔNG địa chỉ đầy đủ, KHÔNG ghi chú nội bộ, KHÔNG giá vốn/hoa hồng/history.
+-- SĐT trả về đã CHE giữa (0912***678) chỉ để khách nhận ra đơn của mình.
+-- Token không khớp → NULL (BE trả 404).
+CREATE OR REPLACE FUNCTION order_public_status(p_token text)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'orderNumber',   COALESCE(o.order_number, ''),
+    'status',        COALESCE(o.status, ''),
+    'paymentStatus', COALESCE(o.payment_status, ''),
+    'deliveryDate',  o.delivery_date,
+    'deliveryTime',  o.delivery_time,
+    'deliveryType',  COALESCE(o.delivery_type, ''),
+    'customerName',  COALESCE(o.customer_name, ''),
+    'phoneMasked',   CASE
+                       WHEN length(COALESCE(o.phone, '')) >= 7
+                         THEN left(o.phone, 4) || '***' || right(o.phone, 3)
+                       ELSE ''
+                     END,
+    'items',         COALESCE(
+                       (SELECT jsonb_agg(jsonb_build_object(
+                           'name',     COALESCE(i.product_name, ''),
+                           'quantity', COALESCE(i.quantity, 0)
+                         ) ORDER BY i.id)
+                        FROM order_items i WHERE i.order_id = o.id),
+                       '[]'::jsonb),
+    'total',         COALESCE(o.total, 0),
+    'paidAmount',    COALESCE(o.paid_amount, 0),
+    'trackingNumber', COALESCE(o.tracking_number, ''),
+    'createdAt',     o.created_at
+  )
+  FROM orders o
+  WHERE COALESCE(o.public_token, '') <> '' AND o.public_token = p_token;
+$$;
+
+-- Thông tin cần để quyết định CÓ gửi tin cho khách hay không (BE gọi 1 lần, không query rời).
+CREATE OR REPLACE FUNCTION order_customer_notify_info(p_id text)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'orderNumber',       COALESCE(o.order_number, ''),
+    'customerName',      COALESCE(o.customer_name, ''),
+    'phone',             COALESCE(o.phone, ''),
+    'isTest',            COALESCE(o.is_test, false),
+    'notifiedAt',        o.customer_notified_at,
+    'optOut',            COALESCE((SELECT c.notify_opt_out FROM customers c WHERE c.id = o.customer_id), false),
+    'deliveryDate',      o.delivery_date,
+    'deliveryTime',      o.delivery_time,
+    'deliveryType',      COALESCE(o.delivery_type, ''),
+    'total',             COALESCE(o.total, 0),
+    'paidAmount',        COALESCE(o.paid_amount, 0),
+    'items',             COALESCE(
+                           (SELECT jsonb_agg(jsonb_build_object(
+                               'name',     COALESCE(i.product_name, ''),
+                               'quantity', COALESCE(i.quantity, 0)
+                             ) ORDER BY i.id)
+                            FROM order_items i WHERE i.order_id = o.id),
+                           '[]'::jsonb)
+  )
+  FROM orders o WHERE o.id = p_id;
+$$;
+
+-- Đánh dấu đã gửi tin cho khách (chống gửi trùng).
+CREATE OR REPLACE FUNCTION order_mark_customer_notified(p_id text)
+RETURNS timestamptz
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_at timestamptz;
+BEGIN
+  UPDATE orders SET customer_notified_at = now() WHERE id = p_id
+  RETURNING customer_notified_at INTO v_at;
+  RETURN v_at;
+END;
+$$;
+
+-- Số tin ĐÃ GỬI cho khách trong NGÀY (giờ VN) — dùng để áp hạn mức/ngày.
+CREATE OR REPLACE FUNCTION customer_notify_sent_today()
+RETURNS int
+LANGUAGE sql STABLE AS $$
+  SELECT COUNT(*)::int
+  FROM notifications
+  WHERE kind = 'zalo'
+    AND category = 'customer_order'
+    AND status = 'sent'
+    AND created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Ho_Chi_Minh') AT TIME ZONE 'Asia/Ho_Chi_Minh';
 $$;

@@ -308,7 +308,11 @@ LANGUAGE sql STABLE AS $$
     'mainUpdateFieldWhitelist', COALESCE(
       (SELECT to_jsonb(main_update_field_whitelist) FROM zalo_config WHERE id = 'zalo'),
       '[]'::jsonb
-    )
+    ),
+    -- Thông báo Zalo cho KHÁCH HÀNG (084): bật/tắt, chiến dịch KM chèn vào tin, hạn mức tin/ngày.
+    'customerNotifyEnabled', COALESCE((SELECT customer_notify_enabled FROM zalo_config WHERE id = 'zalo'), false),
+    'customerNotifyPromotionId', COALESCE((SELECT customer_notify_promotion_id FROM zalo_config WHERE id = 'zalo'), ''),
+    'customerNotifyDailyLimit', COALESCE((SELECT customer_notify_daily_limit FROM zalo_config WHERE id = 'zalo'), 40)
   );
 $$;
 
@@ -341,6 +345,15 @@ BEGIN
   END IF;
   IF p_data ? 'mainNotifyOnDelete' THEN
     UPDATE zalo_config SET main_notify_on_delete = (p_data->'mainNotifyOnDelete')::boolean WHERE id = 'zalo';
+  END IF;
+  IF p_data ? 'customerNotifyEnabled' THEN
+    UPDATE zalo_config SET customer_notify_enabled = COALESCE((p_data->>'customerNotifyEnabled')::boolean, false) WHERE id = 'zalo';
+  END IF;
+  IF p_data ? 'customerNotifyPromotionId' THEN
+    UPDATE zalo_config SET customer_notify_promotion_id = NULLIF(btrim(COALESCE(p_data->>'customerNotifyPromotionId','')), '') WHERE id = 'zalo';
+  END IF;
+  IF p_data ? 'customerNotifyDailyLimit' THEN
+    UPDATE zalo_config SET customer_notify_daily_limit = GREATEST(0, COALESCE((p_data->>'customerNotifyDailyLimit')::int, 40)) WHERE id = 'zalo';
   END IF;
   IF p_data ? 'mainUpdateFieldWhitelist' THEN
     UPDATE zalo_config SET main_update_field_whitelist = (

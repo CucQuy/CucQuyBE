@@ -57,6 +57,8 @@ export function toZaloNumber(raw: string): string | null {
  */
 export interface ZaloSendPayload {
   message: string;
+  /** Nhãn nhóm nghiệp vụ cho nhật ký (mặc định 'zalo_send'); vd 'customer_order'. */
+  category?: string;
   groupIds?: string[];
   /** Gửi tin nhắn CÁ NHÂN tới các SĐT (đã chuẩn hoá 84...). Ưu tiên hơn groupIds nếu có. */
   toNumbers?: string[];
@@ -80,9 +82,13 @@ export class ZaloService {
    * Đẩy job gửi Zalo vào queue → trả ngay (worker gửi + retry). Nếu queue/Redis
    * lỗi thì gửi thẳng (deliver) để không mất thông báo.
    */
-  async send(payload: ZaloSendPayload): Promise<{ ok: true; queued?: boolean }> {
+  async send(
+    payload: ZaloSendPayload,
+    opts: { delayMs?: number } = {},
+  ): Promise<{ ok: true; queued?: boolean }> {
     try {
-      await this.queue.add('zalo', payload);
+      // delayMs: rải tin (gửi cho KHÁCH) để không bắn dồn → bridge Abit chặn IP.
+      await this.queue.add('zalo', payload, opts.delayMs ? { delay: opts.delayMs } : undefined);
       return { ok: true, queued: true };
     } catch (err) {
       this.logger.warn(`Enqueue Zalo thất bại, gửi trực tiếp: ${String(err)}`);
@@ -152,7 +158,7 @@ export class ZaloService {
       if (shouldLog) {
         await this.notif.log({
           kind: 'zalo',
-          category: 'zalo_send',
+          category: payload?.category || 'zalo_send',
           title: this.summarize(payload?.message ?? ''),
           body: payload?.message ?? '',
           target:
@@ -168,7 +174,7 @@ export class ZaloService {
       if (shouldLog) {
         await this.notif.log({
           kind: 'zalo',
-          category: 'zalo_send',
+          category: payload?.category || 'zalo_send',
           title: this.summarize(payload?.message ?? ''),
           body: payload?.message ?? '',
           target:

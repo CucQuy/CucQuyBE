@@ -12,6 +12,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { EventsGateway } from '../events/events.gateway';
 import { SpxAddressOldService } from '../ai/tasks/spx-address-old/spx-address-old.service';
 import { SpxAddressService } from '../ai/tasks/spx-address/spx-address.service';
+import { CustomerNotifyService, type NotifyResult } from '../zalo/customer-notify.service';
 import {
   Order,
   OrderDeleteResult,
@@ -44,6 +45,7 @@ export class OrdersService {
     private readonly events: EventsGateway,
     private readonly spxOld: SpxAddressOldService,
     private readonly spxNew: SpxAddressService,
+    private readonly customerNotify: CustomerNotifyService,
   ) {}
 
   /** Tên hiển thị người thao tác cho nội dung thông báo. */
@@ -77,7 +79,19 @@ export class OrdersService {
     });
     // Báo máy quán (kiosk): phát âm "đơn mới" + tự in phiếu bếp (fire-and-forget).
     this.events.emitOrderCreated({ id: order.id, orderNumber: order.orderNumber });
+    // Cảm ơn KHÁCH qua Zalo cá nhân (fire-and-forget; tự bỏ qua nếu tắt/không SĐT/hết hạn mức).
+    this.customerNotify.onOrderCreated(order.id);
     return order;
+  }
+
+  /** Gửi TAY tin Zalo cảm ơn + trạng thái đơn cho khách (nút ở chi tiết đơn). */
+  async notifyCustomer(orderId: string, force = false): Promise<NotifyResult> {
+    return this.customerNotify.notifyOrder(orderId, force);
+  }
+
+  /** Xem trước nội dung tin gửi khách (Cài đặt Zalo). */
+  async previewCustomerNotify(): Promise<{ message: string; promoCode: string }> {
+    return this.customerNotify.previewMessage();
   }
 
   // ── Cập nhật đơn (check quyền CTV + ghi history qua diff) ────

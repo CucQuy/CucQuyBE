@@ -69,6 +69,12 @@ export class OrdersController {
     return this.service.getSpxOldCatalog();
   }
 
+  /** Xem trước nội dung tin Zalo gửi khách (Cài đặt Zalo). Khai báo TRƯỚC :id. */
+  @Get('customer-notify-preview')
+  previewCustomerNotify() {
+    return this.service.previewCustomerNotify();
+  }
+
   /** Danh mục hành chính MỚI 2 cấp (Tỉnh→Xã) cho dropdown sửa tay. Khai báo TRƯỚC :id. */
   @Get('spx-new-catalog')
   getSpxNewCatalog() {
@@ -162,6 +168,15 @@ export class OrdersController {
     @Body() body: { state?: string; city?: string; ward?: string; detail?: string },
   ) {
     return this.service.setOrderSpxAddressManual(id, body ?? {});
+  }
+
+  /**
+   * Gửi TAY tin Zalo cảm ơn + trạng thái đơn cho KHÁCH (nút ở chi tiết đơn).
+   * body.force=true → gửi lại dù đơn đã gửi trước đó. Trả {sent, reason?} để FE báo lý do.
+   */
+  @Post(':id/notify-customer')
+  notifyCustomer(@Param('id') id: string, @Body() body: { force?: boolean }) {
+    return this.service.notifyCustomer(id, body?.force === true);
   }
 
   /** Lưu địa chỉ SPX 2 CẤP user chọn tay (dropdown Tỉnh/Xã) → set spx2_manual=true. */
