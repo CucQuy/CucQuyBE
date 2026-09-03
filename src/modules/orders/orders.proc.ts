@@ -258,6 +258,8 @@ export class OrderProc {
     trackingNumber: string | null;
     spxSource: string | null;
     spxManual: boolean;
+    spx2Source: string | null;
+    spx2Manual: boolean;
   } | null> {
     const [row] = await this.db.sql<
       {
@@ -267,10 +269,12 @@ export class OrderProc {
         tracking_number: string | null;
         spx_source: string | null;
         spx_manual: boolean | null;
+        spx2_source: string | null;
+        spx2_manual: boolean | null;
       }[]
     >`
       SELECT address, customer_city AS city, delivery_type, tracking_number,
-             spx_source, spx_manual
+             spx_source, spx_manual, spx2_source, spx2_manual
         FROM orders WHERE id = ${id}`;
     if (!row) return null;
     return {
@@ -280,6 +284,8 @@ export class OrderProc {
       trackingNumber: row.tracking_number,
       spxSource: row.spx_source,
       spxManual: Boolean(row.spx_manual),
+      spx2Source: row.spx2_source,
+      spx2Manual: Boolean(row.spx2_manual),
     };
   }
 
@@ -296,6 +302,21 @@ export class OrderProc {
     const [row] = await this.db.sql<{ order: Order | null }[]>`
       SELECT order_set_spx_address(
         ${id}, ${state}, ${city}, ${ward}, ${detail}, ${source}, ${manual}
+      ) AS "order"`;
+    return row?.order ?? null;
+  }
+
+  /** Lưu địa chỉ SPX 2 CẤP đã làm mịn (auto lẫn sửa tay). Trả order sau cập nhật. */
+  async setSpx2Address(
+    id: string,
+    province: string,
+    ward: string,
+    source: string,
+    manual: boolean,
+  ): Promise<Order | null> {
+    const [row] = await this.db.sql<{ order: Order | null }[]>`
+      SELECT order_set_spx2_address(
+        ${id}, ${province}, ${ward}, ${source}, ${manual}
       ) AS "order"`;
     return row?.order ?? null;
   }

@@ -8,6 +8,7 @@ import { SpxAddressService } from './tasks/spx-address/spx-address.service';
 import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
 import { SpxAddressOldService } from './tasks/spx-address-old/spx-address-old.service';
 import { SpxAdminProc } from './tasks/spx-address-old/spx-admin.proc';
+import { SpxAdminNewProc } from './tasks/spx-address/spx-admin-new.proc';
 
 /**
  * Module AI: mỗi nghiệp vụ 1 service riêng trong tasks/<nghiệp-vụ>/ (service +
@@ -25,6 +26,7 @@ import { SpxAdminProc } from './tasks/spx-address-old/spx-admin.proc';
     SpxWardService,
     SpxAddressOldService,
     SpxAdminProc,
+    SpxAdminNewProc,
   ],
   exports: [
     ReceiptValidateService,

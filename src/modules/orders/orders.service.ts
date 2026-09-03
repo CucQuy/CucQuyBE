@@ -11,6 +11,7 @@ import { OrderProc } from './orders.proc';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EventsGateway } from '../events/events.gateway';
 import { SpxAddressOldService } from '../ai/tasks/spx-address-old/spx-address-old.service';
+import { SpxAddressService } from '../ai/tasks/spx-address/spx-address.service';
 import {
   Order,
   OrderDeleteResult,
@@ -42,6 +43,7 @@ export class OrdersService {
     private readonly notif: NotificationsService,
     private readonly events: EventsGateway,
     private readonly spxOld: SpxAddressOldService,
+    private readonly spxNew: SpxAddressService,
   ) {}
 
   /** Tên hiển thị người thao tác cho nội dung thông báo. */
@@ -125,9 +127,45 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * Bản 2 CẤP (hệ mới): resolve địa chỉ đơn → Tỉnh/Xã danh mục spx_*_new rồi lưu vào
+   * cột spx2_*. Cùng luật bỏ qua như bản 3 cấp (manual / địa chỉ chưa đổi).
+   */
+  async resolveOrderSpx2(id: string, force = false): Promise<Order> {
+    const info = await this.proc.getAddressForResolve(id);
+    if (!info) throw new NotFoundException('ORDER_NOT_FOUND');
+    const source = [info.address, info.city].filter(Boolean).join(', ');
+    if (!force) {
+      if (info.spx2Manual || (info.spx2Source ?? '') === source) {
+        return this.getOrder(id);
+      }
+    }
+    let province = '';
+    let ward = '';
+    if (source.trim()) {
+      const [r] = await this.spxNew.resolveGrounded([source], true);
+      province = r?.province ?? '';
+      ward = r?.ward ?? '';
+    }
+    const order = await this.proc.setSpx2Address(id, province, ward, source, false);
+    if (!order) throw new NotFoundException('ORDER_NOT_FOUND');
+    return order;
+  }
+
+  /** Làm mịn CẢ 2 hệ (3 cấp + 2 cấp) trong 1 lần gọi — dùng cho auto sau tạo/sửa đơn. */
+  async resolveOrderSpxBoth(id: string, force = false): Promise<Order> {
+    await this.resolveOrderSpx(id, force);
+    return this.resolveOrderSpx2(id, force);
+  }
+
   /** Danh mục hành chính CŨ (Tỉnh→Quận→Xã) cho dropdown sửa tay địa chỉ SPX ở FE. */
   async getSpxOldCatalog() {
     return this.spxOld.getCatalog();
+  }
+
+  /** Danh mục hành chính MỚI 2 cấp (Tỉnh→Xã) cho dropdown sửa tay ở FE. */
+  async getSpxNewCatalog() {
+    return this.spxNew.getCatalog();
   }
 
   /** Lưu địa chỉ SPX user CHỌN TAY (dropdown) — đánh dấu manual để auto không ghi đè. */
@@ -144,6 +182,25 @@ export class OrdersService {
       String(patch.city ?? ''),
       String(patch.ward ?? ''),
       String(patch.detail ?? info.address ?? ''),
+      source,
+      true,
+    );
+    if (!order) throw new NotFoundException('ORDER_NOT_FOUND');
+    return order;
+  }
+
+  /** Lưu địa chỉ SPX 2 CẤP user CHỌN TAY (dropdown Tỉnh/Xã) — đánh dấu manual. */
+  async setOrderSpx2AddressManual(
+    id: string,
+    patch: { province?: string; ward?: string },
+  ): Promise<Order> {
+    const info = await this.proc.getAddressForResolve(id);
+    if (!info) throw new NotFoundException('ORDER_NOT_FOUND');
+    const source = [info.address, info.city].filter(Boolean).join(', ');
+    const order = await this.proc.setSpx2Address(
+      id,
+      String(patch.province ?? ''),
+      String(patch.ward ?? ''),
       source,
       true,
     );

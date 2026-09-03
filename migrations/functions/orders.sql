@@ -262,6 +262,15 @@ LANGUAGE sql STABLE AS $$
     'carrierName',          (SELECT name FROM carriers WHERE id = o.carrier_id),
     'carrierRoute',         o.carrier_route,
     'carrierOffice',        o.carrier_office
+  )
+  -- Địa chỉ SPX hệ MỚI 2 cấp (Tỉnh + Xã) — block riêng vì 2 object trên đã sát trần 100 args.
+  || jsonb_build_object(
+    'spx2Province',         o.spx2_province,
+    'spx2Ward',             o.spx2_ward,
+    'spx2Status',           o.spx2_status,
+    'spx2Manual',           COALESCE(o.spx2_manual, false),
+    'spx2Source',           o.spx2_source,
+    'spx2ResolvedAt',       o.spx2_resolved_at
   );
 $$;
 
@@ -321,6 +330,35 @@ BEGIN
     spx_manual      = COALESCE(p_manual, false),
     spx_source      = p_source,
     spx_resolved_at = now()
+  WHERE id = p_id
+  RETURNING * INTO v_o;
+  IF v_o.id IS NULL THEN RETURN NULL; END IF;
+  RETURN order_to_json(v_o);
+END;
+$$;
+
+-- Bản 2 CẤP (hệ mới): Tỉnh (dạng đầy đủ 'Thành phố Hà Nội') + Xã/Phường, danh mục spx_*_new.
+-- status: đủ 2 cấp → 'matched'; có 1 → 'partial'; trống → 'unmatched'.
+CREATE OR REPLACE FUNCTION order_set_spx2_address(
+  p_id text, p_province text, p_ward text, p_source text, p_manual boolean
+) RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_status text;
+  v_o orders;
+BEGIN
+  v_status := CASE
+    WHEN COALESCE(p_province,'')<>'' AND COALESCE(p_ward,'')<>'' THEN 'matched'
+    WHEN COALESCE(p_province,'')<>'' OR  COALESCE(p_ward,'')<>'' THEN 'partial'
+    ELSE 'unmatched'
+  END;
+  UPDATE orders SET
+    spx2_province    = NULLIF(p_province, ''),
+    spx2_ward        = NULLIF(p_ward, ''),
+    spx2_status      = v_status,
+    spx2_manual      = COALESCE(p_manual, false),
+    spx2_source      = p_source,
+    spx2_resolved_at = now()
   WHERE id = p_id
   RETURNING * INTO v_o;
   IF v_o.id IS NULL THEN RETURN NULL; END IF;
@@ -415,6 +453,15 @@ LANGUAGE sql STABLE AS $$
     'carrierName',          (SELECT name FROM carriers WHERE id = o.carrier_id),
     'carrierRoute',         o.carrier_route,
     'carrierOffice',        o.carrier_office
+  )
+  -- Địa chỉ SPX hệ MỚI 2 cấp (Tỉnh + Xã) — block riêng vì 2 object trên đã sát trần 100 args.
+  || jsonb_build_object(
+    'spx2Province',         o.spx2_province,
+    'spx2Ward',             o.spx2_ward,
+    'spx2Status',           o.spx2_status,
+    'spx2Manual',           COALESCE(o.spx2_manual, false),
+    'spx2Source',           o.spx2_source,
+    'spx2ResolvedAt',       o.spx2_resolved_at
   );
 $$;
 

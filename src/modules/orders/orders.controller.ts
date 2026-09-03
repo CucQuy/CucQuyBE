@@ -69,6 +69,12 @@ export class OrdersController {
     return this.service.getSpxOldCatalog();
   }
 
+  /** Danh mục hành chính MỚI 2 cấp (Tỉnh→Xã) cho dropdown sửa tay. Khai báo TRƯỚC :id. */
+  @Get('spx-new-catalog')
+  getSpxNewCatalog() {
+    return this.service.getSpxNewCatalog();
+  }
+
   /** 1 đơn ĐẦY ĐỦ theo id (list trả bản nhẹ; chi tiết/sửa fetch cái này). */
   @Get(':id')
   getOrder(@Param('id') id: string) {
@@ -138,8 +144,15 @@ export class OrdersController {
    * bỏ qua nếu user đã sửa tay hoặc địa chỉ chưa đổi.
    */
   @Post(':id/resolve-spx')
-  resolveSpx(@Param('id') id: string, @Body() body: { force?: boolean }) {
-    return this.service.resolveOrderSpx(id, body?.force === true);
+  resolveSpx(
+    @Param('id') id: string,
+    @Body() body: { force?: boolean; level?: 2 | 3 | 'both' },
+  ) {
+    const force = body?.force === true;
+    const level = body?.level;
+    if (level === 2) return this.service.resolveOrderSpx2(id, force);
+    if (level === 'both') return this.service.resolveOrderSpxBoth(id, force);
+    return this.service.resolveOrderSpx(id, force); // mặc định 3 cấp (giữ tương thích)
   }
 
   /** Lưu địa chỉ SPX user chọn tay (dropdown Tỉnh/Quận/Xã) → set spx_manual=true. */
@@ -149,6 +162,15 @@ export class OrdersController {
     @Body() body: { state?: string; city?: string; ward?: string; detail?: string },
   ) {
     return this.service.setOrderSpxAddressManual(id, body ?? {});
+  }
+
+  /** Lưu địa chỉ SPX 2 CẤP user chọn tay (dropdown Tỉnh/Xã) → set spx2_manual=true. */
+  @Patch(':id/spx2-address')
+  setSpx2Address(
+    @Param('id') id: string,
+    @Body() body: { province?: string; ward?: string },
+  ) {
+    return this.service.setOrderSpx2AddressManual(id, body ?? {});
   }
 
   /**
