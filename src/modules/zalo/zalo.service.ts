@@ -13,6 +13,30 @@ const ZALO_ENDPOINT = {
 // Đổi số → set env ZALO_SENDER_NUMBER là đủ, không cần build lại image.
 const ZALO_SENDER_NUMBER = process.env.ZALO_SENDER_NUMBER || '84349049567';
 
+/**
+ * Bridge Abit LUÔN trả HTTP 200, kết quả thật nằm trong body: `{status:'success'|'error', message}`.
+ * Trước đây chỉ check res.ok → noti bị ghi 'sent' dù Zalo KHÔNG gửi (vd hết quota
+ * "đã sử dụng tối đa cấu hình số lần tìm kiếm/giờ", số gửi chưa kết nối, không thấy nhóm).
+ * Hàm này đọc body và throw kèm message của Abit để noti thành 'failed' + hiện lý do.
+ */
+async function assertBridgeOk(res: Response, what: string): Promise<void> {
+  const raw = await res.text().catch(() => '');
+  if (!res.ok) throw new Error(`${what} failed (${res.status}): ${raw.slice(0, 300)}`);
+  if (!raw.trim()) throw new Error(`${what} failed: bridge Zalo không phản hồi nội dung`);
+  type BridgeBody = { status?: unknown; code?: unknown; message?: unknown };
+  let body: BridgeBody;
+  try {
+    body = JSON.parse(raw) as BridgeBody;
+  } catch {
+    return; // body không phải JSON → coi như OK (giữ hành vi cũ, đừng chặn oan)
+  }
+  const status = String(body.status ?? '').toLowerCase();
+  if (status && status !== 'success') {
+    const msg = String(body.message ?? raw.slice(0, 200));
+    throw new Error(`${what} failed [${String(body.code ?? '')}]: ${msg}`);
+  }
+}
+
 /** Chuẩn hoá SĐT VN về dạng Zalo yêu cầu: 84xxxxxxxxx (bỏ khoảng trắng, +, 0 đầu). */
 export function toZaloNumber(raw: string): string | null {
   const d = String(raw ?? '').replace(/[^\d]/g, '');
@@ -170,15 +194,7 @@ export class ZaloService {
               action: 'make_friend', // kèm yêu cầu kết bạn để NV chưa kết bạn vẫn nhận được
             }),
           });
-          if (!res.ok) {
-            let detail = '';
-            try {
-              detail = await res.text();
-            } catch {
-              // ignore
-            }
-            throw new Error(`Zalo personal send failed (${res.status}): ${detail}`);
-          }
+          await assertBridgeOk(res, `Zalo personal send (${num})`);
         }),
       );
       return;
@@ -217,15 +233,7 @@ export class ZaloService {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!res.ok) {
-          let detail = '';
-          try {
-            detail = await res.text();
-          } catch {
-            // ignore
-          }
-          throw new Error(`Zalo send failed (${res.status}): ${detail}`);
-        }
+        await assertBridgeOk(res, `Zalo group send (${groupId})`);
       }),
     );
   }
