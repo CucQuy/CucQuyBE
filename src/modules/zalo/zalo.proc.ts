@@ -84,6 +84,17 @@ export class ZaloProc {
     await this.db.sql`SELECT order_mark_customer_notified(${orderId})`;
   }
 
+  /** Nhật ký gửi tin cho khách (màn "Trạng thái thông báo"). */
+  async customerNotifyLog(
+    status: string,
+    limit: number,
+    offset: number,
+  ): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT customer_notify_log(${status}, ${limit}, ${offset}) AS data`;
+    return row?.data ?? { items: [], counts: { sent: 0, failed: 0, total: 0 } };
+  }
+
   /** Dữ liệu đơn cho trang tra cứu CÔNG KHAI (null nếu token sai). */
   async publicOrderByToken(token: string): Promise<Record<string, unknown> | null> {
     const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`

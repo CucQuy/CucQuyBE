@@ -59,6 +59,8 @@ export interface ZaloSendPayload {
   message: string;
   /** Nhãn nhóm nghiệp vụ cho nhật ký (mặc định 'zalo_send'); vd 'customer_order'. */
   category?: string;
+  /** Đơn liên quan — lưu vào payload nhật ký để màn "Trạng thái thông báo" join ra đơn. */
+  orderId?: string;
   groupIds?: string[];
   /** Gửi tin nhắn CÁ NHÂN tới các SĐT (đã chuẩn hoá 84...). Ưu tiên hơn groupIds nếu có. */
   toNumbers?: string[];

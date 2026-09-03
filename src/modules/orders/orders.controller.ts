@@ -75,6 +75,23 @@ export class OrdersController {
     return this.service.previewCustomerNotify();
   }
 
+  /**
+   * Nhật ký gửi tin Zalo cho KHÁCH: đơn nào gửi thành công / lỗi (kèm lý do).
+   * query: status=sent|failed (trống = tất cả), limit, offset. Khai báo TRƯỚC :id.
+   */
+  @Get('customer-notify-log')
+  customerNotifyLog(
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.service.customerNotifyLog({
+      status,
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    });
+  }
+
   /** Danh mục hành chính MỚI 2 cấp (Tỉnh→Xã) cho dropdown sửa tay. Khai báo TRƯỚC :id. */
   @Get('spx-new-catalog')
   getSpxNewCatalog() {

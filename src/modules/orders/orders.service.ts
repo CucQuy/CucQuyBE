@@ -94,6 +94,19 @@ export class OrdersService {
     return this.customerNotify.previewMessage();
   }
 
+  /** Nhật ký gửi tin cho khách: đơn nào gửi OK / lỗi (màn "Trạng thái thông báo"). */
+  async customerNotifyLog(params: {
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.customerNotify.log(
+      String(params?.status ?? ''),
+      Number(params?.limit) || 50,
+      Number(params?.offset) || 0,
+    );
+  }
+
   // ── Cập nhật đơn (check quyền CTV + ghi history qua diff) ────
   /** Danh sách đơn PHÂN TRANG + lọc + sắp (server-side) — cho trang Orders. */
   async listOrdersPage(params: Record<string, any>): Promise<{ items: Order[]; total: number }> {

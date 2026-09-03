@@ -1992,3 +1992,52 @@ LANGUAGE sql STABLE AS $$
     AND status = 'sent'
     AND created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Ho_Chi_Minh') AT TIME ZONE 'Asia/Ho_Chi_Minh';
 $$;
+
+-- Nhật ký gửi tin cho KHÁCH (màn "Trạng thái thông báo"): mỗi dòng = 1 lần gửi tới SĐT,
+-- join sang đơn qua payload->>'orderId' (ZaloService lưu orderId vào payload nhật ký).
+-- p_status: 'sent' | 'failed' | '' (tất cả).
+CREATE OR REPLACE FUNCTION customer_notify_log(p_status text, p_limit int, p_offset int)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH rows AS (
+    SELECT n.id,
+           n.created_at,
+           n.status,
+           COALESCE(n.error, '')          AS error,
+           COALESCE(n.target, '')         AS phone,
+           n.payload->>'orderId'          AS order_id,
+           COALESCE(n.body, '')           AS body
+      FROM notifications n
+     WHERE n.kind = 'zalo' AND n.category = 'customer_order'
+       AND (COALESCE(p_status, '') = '' OR n.status = p_status)
+     ORDER BY n.created_at DESC
+     LIMIT GREATEST(1, COALESCE(p_limit, 50))
+    OFFSET GREATEST(0, COALESCE(p_offset, 0))
+  )
+  SELECT jsonb_build_object(
+    'items', COALESCE(
+      (SELECT jsonb_agg(jsonb_build_object(
+          'id',           r.id,
+          'createdAt',    r.created_at,
+          'status',       r.status,
+          'error',        r.error,
+          'phone',        r.phone,
+          'orderId',      r.order_id,
+          'orderNumber',  COALESCE(o.order_number, ''),
+          'customerName', COALESCE(o.customer_name, ''),
+          'total',        COALESCE(o.total, 0),
+          'body',         r.body
+        ) ORDER BY r.created_at DESC)
+       FROM rows r LEFT JOIN orders o ON o.id = r.order_id),
+      '[]'::jsonb),
+    'counts', (
+      SELECT jsonb_build_object(
+        'sent',   COUNT(*) FILTER (WHERE status = 'sent'),
+        'failed', COUNT(*) FILTER (WHERE status = 'failed'),
+        'total',  COUNT(*)
+      )
+      FROM notifications
+      WHERE kind = 'zalo' AND category = 'customer_order'
+    )
+  );
+$$;

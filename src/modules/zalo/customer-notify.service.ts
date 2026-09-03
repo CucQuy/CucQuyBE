@@ -135,7 +135,7 @@ export class CustomerNotifyService {
     this.lastScheduledAt = now + delayMs;
 
     await this.zalo.send(
-      { message, toNumbers: [info.phone], category: 'customer_order' },
+      { message, toNumbers: [info.phone], category: 'customer_order', orderId },
       { delayMs },
     );
     await this.proc.markCustomerNotified(orderId);
@@ -150,6 +150,12 @@ export class CustomerNotifyService {
     void this.notifyOrder(orderId, false).catch((err) => {
       this.logger.warn(`Gửi Zalo cho khách (đơn ${orderId}) lỗi: ${String(err)}`);
     });
+  }
+
+  /** Nhật ký gửi tin cho khách (đơn nào OK/lỗi) — cho màn "Trạng thái thông báo". */
+  async log(status: string, limit: number, offset: number): Promise<Record<string, unknown>> {
+    const st = status === 'sent' || status === 'failed' ? status : '';
+    return this.proc.customerNotifyLog(st, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
   }
 
   /** Xem trước nội dung tin ở Cài đặt (dữ liệu giả, không gửi gì). */
