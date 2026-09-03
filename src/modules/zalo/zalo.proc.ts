@@ -6,6 +6,9 @@ export interface CustomerNotifyInfo {
   orderNumber: string;
   customerName: string;
   phone: string;
+  address: string;
+  trackingNumber: string;
+  trackingStatus: string;
   isTest: boolean;
   notifiedAt: string | null;
   optOut: boolean;

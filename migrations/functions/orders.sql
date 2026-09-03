@@ -1930,13 +1930,15 @@ LANGUAGE sql STABLE AS $$
     'total',         COALESCE(o.total, 0),
     'paidAmount',    COALESCE(o.paid_amount, 0),
     'trackingNumber', COALESCE(o.tracking_number, ''),
+    'trackingStatus', COALESCE(o.tracking_status, ''),
     'createdAt',     o.created_at
   )
   FROM orders o
   WHERE COALESCE(o.public_token, '') <> '' AND o.public_token = p_token;
 $$;
 
--- Thông tin cần để quyết định CÓ gửi tin cho khách hay không (BE gọi 1 lần, không query rời).
+-- Thông tin cần để quyết định CÓ gửi tin cho khách hay không + dựng nội dung tin
+-- (BE gọi 1 lần, không query rời). Gồm địa chỉ + vận đơn SPX để tin ghi đủ cho khách.
 CREATE OR REPLACE FUNCTION order_customer_notify_info(p_id text)
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -1944,6 +1946,9 @@ LANGUAGE sql STABLE AS $$
     'orderNumber',       COALESCE(o.order_number, ''),
     'customerName',      COALESCE(o.customer_name, ''),
     'phone',             COALESCE(o.phone, ''),
+    'address',           COALESCE(o.address, ''),
+    'trackingNumber',    COALESCE(o.tracking_number, ''),
+    'trackingStatus',    COALESCE(o.tracking_status, ''),
     'isTest',            COALESCE(o.is_test, false),
     'notifiedAt',        o.customer_notified_at,
     'optOut',            COALESCE((SELECT c.notify_opt_out FROM customers c WHERE c.id = o.customer_id), false),

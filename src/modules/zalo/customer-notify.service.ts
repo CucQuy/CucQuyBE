@@ -66,23 +66,41 @@ export class CustomerNotifyService {
     return raw.startsWith('84') ? `0${raw.slice(2)}` : raw;
   }
 
-  /** Nội dung tin gửi khách. Tách riêng để Cài đặt xem trước được. */
-  buildMessage(info: CustomerNotifyInfo, token: string, promoCode: string): string {
+  /**
+   * Nội dung tin gửi khách (chốt với user 03/09). Tách riêng để Cài đặt xem trước được.
+   * - Luôn ghi ĐÃ CỌC + tiền THU HỘ (COD) — khách ship tỉnh cần biết phải trả bao nhiêu khi nhận.
+   * - Đơn có vận đơn SPX → kèm mã + trạng thái mới nhất + link tra cứu SPX.
+   * - `token` (trang tra cứu của tiệm) hiện KHÔNG chèn vào tin theo yêu cầu user, giữ tham số
+   *   để bật lại khi cần mà không phải sửa chữ ký hàm.
+   */
+  buildMessage(info: CustomerNotifyInfo, _token: string, promoCode: string): string {
+    const cod = Math.max(0, (Number(info.total) || 0) - (Number(info.paidAmount) || 0));
+    const items = (info.items ?? []).map((it) => `${it.name} × ${it.quantity}`).join(', ');
     const lines: string[] = [];
     lines.push(`Cảm ơn bạn đã đặt hàng tại ${SHOP_NAME}! 🍰`);
     lines.push(DIVIDER);
-    lines.push(`Đơn: ${info.orderNumber}`);
-    for (const it of info.items ?? []) {
-      lines.push(`• ${it.name} × ${it.quantity}`);
-    }
-    lines.push(`Tổng: ${vnd(info.total)}`);
-    if ((Number(info.paidAmount) || 0) > 0 && info.paidAmount < info.total) {
-      lines.push(`Đã cọc: ${vnd(info.paidAmount)} · Còn lại: ${vnd(info.total - info.paidAmount)}`);
-    }
+    lines.push(`Mã đơn: ${info.orderNumber}`);
+    lines.push(`Khách: ${[info.customerName, info.phone].filter(Boolean).join(' · ')}`);
+    if ((info.address ?? '').trim()) lines.push(`Địa chỉ: ${info.address.trim()}`);
+    if (items) lines.push(`Hàng: ${items}`);
+    lines.push(`Tổng đơn: ${vnd(info.total)}`);
+    lines.push(`Đã cọc: ${vnd(info.paidAmount)}`);
+    lines.push(
+      cod > 0
+        ? `Thu hộ khi nhận (COD): ${vnd(cod)}`
+        : 'Đã thanh toán đủ — không phải trả thêm',
+    );
     const when = [dmy(info.deliveryDate), info.deliveryTime ?? ''].filter(Boolean).join(' ');
     const how = DELIVERY_LABEL[info.deliveryType] ?? '';
     if (when || how) lines.push(`Giao: ${[when, how].filter(Boolean).join(' · ')}`);
-    if (token) lines.push(`Theo dõi đơn: ${this.link(token)}`);
+
+    const tn = (info.trackingNumber ?? '').trim();
+    if (tn) {
+      lines.push('');
+      lines.push(`🚚 Vận đơn SPX: ${tn}`);
+      if ((info.trackingStatus ?? '').trim()) lines.push(`Trạng thái: ${info.trackingStatus.trim()}`);
+      lines.push(`Tra cứu: https://spx.vn/track?${tn}`);
+    }
     if (promoCode) lines.push(`🎁 Lần sau nhập mã ${promoCode} để được giảm giá`);
     lines.push(`📞 Liên hệ tiệm: ${this.shopPhone()}`);
     return lines.join('\n');
@@ -141,6 +159,9 @@ export class CustomerNotifyService {
       orderNumber: 'ORD-000712',
       customerName: 'Nguyễn Văn A',
       phone: '0912345678',
+      address: '122/27 Tôn Đản, Phường 10, Quận 4, HCM',
+      trackingNumber: 'SPXVN063411437449',
+      trackingStatus: 'Đã đến bưu cục · 35-TTN Hue Hub',
       isTest: false,
       notifiedAt: null,
       optOut: false,
