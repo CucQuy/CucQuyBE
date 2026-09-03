@@ -61,8 +61,10 @@ import { PrintModule } from './modules/print/print.module';
     BullModule.forRoot({
       connection: bullConnection(),
       defaultJobOptions: {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 3000 },
+        // Retry THƯA: bridge Zalo (Abit) có anti-abuse — bắn dồn là bị chặn IP (ECONNREFUSED),
+        // nên 2 lần thử, giãn 20s → 40s thay vì 3s → 6s.
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 20000 },
         removeOnComplete: 100,
         removeOnFail: 1000,
       },
