@@ -3,11 +3,13 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { QUEUE_NOTIFICATIONS } from '../../queue/queue.constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ZaloProc } from './zalo.proc';
 
 const ZALO_ENDPOINT = {
   sendImageToGroup: '/zalo/sendImageToGroupZalo/2',
   sendMessToGroup: '/zalo/sendMessageToGroupZalo/2',
   sendMessToNumber: '/zalo/sendMessageZalo/2', // gửi tin nhắn Zalo CÁ NHÂN theo SĐT
+  listGroups: '/zalo/listAllGroupForPartner/2', // danh sách nhóm của 1 nick đã kết nối
 };
 // SĐT tài khoản Zalo dùng để GỬI (bridge phải đang đăng nhập số này).
 // Đổi số → set env ZALO_SENDER_NUMBER là đủ, không cần build lại image.
@@ -71,6 +73,7 @@ export class ZaloService {
   constructor(
     @InjectQueue(QUEUE_NOTIFICATIONS) private readonly queue: Queue,
     private readonly notif: NotificationsService,
+    private readonly proc: ZaloProc,
   ) {}
 
   /**
@@ -86,6 +89,46 @@ export class ZaloService {
       await this.deliver(payload);
       return { ok: true };
     }
+  }
+
+  /**
+   * Danh sách nhóm Zalo của 1 nick đã kết nối trên Abit
+   * (POST /zalo/listAllGroupForPartner — theo apidocs.abit.vn). Dùng để chọn đúng ID
+   * nhóm ở Cài đặt Zalo thay vì copy tay. Số mặc định = số gửi đang cấu hình.
+   */
+  async listGroups(phone?: string): Promise<{ groupId: string; name: string; members: number }[]> {
+    const baseUrl = String(process.env.ZALO_URL ?? '').trim();
+    const shopCode = String(process.env.ZALO_SHOP_CODE ?? '').trim();
+    const token = String(process.env.ZALO_TOKEN ?? '').trim();
+    if (!baseUrl || !shopCode || !token) {
+      throw new BadRequestException('Zalo configuration is missing');
+    }
+    const num = toZaloNumber(phone ?? '') ?? ZALO_SENDER_NUMBER;
+    const res = await fetch(`${baseUrl}${ZALO_ENDPOINT.listGroups}/${shopCode}/${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber: num }),
+    });
+    const raw = await res.text().catch(() => '');
+    if (!res.ok) throw new BadRequestException(`Không lấy được danh sách nhóm (${res.status})`);
+    let body: { all_groups?: unknown; status?: unknown; message?: unknown };
+    try {
+      body = JSON.parse(raw) as typeof body;
+    } catch {
+      throw new BadRequestException('Bridge Zalo trả dữ liệu không hợp lệ');
+    }
+    if (String(body.status ?? '').toLowerCase() === 'error') {
+      throw new BadRequestException(String(body.message ?? 'Bridge Zalo trả lỗi'));
+    }
+    const arr = Array.isArray(body.all_groups) ? body.all_groups : [];
+    return arr.map((g) => {
+      const r = (g ?? {}) as Record<string, unknown>;
+      return {
+        groupId: String(r.groupId ?? ''),
+        name: String(r.groupname ?? ''),
+        members: typeof r.number_member === 'number' ? r.number_member : 0,
+      };
+    }).filter((g) => g.groupId);
   }
 
   /** Nhãn ngắn cho nhật ký (dòng đầu message). */
@@ -170,7 +213,11 @@ export class ZaloService {
     const baseUrl = String(process.env.ZALO_URL ?? '').trim();
     const shopCode = String(process.env.ZALO_SHOP_CODE ?? '').trim();
     const token = String(process.env.ZALO_TOKEN ?? '').trim();
-    const mainGroupId = String(process.env.ZALO_MAIN_GROUP_ID ?? '').trim();
+    // Nhóm chính: ưu tiên DB (Cài đặt Zalo — user đổi ID nhóm là áp dụng ngay),
+    // env ZALO_MAIN_GROUP_ID chỉ là fallback khi DB chưa cấu hình.
+    const mainGroupId =
+      (await this.proc.mainGroupId().catch(() => '')) ||
+      String(process.env.ZALO_MAIN_GROUP_ID ?? '').trim();
 
     if (!baseUrl || !shopCode || !token) {
       throw new BadRequestException('Zalo configuration is missing');
