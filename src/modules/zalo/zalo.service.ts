@@ -9,7 +9,9 @@ const ZALO_ENDPOINT = {
   sendMessToGroup: '/zalo/sendMessageToGroupZalo/2',
   sendMessToNumber: '/zalo/sendMessageZalo/2', // gửi tin nhắn Zalo CÁ NHÂN theo SĐT
 };
-const ZALO_SENDER_NUMBER = '84776750418';
+// SĐT tài khoản Zalo dùng để GỬI (bridge phải đang đăng nhập số này).
+// Đổi số → set env ZALO_SENDER_NUMBER là đủ, không cần build lại image.
+const ZALO_SENDER_NUMBER = process.env.ZALO_SENDER_NUMBER || '84349049567';
 
 /** Chuẩn hoá SĐT VN về dạng Zalo yêu cầu: 84xxxxxxxxx (bỏ khoảng trắng, +, 0 đầu). */
 export function toZaloNumber(raw: string): string | null {
