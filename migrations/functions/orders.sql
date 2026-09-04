@@ -2124,3 +2124,118 @@ LANGUAGE sql STABLE AS $$
     )
   );
 $$;
+
+-- ═══════════ Facebook Messenger (085) ═══════════
+-- Upsert 1 người đã inbox page. p_direction='in' → cập nhật last_inbound_at (mốc 24h).
+CREATE OR REPLACE FUNCTION facebook_contact_upsert(p_data jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_psid text := btrim(COALESCE(p_data->>'psid', ''));
+BEGIN
+  IF v_psid = '' THEN RETURN NULL; END IF;
+
+  INSERT INTO facebook_contacts (psid, name, profile_pic, last_inbound_at, message_count, updated_at)
+  VALUES (
+    v_psid,
+    NULLIF(p_data->>'name', ''),
+    NULLIF(p_data->>'profilePic', ''),
+    CASE WHEN p_data->>'lastInboundAt' IS NOT NULL THEN (p_data->>'lastInboundAt')::timestamptz END,
+    COALESCE((p_data->>'messageCount')::int, 0),
+    now()
+  )
+  ON CONFLICT (psid) DO UPDATE SET
+    name            = COALESCE(NULLIF(EXCLUDED.name, ''), facebook_contacts.name),
+    profile_pic     = COALESCE(NULLIF(EXCLUDED.profile_pic, ''), facebook_contacts.profile_pic),
+    -- giữ mốc MỚI hơn (sync danh sách và webhook có thể tới lệch thứ tự)
+    last_inbound_at = GREATEST(
+                        COALESCE(EXCLUDED.last_inbound_at, facebook_contacts.last_inbound_at),
+                        COALESCE(facebook_contacts.last_inbound_at, EXCLUDED.last_inbound_at)
+                      ),
+    message_count   = GREATEST(EXCLUDED.message_count, facebook_contacts.message_count),
+    updated_at      = now();
+
+  RETURN to_jsonb(c) FROM facebook_contacts c WHERE c.psid = v_psid;
+END;
+$$;
+
+-- Ghi 1 tin nhắn (in/out). Idempotent theo id (mid của Meta có thể gửi lại).
+CREATE OR REPLACE FUNCTION facebook_message_add(p_data jsonb)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_psid text := btrim(COALESCE(p_data->>'psid',''));
+  v_dir  text := CASE WHEN p_data->>'direction' = 'out' THEN 'out' ELSE 'in' END;
+BEGIN
+  IF v_psid = '' THEN RETURN; END IF;
+  INSERT INTO facebook_contacts (psid) VALUES (v_psid) ON CONFLICT (psid) DO NOTHING;
+
+  INSERT INTO facebook_messages (id, psid, direction, text, attachments, error, created_at)
+  VALUES (
+    COALESCE(NULLIF(p_data->>'id',''), gen_random_uuid()::text),
+    v_psid, v_dir,
+    NULLIF(p_data->>'text',''),
+    CASE WHEN jsonb_typeof(p_data->'attachments') = 'array' THEN p_data->'attachments' END,
+    NULLIF(p_data->>'error',''),
+    COALESCE((p_data->>'createdAt')::timestamptz, now())
+  )
+  ON CONFLICT (id) DO NOTHING;
+
+  IF v_dir = 'in' THEN
+    UPDATE facebook_contacts
+       SET last_inbound_at = GREATEST(COALESCE(last_inbound_at, now()), now()),
+           message_count = message_count + 1, updated_at = now()
+     WHERE psid = v_psid;
+  ELSE
+    UPDATE facebook_contacts SET last_outbound_at = now(), updated_at = now() WHERE psid = v_psid;
+  END IF;
+END;
+$$;
+
+-- Danh sách khách Facebook cho FE: kèm cờ CÒN nhắn tự do được không (trong 24h)
+-- và số phút còn lại — để nhân viên biết ai gửi được ngay, ai phải chờ khách nhắn lại.
+CREATE OR REPLACE FUNCTION facebook_contact_list(p_filter text, p_limit int, p_offset int)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH rows AS (
+    SELECT c.*,
+           (c.last_inbound_at IS NOT NULL AND c.last_inbound_at > now() - interval '24 hours') AS in_window,
+           CASE WHEN c.last_inbound_at IS NOT NULL
+                THEN GREATEST(0, EXTRACT(EPOCH FROM (c.last_inbound_at + interval '24 hours' - now()))/60)::int
+                ELSE 0 END AS minutes_left
+      FROM facebook_contacts c
+     WHERE c.blocked = false
+  )
+  SELECT jsonb_build_object(
+    'items', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'psid',          r.psid,
+        'name',          COALESCE(r.name, ''),
+        'profilePic',    COALESCE(r.profile_pic, ''),
+        'customerId',    r.customer_id,
+        'lastInboundAt', r.last_inbound_at,
+        'lastOutboundAt', r.last_outbound_at,
+        'messageCount',  r.message_count,
+        'optedInAt',     r.opted_in_at,
+        'inWindow',      r.in_window,
+        'minutesLeft',   r.minutes_left
+      ) ORDER BY r.last_inbound_at DESC NULLS LAST)
+      FROM (
+        SELECT * FROM rows
+         WHERE CASE COALESCE(p_filter,'')
+                 WHEN 'window' THEN in_window
+                 WHEN 'optin'  THEN opted_in_at IS NOT NULL
+                 ELSE true
+               END
+         ORDER BY last_inbound_at DESC NULLS LAST
+         LIMIT GREATEST(1, COALESCE(p_limit, 100)) OFFSET GREATEST(0, COALESCE(p_offset, 0))
+      ) r), '[]'::jsonb),
+    'counts', (
+      SELECT jsonb_build_object(
+        'total',   COUNT(*),
+        'inWindow', COUNT(*) FILTER (WHERE in_window),
+        'optIn',   COUNT(*) FILTER (WHERE opted_in_at IS NOT NULL)
+      ) FROM rows
+    )
+  );
+$$;

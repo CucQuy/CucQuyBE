@@ -31,6 +31,7 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { WagesModule } from './modules/wages/wages.module';
 import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { FacebookModule } from './modules/facebook/facebook.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
 import { OcrModule } from './modules/ocr/ocr.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -92,6 +93,7 @@ import { PrintModule } from './modules/print/print.module';
     WagesModule,
     ImagesModule,
     WebhooksModule,
+    FacebookModule,
     SerpapiModule,
     OcrModule,
     AiModule,
