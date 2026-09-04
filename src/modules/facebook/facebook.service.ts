@@ -101,16 +101,29 @@ export class FacebookService {
     }
   }
 
-  /** Hồ sơ công khai của khách (tên + ảnh) để hiện trong app. */
+  /**
+   * Tên khách để hiện trong app.
+   * GET /{psid}?fields=name cần quyền `pages_user_profile` (chưa xin) → dùng đường
+   * /{page}/conversations?user_id={psid}, participants đã kèm tên và chỉ cần
+   * `pages_messaging`. Lỗi thì bỏ qua, tên rỗng không chặn gì.
+   */
   private async fetchProfile(psid: string): Promise<void> {
-    const { token } = this.cfg();
-    if (!token) return;
+    const { pageId, token } = this.cfg();
+    if (!pageId || !token) return;
     const res = await fetch(
-      `${GRAPH}/${psid}?fields=name,profile_pic&access_token=${encodeURIComponent(token)}`,
+      `${GRAPH}/${pageId}/conversations?user_id=${encodeURIComponent(psid)}` +
+        `&fields=participants,updated_time,message_count&access_token=${encodeURIComponent(token)}`,
     );
     if (!res.ok) return;
-    const p = (await res.json()) as { name?: string; profile_pic?: string };
-    await this.proc.upsertContact({ psid, name: p?.name ?? '', profilePic: p?.profile_pic ?? '' });
+    const body = (await res.json()) as { data?: any[] };
+    const conv = body?.data?.[0];
+    const other = (conv?.participants?.data ?? []).find((p: any) => String(p?.id) !== pageId);
+    if (!other?.name) return;
+    await this.proc.upsertContact({
+      psid,
+      name: String(other.name),
+      messageCount: Number(conv?.message_count) || 0,
+    });
   }
 
   // ── Đồng bộ danh sách khách đã inbox ───────────────────────
@@ -160,46 +173,107 @@ export class FacebookService {
     return this.proc.listContacts(f, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0));
   }
 
-  /**
-   * Gửi tin text cho 1 PSID. Mặc định CHẶN nếu khách đã ngoài 24h và chưa opt-in —
-   * gửi bừa là vi phạm chính sách Meta, page bị hạn chế nhắn tin.
-   */
-  private async sendOne(contact: FacebookContact, text: string): Promise<FbSendResult> {
+  /** Gọi Send API 1 lần với `message` dựng sẵn (text / ảnh / thẻ). */
+  private async callSend(
+    psid: string,
+    message: Record<string, unknown>,
+    logText: string,
+  ): Promise<FbSendResult> {
     const { token } = this.cfg();
-    const canSend = contact.inWindow || Boolean(contact.optedInAt);
-    if (!canSend) {
-      return { psid: contact.psid, sent: false, error: 'Ngoài 24h và khách chưa đăng ký nhận tin' };
-    }
     try {
       const res = await fetch(`${GRAPH}/me/messages?access_token=${encodeURIComponent(token)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipient: { id: contact.psid },
-          messaging_type: 'RESPONSE',
-          message: { text },
-        }),
+        body: JSON.stringify({ recipient: { id: psid }, messaging_type: 'RESPONSE', message }),
       });
       const body = (await res.json()) as { error?: { message?: string }; message_id?: string };
       if (body?.error) {
         const err = body.error.message ?? 'FB_SEND_ERROR';
-        await this.proc.addMessage({ psid: contact.psid, direction: 'out', text, error: err });
-        return { psid: contact.psid, sent: false, error: err };
+        await this.proc.addMessage({ psid, direction: 'out', text: logText, error: err });
+        return { psid, sent: false, error: err };
       }
-      await this.proc.addMessage({ id: body?.message_id, psid: contact.psid, direction: 'out', text });
-      return { psid: contact.psid, sent: true };
+      await this.proc.addMessage({ id: body?.message_id, psid, direction: 'out', text: logText });
+      return { psid, sent: true };
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
-      await this.proc.addMessage({ psid: contact.psid, direction: 'out', text, error: err });
-      return { psid: contact.psid, sent: false, error: err };
+      await this.proc.addMessage({ psid, direction: 'out', text: logText, error: err });
+      return { psid, sent: false, error: err };
     }
   }
 
-  /** Gửi tin cho nhiều khách (rải 1s/tin cho lành). Trả kết quả từng người. */
-  async sendText(psids: string[], text: string): Promise<{ results: FbSendResult[] }> {
+  /**
+   * Gửi cho 1 khách: text và/hoặc ảnh. Messenger KHÔNG có caption cho ảnh nên text đi
+   * trước rồi tới ảnh (2 tin). Có `button` → gửi dạng THẺ (ảnh + tiêu đề + nút bấm).
+   * CHẶN nếu khách ngoài 24h và chưa opt-in — gửi bừa là Meta khoá quyền nhắn tin.
+   */
+  private async sendOne(
+    contact: FacebookContact,
+    payload: { text?: string; imageUrl?: string; buttonTitle?: string; buttonUrl?: string },
+  ): Promise<FbSendResult> {
+    const canSend = contact.inWindow || Boolean(contact.optedInAt);
+    if (!canSend) {
+      return { psid: contact.psid, sent: false, error: 'Ngoài 24h và khách chưa đăng ký nhận tin' };
+    }
+    const text = (payload.text ?? '').trim();
+    const img = (payload.imageUrl ?? '').trim();
+    const btnTitle = (payload.buttonTitle ?? '').trim();
+    const btnUrl = (payload.buttonUrl ?? '').trim();
+
+    // Ảnh + nút → 1 THẺ duy nhất (đẹp hơn, bấm được).
+    if (img && btnTitle && btnUrl) {
+      return this.callSend(
+        contact.psid,
+        {
+          attachment: {
+            type: 'template',
+            payload: {
+              template_type: 'generic',
+              elements: [
+                {
+                  title: text.split('\n')[0].slice(0, 80) || 'Tiệm Bánh Cúc Quy',
+                  subtitle: text.split('\n').slice(1).join(' ').slice(0, 80) || undefined,
+                  image_url: img,
+                  buttons: [{ type: 'web_url', url: btnUrl, title: btnTitle.slice(0, 20) }],
+                },
+              ],
+            },
+          },
+        },
+        `[thẻ] ${text}`.trim(),
+      );
+    }
+
+    // Text trước (nếu có), rồi ảnh rời (nếu có).
+    let last: FbSendResult = { psid: contact.psid, sent: false, error: 'Không có nội dung' };
+    if (text) last = await this.callSend(contact.psid, { text }, text);
+    if (img) {
+      if (text) await new Promise((r) => setTimeout(r, 400));
+      const r = await this.callSend(
+        contact.psid,
+        { attachment: { type: 'image', payload: { url: img, is_reusable: true } } },
+        `[ảnh] ${img}`,
+      );
+      // Text OK mà ảnh lỗi → báo lỗi để người gửi biết ảnh chưa tới.
+      last = r.sent && last.sent !== false ? r : r.sent ? last : r;
+    }
+    return last;
+  }
+
+  /**
+   * Gửi cho nhiều khách (rải 1s/tin). `text` và/hoặc `imageUrl`; kèm nút thì thành thẻ.
+   * Trả kết quả từng người để màn hình hiện ai nhận được, ai không và vì sao.
+   */
+  async sendMessage(
+    psids: string[],
+    payload: { text?: string; imageUrl?: string; buttonTitle?: string; buttonUrl?: string },
+  ): Promise<{ results: FbSendResult[] }> {
     if (!this.isConfigured()) throw new BadRequestException('FACEBOOK_NOT_CONFIGURED');
-    const msg = String(text ?? '').trim();
-    if (!msg) throw new BadRequestException('Nội dung tin trống');
+    const text = String(payload?.text ?? '').trim();
+    const imageUrl = String(payload?.imageUrl ?? '').trim();
+    if (!text && !imageUrl) throw new BadRequestException('Chưa có nội dung (text hoặc ảnh)');
+    if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
+      throw new BadRequestException('Ảnh phải là URL https công khai');
+    }
 
     const { items } = await this.proc.listContacts('', 500, 0);
     const byPsid = new Map(items.map((c) => [c.psid, c]));
@@ -211,7 +285,7 @@ export class FacebookService {
         results.push({ psid, sent: false, error: 'Không có trong danh sách khách Facebook' });
         continue;
       }
-      results.push(await this.sendOne(c, msg));
+      results.push(await this.sendOne(c, { ...payload, text, imageUrl }));
       await new Promise((r) => setTimeout(r, 1000));
     }
     return { results };

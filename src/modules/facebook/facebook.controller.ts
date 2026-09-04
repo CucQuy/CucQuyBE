@@ -90,11 +90,29 @@ export class FacebookController {
     return this.service.syncConversations();
   }
 
-  /** Gửi tin text cho 1 hoặc nhiều khách. Trả kết quả từng người (sent/lý do lỗi). */
+  /**
+   * Gửi tin cho 1 hoặc nhiều khách: text và/hoặc ảnh (URL https công khai).
+   * Có buttonTitle + buttonUrl → gửi dạng THẺ (ảnh + tiêu đề + nút bấm).
+   * Trả kết quả từng người (sent / lý do lỗi).
+   */
   @Post('send')
-  send(@Body() body: { psids?: string[]; text?: string }) {
+  send(
+    @Body()
+    body: {
+      psids?: string[];
+      text?: string;
+      imageUrl?: string;
+      buttonTitle?: string;
+      buttonUrl?: string;
+    },
+  ) {
     const psids = Array.isArray(body?.psids) ? body.psids.filter(Boolean).map(String) : [];
     if (psids.length === 0) throw new BadRequestException('Chưa chọn khách nào');
-    return this.service.sendText(psids, String(body?.text ?? ''));
+    return this.service.sendMessage(psids, {
+      text: body?.text,
+      imageUrl: body?.imageUrl,
+      buttonTitle: body?.buttonTitle,
+      buttonUrl: body?.buttonUrl,
+    });
   }
 }
