@@ -126,6 +126,65 @@ export class FacebookService {
     });
   }
 
+  /**
+   * Trạng thái kết nối để hiện ở màn "Kết nối đa kênh": page nào, token còn sống không,
+   * đang có những quyền gì, webhook đăng ký sự kiện nào. Giúp tự chẩn đoán khi tin không tới
+   * (đúng loại lỗi đã gặp: webhook có URL nhưng KHÔNG đăng ký field nào nên Meta không đẩy gì).
+   */
+  async connectionStatus(): Promise<Record<string, unknown>> {
+    const { pageId, token, secret } = this.cfg();
+    if (!pageId || !token) return { configured: false };
+
+    const out: Record<string, unknown> = { configured: true, pageId };
+    try {
+      const meRes = await fetch(
+        `${GRAPH}/me?fields=id,name&access_token=${encodeURIComponent(token)}`,
+      );
+      const me = (await meRes.json()) as { name?: string; error?: { message?: string } };
+      out.pageName = me?.name ?? '';
+      out.tokenValid = !me?.error;
+      if (me?.error) out.tokenError = me.error.message;
+    } catch (e) {
+      out.tokenValid = false;
+      out.tokenError = e instanceof Error ? e.message : String(e);
+    }
+
+    if (secret) {
+      const appToken = `${process.env.FACEBOOK_APP_ID ?? ''}|${secret}`;
+      try {
+        const dbg = await fetch(
+          `${GRAPH}/debug_token?input_token=${encodeURIComponent(token)}` +
+            `&access_token=${encodeURIComponent(appToken)}`,
+        );
+        const d = (await dbg.json()) as { data?: { scopes?: string[]; expires_at?: number } };
+        out.scopes = d?.data?.scopes ?? [];
+        out.expiresAt = d?.data?.expires_at ?? 0; // 0 = không hết hạn
+      } catch {
+        out.scopes = [];
+      }
+      try {
+        const subs = await fetch(
+          `${GRAPH}/${process.env.FACEBOOK_APP_ID ?? ''}/subscriptions` +
+            `?access_token=${encodeURIComponent(appToken)}`,
+        );
+        const d = (await subs.json()) as { data?: { object?: string; fields?: { name?: string }[] }[] };
+        const page = (d?.data ?? []).find((x) => x.object === 'page');
+        out.webhookFields = (page?.fields ?? []).map((f) => f.name).filter(Boolean);
+      } catch {
+        out.webhookFields = [];
+      }
+    }
+
+    // Quyền cần cho từng nhóm tính năng → FE hiện đúng cái nào dùng được.
+    const scopes = (out.scopes as string[]) ?? [];
+    out.can = {
+      messaging: scopes.includes('pages_messaging'),
+      readComments: scopes.includes('pages_read_engagement'),
+      manageComments: scopes.includes('pages_manage_engagement'),
+    };
+    return out;
+  }
+
   // ── Đồng bộ danh sách khách đã inbox ───────────────────────
   /**
    * Kéo danh sách hội thoại của page → lưu PSID + tên + mốc nhắn cuối.

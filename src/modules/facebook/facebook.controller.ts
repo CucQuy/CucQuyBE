@@ -84,6 +84,12 @@ export class FacebookController {
     );
   }
 
+  /** Trạng thái kết nối: page, token, quyền, webhook fields — cho tab "Kết nối". */
+  @Get('status')
+  status() {
+    return this.service.connectionStatus();
+  }
+
   /** Kéo lại danh sách hội thoại từ Facebook (bổ sung khách mới / cập nhật mốc 24h). */
   @Post('sync')
   sync() {
