@@ -4,6 +4,7 @@ import { FacebookService } from './facebook.service';
 import { FacebookProc } from './facebook.proc';
 import { FacebookCommentsService } from './facebook-comments.service';
 import { InstagramService } from './instagram.service';
+import { SocialPostsService } from './social-posts.service';
 
 /**
  * Facebook Messenger + bình luận fanpage, và Instagram Business đi kèm page
@@ -11,7 +12,7 @@ import { InstagramService } from './instagram.service';
  */
 @Module({
   controllers: [FacebookWebhookController, FacebookController],
-  providers: [FacebookService, FacebookCommentsService, InstagramService, FacebookProc],
-  exports: [FacebookService, FacebookCommentsService, InstagramService],
+  providers: [FacebookService, FacebookCommentsService, InstagramService, SocialPostsService, FacebookProc],
+  exports: [FacebookService, FacebookCommentsService, InstagramService, SocialPostsService],
 })
 export class FacebookModule {}

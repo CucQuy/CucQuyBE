@@ -171,6 +171,66 @@ export class FacebookService {
   }
 
   /**
+   * Đánh giá khách để lại trên fanpage (tab "Đề xuất"). Chỉ ĐỌC — Meta không cho
+   * trả lời đánh giá qua API, nên phần này để theo dõi và phản hồi tay trên page.
+   */
+  async ratings(limit = 25): Promise<Record<string, unknown>[]> {
+    const { pageId, token } = this.cfg();
+    if (!pageId || !token) return [];
+    const res = await fetch(
+      `${GRAPH}/${pageId}/ratings?fields=reviewer,rating,review_text,recommendation_type,created_time` +
+        `&limit=${limit}&access_token=${encodeURIComponent(token)}`,
+    );
+    const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+    if (body?.error) return [];
+    return (Array.isArray(body?.data) ? body.data : []).map((r: any) => ({
+      id: String(r.created_time ?? '') + String(r.reviewer?.id ?? ''),
+      reviewerName: String(r.reviewer?.name ?? ''),
+      rating: Number(r.rating ?? 0),
+      text: String(r.review_text ?? ''),
+      // Meta bỏ sao 1-5 từ 2018, giờ chỉ còn recommended / not_recommended.
+      recommendation: String(r.recommendation_type ?? ''),
+      createdTime: r.created_time ?? null,
+    }));
+  }
+
+  /**
+   * Form thu lead (Lead Ads) + các lead đã điền. Dùng khi tiệm chạy quảng cáo
+   * "để lại SĐT nhận ưu đãi" — lead về thẳng app thay vì phải tải CSV từ Meta.
+   */
+  async leads(limit = 50): Promise<Record<string, unknown>[]> {
+    const { pageId, token } = this.cfg();
+    if (!pageId || !token) return [];
+    const formsRes = await fetch(
+      `${GRAPH}/${pageId}/leadgen_forms?fields=id,name&limit=25&access_token=${encodeURIComponent(token)}`,
+    );
+    const forms = (await formsRes.json().catch(() => ({}))) as Record<string, any>;
+    const out: Record<string, unknown>[] = [];
+    for (const f of Array.isArray(forms?.data) ? forms.data : []) {
+      const res = await fetch(
+        `${GRAPH}/${f.id}/leads?limit=${limit}&access_token=${encodeURIComponent(token)}`,
+      );
+      const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+      for (const l of Array.isArray(body?.data) ? body.data : []) {
+        const fields: Record<string, string> = {};
+        for (const fd of Array.isArray(l.field_data) ? l.field_data : []) {
+          fields[String(fd.name)] = String((fd.values ?? [])[0] ?? '');
+        }
+        out.push({
+          id: String(l.id ?? ''),
+          formName: String(f.name ?? ''),
+          createdTime: l.created_time ?? null,
+          name: fields.full_name ?? fields.name ?? '',
+          phone: fields.phone_number ?? fields.phone ?? '',
+          email: fields.email ?? '',
+          fields,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
    * Số liệu fanpage cho thẻ KPI (Insights API): lượt xem page, tương tác bài, follow mới.
    * Metric của Meta hay bị khai tử theo phiên bản nên gọi TỪNG cái và bỏ qua cái lỗi,
    * thay vì để một metric chết làm hỏng cả khối.

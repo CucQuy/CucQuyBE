@@ -3,6 +3,7 @@ import { Logger, OnModuleInit } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { QUEUE_SCHEDULES } from '../../queue/queue.constants';
 import { NotificationSchedulesService } from './notification-schedules.service';
+import { SocialPostsService } from '../facebook/social-posts.service';
 
 /**
  * Worker cho lịch thông báo. Đăng ký 1 repeatable job 'tick' chạy mỗi phút
@@ -15,6 +16,7 @@ export class SchedulesProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     @InjectQueue(QUEUE_SCHEDULES) private readonly queue: Queue,
     private readonly service: NotificationSchedulesService,
+    private readonly socialPosts: SocialPostsService,
   ) {
     super();
   }
@@ -39,5 +41,8 @@ export class SchedulesProcessor extends WorkerHost implements OnModuleInit {
 
   async process(_job: Job): Promise<void> {
     await this.service.runDue();
+    // Dùng chung tick mỗi phút cho bài mạng xã hội đã hẹn giờ (Instagram không có
+    // hẹn giờ native); lỗi bên này không được làm hỏng lịch thông báo.
+    await this.socialPosts.runScheduled().catch(() => undefined);
   }
 }

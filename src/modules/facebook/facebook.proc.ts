@@ -82,6 +82,40 @@ export class FacebookProc {
     return row?.data ?? {};
   }
 
+  // ── Bài đăng mạng xã hội (088) ───────────────────────────
+  async saveSocialPost(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT social_post_save(${this.db.json(data)}::jsonb) AS data`;
+    return row?.data ?? {};
+  }
+
+  async markSocialPost(
+    id: string,
+    status: string,
+    remote: Record<string, string> | null,
+    error: string,
+  ): Promise<void> {
+    await this.db.sql`SELECT social_post_mark(${id}, ${status}, ${
+      remote ? this.db.json(remote) : null
+    }::jsonb, ${error})`;
+  }
+
+  async listSocialPosts(limit: number, offset: number): Promise<Record<string, unknown>[]> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown>[] | null }[]>`
+      SELECT social_post_list(${limit}, ${offset}) AS data`;
+    return Array.isArray(row?.data) ? row.data : [];
+  }
+
+  async dueSocialPosts(): Promise<Record<string, unknown>[]> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown>[] | null }[]>`
+      SELECT social_post_due() AS data`;
+    return Array.isArray(row?.data) ? row.data : [];
+  }
+
+  async deleteSocialPost(id: string): Promise<void> {
+    await this.db.sql`SELECT social_post_delete(${id})`;
+  }
+
   async listContacts(
     filter: string,
     limit: number,

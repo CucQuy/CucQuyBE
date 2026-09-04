@@ -192,3 +192,92 @@ BEGIN
   RETURN facebook_config_get();
 END;
 $$;
+
+-- ============================================================
+-- Bài đăng mạng xã hội (088) — soạn 1 lần, đăng FB + IG
+-- ============================================================
+CREATE OR REPLACE FUNCTION social_post_save(p_data jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_id text := COALESCE(NULLIF(p_data->>'id',''), gen_random_uuid()::text);
+BEGIN
+  INSERT INTO social_posts (id, message, image_url, targets, scheduled_at, status, created_by)
+  VALUES (
+    v_id,
+    COALESCE(p_data->>'message',''),
+    NULLIF(p_data->>'imageUrl',''),
+    COALESCE((
+      SELECT array_agg(s) FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof(p_data->'targets') = 'array' THEN p_data->'targets' ELSE '[]'::jsonb END
+      ) AS s WHERE s IN ('facebook','instagram')
+    ), '{facebook}'::text[]),
+    CASE WHEN NULLIF(p_data->>'scheduledAt','') IS NOT NULL
+         THEN (p_data->>'scheduledAt')::timestamptz END,
+    COALESCE(NULLIF(p_data->>'status',''), 'draft'),
+    NULLIF(p_data->>'createdBy','')
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    message      = EXCLUDED.message,
+    image_url    = EXCLUDED.image_url,
+    targets      = EXCLUDED.targets,
+    scheduled_at = EXCLUDED.scheduled_at,
+    status       = EXCLUDED.status,
+    updated_at   = now();
+
+  RETURN to_jsonb(p) FROM social_posts p WHERE p.id = v_id;
+END;
+$$;
+
+-- Ghi kết quả sau khi gọi Graph (id bài trên từng kênh, hoặc lỗi).
+CREATE OR REPLACE FUNCTION social_post_mark(p_id text, p_status text, p_remote jsonb, p_error text)
+RETURNS void
+LANGUAGE sql AS $$
+  UPDATE social_posts SET
+    status       = COALESCE(NULLIF(p_status,''), status),
+    remote_ids   = CASE WHEN p_remote IS NULL THEN remote_ids ELSE remote_ids || p_remote END,
+    error        = NULLIF(p_error,''),
+    published_at = CASE WHEN p_status = 'published' THEN now() ELSE published_at END,
+    updated_at   = now()
+  WHERE id = p_id;
+$$;
+
+CREATE OR REPLACE FUNCTION social_post_list(p_limit int, p_offset int)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(t.x ORDER BY t.created_at DESC), '[]'::jsonb) FROM (
+    SELECT jsonb_build_object(
+      'id',          p.id,
+      'message',     p.message,
+      'imageUrl',    COALESCE(p.image_url,''),
+      'targets',     to_jsonb(p.targets),
+      'scheduledAt', p.scheduled_at,
+      'status',      p.status,
+      'remoteIds',   p.remote_ids,
+      'error',       COALESCE(p.error,''),
+      'publishedAt', p.published_at,
+      'createdAt',   p.created_at
+    ) AS x, p.created_at
+      FROM social_posts p
+     ORDER BY p.created_at DESC
+     LIMIT GREATEST(1, COALESCE(p_limit, 50)) OFFSET GREATEST(0, COALESCE(p_offset, 0))
+  ) t;
+$$;
+
+-- Bài tới giờ đăng mà worker chưa xử lý.
+CREATE OR REPLACE FUNCTION social_post_due()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'id', p.id, 'message', p.message, 'imageUrl', COALESCE(p.image_url,''),
+    'targets', to_jsonb(p.targets)
+  )), '[]'::jsonb)
+    FROM social_posts p
+   WHERE p.status = 'scheduled' AND p.scheduled_at IS NOT NULL AND p.scheduled_at <= now();
+$$;
+
+CREATE OR REPLACE FUNCTION social_post_delete(p_id text)
+RETURNS void
+LANGUAGE sql AS $$
+  DELETE FROM social_posts WHERE id = p_id AND status <> 'published';
+$$;

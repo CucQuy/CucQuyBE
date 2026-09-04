@@ -22,6 +22,7 @@ import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { FacebookService } from './facebook.service';
 import { FacebookCommentsService } from './facebook-comments.service';
 import { InstagramService } from './instagram.service';
+import { SocialPostsService } from './social-posts.service';
 
 /** Webhook Facebook — PUBLIC (Meta gọi tới, không có token đăng nhập). */
 @ApiTags('Facebook')
@@ -77,6 +78,7 @@ export class FacebookController {
     private readonly service: FacebookService,
     private readonly comments: FacebookCommentsService,
     private readonly instagram: InstagramService,
+    private readonly posts: SocialPostsService,
   ) {}
 
   /** Danh sách khách đã inbox page. filter: window (còn 24h) | optin | '' (tất cả). */
@@ -173,6 +175,18 @@ export class FacebookController {
     };
   }
 
+  /** Đánh giá khách để lại trên fanpage (chỉ đọc — Meta không cho trả lời qua API). */
+  @Get('ratings')
+  ratings(@Query('limit') limit?: string) {
+    return this.service.ratings(Number(limit) || 25);
+  }
+
+  /** Lead từ quảng cáo thu SĐT (Lead Ads) — khỏi phải tải CSV từ Meta. */
+  @Get('leads')
+  leads(@Query('limit') limit?: string) {
+    return this.service.leads(Number(limit) || 50);
+  }
+
   // ── Instagram (cùng page token) ──────────────────────────
   /** Hồ sơ tài khoản Instagram gắn với page — null nghĩa là chưa nối. */
   @Get('instagram')
@@ -184,6 +198,45 @@ export class FacebookController {
   @Post('instagram/sync')
   igSync() {
     return this.instagram.syncConversations();
+  }
+
+  // ── Đăng bài lên fanpage + Instagram ─────────────────────
+  /** Danh sách bài đã soạn: nháp, đã hẹn giờ, đã đăng, lỗi. */
+  @Get('posts')
+  listPosts(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+    return this.posts.list(Number(limit) || 50, Number(offset) || 0);
+  }
+
+  /**
+   * Lưu bài. publishNow=true → đăng ngay; có scheduledAt → hẹn giờ; còn lại là nháp.
+   * targets: ['facebook'] | ['instagram'] | cả hai. Instagram bắt buộc có imageUrl.
+   */
+  @Post('posts')
+  savePost(
+    @Req() req: Request & { user?: { email?: string } },
+    @Body()
+    body: {
+      id?: string;
+      message?: string;
+      imageUrl?: string;
+      targets?: string[];
+      scheduledAt?: string;
+      publishNow?: boolean;
+    },
+  ) {
+    return this.posts.save(body ?? {}, req.user?.email);
+  }
+
+  /** Đăng ngay 1 bài đã lưu (nháp hoặc bài hẹn giờ muốn đẩy sớm). */
+  @Post('posts/:id/publish')
+  publishPost(@Param('id') id: string) {
+    return this.posts.publish(id);
+  }
+
+  /** Xoá bài chưa đăng (bài đã đăng thì phải xoá trên Facebook/Instagram). */
+  @Delete('posts/:id')
+  deletePost(@Param('id') id: string) {
+    return this.posts.remove(id);
   }
 
   /** Cấu hình luật tự động (ẩn SĐT/từ khoá, trả lời, nhắn riêng). */
