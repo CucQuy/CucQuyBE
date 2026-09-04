@@ -146,14 +146,36 @@ export class FacebookService {
   }
 
   /**
-   * Tên khách để hiện trong app.
-   * GET /{psid}?fields=name cần quyền `pages_user_profile` (chưa xin) → dùng đường
-   * /{page}/conversations?user_id={psid}, participants đã kèm tên và chỉ cần
-   * `pages_messaging`. Lỗi thì bỏ qua, tên rỗng không chặn gì.
+   * Tên + ẢNH khách để hiện trong hộp thư.
+   * `GET /{psid}?fields=name,profile_pic` cần token có quyền hồ sơ page — đã có từ
+   * 04/09/2026. Ảnh trả về là URL platform-lookaside có `ext=` (hạn vài tuần) nên
+   * refresh mỗi lần đồng bộ; hết hạn thì FE tự rơi về avatar chữ cái đầu.
+   * Thiếu quyền / lỗi → rơi về đường cũ (participants trong conversations, chỉ có tên).
    */
   private async fetchProfile(psid: string): Promise<void> {
     const { pageId, token } = this.cfg();
     if (!pageId || !token) return;
+    try {
+      const res = await fetch(
+        `${GRAPH}/${psid}?fields=name,profile_pic&access_token=${encodeURIComponent(token)}`,
+      );
+      const body = (await res.json()) as {
+        name?: string;
+        profile_pic?: string;
+        error?: unknown;
+      };
+      if (!body?.error && (body?.name || body?.profile_pic)) {
+        await this.proc.upsertContact({
+          psid,
+          name: String(body.name ?? ''),
+          profilePic: String(body.profile_pic ?? ''),
+        });
+        return;
+      }
+    } catch {
+      // rơi xuống đường dự phòng
+    }
+
     const res = await fetch(
       `${GRAPH}/${pageId}/conversations?user_id=${encodeURIComponent(psid)}` +
         `&fields=participants,updated_time,message_count&access_token=${encodeURIComponent(token)}`,
@@ -168,6 +190,23 @@ export class FacebookService {
       name: String(other.name),
       messageCount: Number(conv?.message_count) || 0,
     });
+  }
+
+  /** Kéo tên + ảnh cho những người chưa có ảnh (chạy sau mỗi lần đồng bộ hộp thư). */
+  async refreshProfiles(limit = 40): Promise<{ updated: number }> {
+    const { items } = await this.proc.listContacts('', 500, 0);
+    const need = items.filter((c) => !c.profilePic).slice(0, limit);
+    let updated = 0;
+    for (const c of need) {
+      try {
+        await this.fetchProfile(c.psid);
+        updated += 1;
+      } catch {
+        // 1 người lỗi không chặn cả loạt
+      }
+    }
+    if (updated) this.logger.log(`Đã lấy hồ sơ ${updated} khách Facebook`);
+    return { updated };
   }
 
   /**
@@ -391,6 +430,8 @@ export class FacebookService {
       url = body?.paging?.next ?? '';
     }
     this.logger.log(`Đồng bộ Facebook: ${synced} hội thoại`);
+    // Lấy ảnh + tên cho người chưa có (chạy nền, không để chậm nút Đồng bộ).
+    void this.refreshProfiles().catch(() => undefined);
     return { synced };
   }
 

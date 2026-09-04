@@ -2223,7 +2223,19 @@ LANGUAGE sql STABLE AS $$
         'optedInAt',     r.opted_in_at,
         'inWindow',      r.in_window,
         'minutesLeft',   r.minutes_left,
-        'platform',      r.platform
+        'platform',      r.platform,
+        -- Tin nhắn CUỐI để hộp thư hiện trích đoạn như Messenger.
+        'lastMessage',   (
+          SELECT jsonb_build_object(
+                   'text', COALESCE(m.text, ''),
+                   'direction', m.direction,
+                   'createdAt', m.created_at
+                 )
+            FROM facebook_messages m
+           WHERE m.psid = r.psid
+           ORDER BY m.created_at DESC
+           LIMIT 1
+        )
       ) ORDER BY r.last_inbound_at DESC NULLS LAST)
       FROM (
         SELECT * FROM rows
