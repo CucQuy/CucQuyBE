@@ -35,7 +35,14 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
     AND (NULLIF(p_input->>'to','')   IS NULL OR a.work_date <= (p_input->>'to')::date);
 $$;
 
--- Thêm 1 bổ sung công. p_input: { employeeId, workDate, hours, shiftCode?, reason?, createdBy? }.
+-- Thêm 1 bổ sung công.
+-- p_input: { employeeId, workDate, hours?, shiftCode?, reason?, createdBy?, fill? }.
+--
+-- `fill: true` + shiftCode → BÙ ĐỦ CA: tự tính phần CÒN THIẾU của ca đó
+--   = thời lượng ca − giờ đã chấm trong ca − giờ đã bổ sung cho ca.
+--   Không truyền `hours` (nếu truyền thì bị bỏ qua). Ca đã đủ giờ → trả NULL, không tạo bản ghi.
+-- Trước đây FE gửi thẳng hours = trọn thời lượng ca, nên ngày đã chấm 7.1h mà bổ sung
+-- "tất cả ca" thành 7.1 + 12 = 19.1h (bị trần 12h) — sai. `fill` sinh ra để tránh đúng lỗi đó.
 CREATE OR REPLACE FUNCTION attendance_adjustment_add(p_input jsonb)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
@@ -44,10 +51,43 @@ DECLARE
   v_date  date := NULLIF(p_input->>'workDate', '')::date;
   v_hours numeric := NULLIF(p_input->>'hours', '')::numeric;
   v_shift text := NULLIF(p_input->>'shiftCode', '');
+  v_fill  boolean := COALESCE((p_input->>'fill')::boolean, false);
+  v_dur   numeric;
+  v_done  numeric;
+  v_adj   numeric;
   v_row   attendance_adjustments%ROWTYPE;
 BEGIN
   IF v_emp IS NULL THEN RAISE EXCEPTION 'Thiếu nhân viên'; END IF;
   IF v_date IS NULL THEN RAISE EXCEPTION 'Thiếu ngày bổ sung'; END IF;
+
+  IF v_fill THEN
+    IF v_shift IS NULL THEN RAISE EXCEPTION 'Bù đủ ca cần mã ca'; END IF;
+    -- Thời lượng ca (giờ).
+    SELECT round((
+             (EXTRACT(hour FROM ws.end_time)*60 + EXTRACT(minute FROM ws.end_time))
+           - (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))
+           ) / 60.0, 2)
+      INTO v_dur
+      FROM work_shifts ws WHERE ws.code = v_shift;
+    IF v_dur IS NULL THEN RAISE EXCEPTION 'Không tìm thấy ca %', v_shift; END IF;
+
+    -- Giờ đã chấm được tính cho ca này (theo giờ THỰC trong khung ca).
+    SELECT COALESCE(max((s->>'hours')::numeric), 0) INTO v_done
+      FROM jsonb_array_elements(
+             attendance_day_compute(jsonb_build_object(
+               'employeeId', v_emp, 'date', to_char(v_date, 'YYYY-MM-DD')))->'shifts') s
+     WHERE s->>'code' = v_shift;
+
+    -- Giờ đã bổ sung trước đó cho đúng ca này.
+    SELECT COALESCE(sum(hours), 0) INTO v_adj
+      FROM attendance_adjustments
+     WHERE employee_id = v_emp AND work_date = v_date AND shift_code = v_shift;
+
+    v_hours := round(v_dur - COALESCE(v_done, 0) - COALESCE(v_adj, 0), 2);
+    -- Ca đã đủ (hoặc quá) giờ → không tạo bản ghi rỗng/âm.
+    IF v_hours <= 0 THEN RETURN NULL; END IF;
+  END IF;
+
   IF v_hours IS NULL OR v_hours = 0 THEN RAISE EXCEPTION 'Số giờ bổ sung phải khác 0'; END IF;
   IF NOT EXISTS(SELECT 1 FROM employees WHERE id = v_emp) THEN
     RAISE EXCEPTION 'Không tìm thấy nhân viên %', v_emp;

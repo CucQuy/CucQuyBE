@@ -58,9 +58,16 @@ export class AddAdjustmentDto {
   @IsString()
   workDate!: string; // yyyy-mm-dd
 
+  // Bỏ trống khi dùng `fill` (BE tự tính phần còn thiếu của ca).
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  hours!: number; // giờ bổ sung (âm = trừ)
+  hours?: number; // giờ bổ sung (âm = trừ)
+
+  /** true = bù ĐỦ ca: BE tính phần còn thiếu của ca (thời lượng ca − giờ đã có). */
+  @IsOptional()
+  @IsBoolean()
+  fill?: boolean;
 
   @IsOptional()
   @IsString()
