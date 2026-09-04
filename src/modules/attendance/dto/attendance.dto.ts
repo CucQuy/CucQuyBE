@@ -8,6 +8,20 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+/** Chốt công 1 ngày (NV chỉ xin làm ít giờ → không cần bù đủ ca). */
+export class LockDayDto {
+  @IsString()
+  employeeId!: string;
+
+  @IsString()
+  workDate!: string; // yyyy-mm-dd
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  note?: string;
+}
+
 /** Chấm công vào/ra (ảnh gửi kèm dạng multipart field 'file'). */
 export class CheckDto {
   @IsIn(['in', 'out'])

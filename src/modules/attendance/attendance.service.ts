@@ -180,6 +180,24 @@ export class AttendanceService {
     return r?.result ?? null;
   }
 
+  /**
+   * Chốt công 1 ngày: xác nhận số giờ hiện tại là số cuối (NV chỉ xin làm ít giờ),
+   * ngày đó không bị coi là thiếu ca và không cho bù đủ ca nữa.
+   */
+  async lockDay(
+    lockedBy: string | undefined,
+    input: { employeeId: string; workDate: string; note?: string },
+  ) {
+    const [r] = await this.proc.dayLockSet({ ...input, lockedBy });
+    return r?.result ?? null;
+  }
+
+  /** Mở chốt để sửa lại ngày. */
+  async unlockDay(employeeId: string, workDate: string): Promise<{ ok: boolean }> {
+    const [r] = await this.proc.dayLockRemove(employeeId, workDate);
+    return r?.result ?? { ok: false };
+  }
+
   async removeAdjustment(id: string): Promise<{ ok: boolean }> {
     const [r] = await this.proc.adjustmentRemove(id);
     return r?.result ?? { ok: false };

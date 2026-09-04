@@ -182,6 +182,17 @@ export class AttendanceProc {
       SELECT attendance_adjustment_add(${this.db.json(input)}::jsonb) AS result`;
   }
 
+  /** Chốt công 1 ngày. input: {employeeId, workDate, note?, lockedBy?}. */
+  dayLockSet(input: Record<string, unknown>): Promise<Array<{ result: unknown }>> {
+    return this.db.sql<Array<{ result: unknown }>>`
+      SELECT attendance_day_lock_set(${this.db.json(input)}::jsonb) AS result`;
+  }
+
+  dayLockRemove(employeeId: string, workDate: string): Promise<Array<{ result: { ok: boolean } }>> {
+    return this.db.sql<Array<{ result: { ok: boolean } }>>`
+      SELECT attendance_day_lock_remove(${employeeId}, ${workDate}::date) AS result`;
+  }
+
   adjustmentRemove(id: string): Promise<Array<{ result: { ok: boolean } }>> {
     return this.db.sql<Array<{ result: { ok: boolean } }>>`
       SELECT attendance_adjustment_remove(${id}) AS result`;

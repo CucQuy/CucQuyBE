@@ -28,6 +28,7 @@ import {
   CheckDto,
   RegisterFaceDto,
   UpsertNetworkDto,
+  LockDayDto,
 } from './dto/attendance.dto';
 
 type UploadFile = { buffer: Buffer; originalname: string; mimetype: string };
@@ -237,6 +238,23 @@ export class AttendanceController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   deleteAdjustment(@Param('id') id: string) {
     return this.service.removeAdjustment(id);
+  }
+
+  /**
+   * CHỐT CÔNG 1 ngày: số giờ hiện tại là số cuối (vd NV xin làm 5h thay vì đủ 2 ca).
+   * Ngày đã chốt không bị coi là thiếu ca và bị chặn bù đủ ca.
+   */
+  @Post('day-lock')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  lockDay(@CurrentUser() user: AuthUser, @Body() dto: LockDayDto) {
+    return this.service.lockDay(user.email, dto);
+  }
+
+  /** Mở chốt để sửa lại ngày. */
+  @Delete('day-lock/:employeeId/:workDate')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  unlockDay(@Param('employeeId') employeeId: string, @Param('workDate') workDate: string) {
+    return this.service.unlockDay(employeeId, workDate);
   }
 
   /**

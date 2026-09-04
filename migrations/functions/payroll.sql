@@ -60,6 +60,12 @@ BEGIN
   IF v_emp IS NULL THEN RAISE EXCEPTION 'Thiếu nhân viên'; END IF;
   IF v_date IS NULL THEN RAISE EXCEPTION 'Thiếu ngày bổ sung'; END IF;
 
+  -- Ngày đã CHỐT thì không bù nữa (NV chỉ xin làm chừng đó giờ).
+  IF EXISTS (SELECT 1 FROM attendance_day_locks
+              WHERE employee_id = v_emp AND work_date = v_date) THEN
+    RAISE EXCEPTION 'Ngày % đã chốt công — mở chốt trước khi bù giờ', to_char(v_date, 'DD/MM');
+  END IF;
+
   IF v_fill THEN
     IF v_shift IS NULL THEN RAISE EXCEPTION 'Bù đủ ca cần mã ca'; END IF;
     -- Thời lượng ca (giờ).
@@ -101,6 +107,48 @@ BEGIN
   RETURNING * INTO v_row;
   RETURN attendance_adjustment_to_json(v_row);
 END;
+$$;
+
+-- ─────────────── CHỐT CÔNG theo ngày ───────────────
+-- Chốt = xác nhận "ngày này số giờ đã đúng, không cần bù đủ ca" (NV xin làm ít giờ).
+-- p_input: { employeeId, workDate, note?, lockedBy? }. Gọi lại = cập nhật ghi chú.
+CREATE OR REPLACE FUNCTION attendance_day_lock_set(p_input jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_emp  text := NULLIF(p_input->>'employeeId', '');
+  v_date date := NULLIF(p_input->>'workDate', '')::date;
+BEGIN
+  IF v_emp IS NULL THEN RAISE EXCEPTION 'Thiếu nhân viên'; END IF;
+  IF v_date IS NULL THEN RAISE EXCEPTION 'Thiếu ngày chốt'; END IF;
+
+  INSERT INTO attendance_day_locks (employee_id, work_date, note, locked_by)
+  VALUES (v_emp, v_date,
+          NULLIF(trim(COALESCE(p_input->>'note','')), ''),
+          NULLIF(p_input->>'lockedBy',''))
+  ON CONFLICT (employee_id, work_date) DO UPDATE SET
+    note      = COALESCE(EXCLUDED.note, attendance_day_locks.note),
+    locked_by = COALESCE(EXCLUDED.locked_by, attendance_day_locks.locked_by),
+    locked_at = now();
+
+  RETURN jsonb_build_object(
+    'employeeId', v_emp,
+    'workDate',   to_char(v_date, 'YYYY-MM-DD'),
+    'locked',     true,
+    'note',       (SELECT note FROM attendance_day_locks
+                    WHERE employee_id = v_emp AND work_date = v_date)
+  );
+END;
+$$;
+
+-- Mở chốt (sửa lại ngày đã chốt).
+CREATE OR REPLACE FUNCTION attendance_day_lock_remove(p_employee_id text, p_work_date date)
+RETURNS jsonb LANGUAGE sql AS $$
+  WITH d AS (
+    DELETE FROM attendance_day_locks
+     WHERE employee_id = p_employee_id AND work_date = p_work_date
+    RETURNING 1
+  )
+  SELECT jsonb_build_object('ok', EXISTS(SELECT 1 FROM d));
 $$;
 
 -- Xoá 1 bổ sung công.
@@ -156,7 +204,12 @@ BEGIN
       pd.dc->'out' AS out_at,         -- giờ ra
       COALESCE(pd.dc->'shifts', '[]'::jsonb) AS shifts,  -- chi tiết từng ca (đăng ký/làm/hợp lệ)
       COALESCE(sc.reg_cnt, 0)   AS reg_cnt,
-      COALESCE(sc.valid_cnt, 0) AS valid_cnt
+      COALESCE(sc.valid_cnt, 0) AS valid_cnt,
+      -- Ngày đã CHỐT: giờ hiện tại là số cuối, bảng công không coi là thiếu ca.
+      EXISTS (SELECT 1 FROM attendance_day_locks l
+               WHERE l.employee_id = pd.id AND l.work_date = pd.d) AS locked,
+      (SELECT l.note FROM attendance_day_locks l
+        WHERE l.employee_id = pd.id AND l.work_date = pd.d) AS lock_note
     FROM per_day pd
     LEFT JOIN LATERAL (
       SELECT count(*) FILTER (WHERE (s->>'registered')::boolean) AS reg_cnt,
@@ -193,11 +246,14 @@ BEGIN
         'valid',      valid_cnt,
         'in',         in_at,
         'out',        out_at,
+        'locked',     locked,
+        'lockNote',   COALESCE(lock_note, ''),
         'shifts',     shifts
       ) ORDER BY d)
         -- Chỉ giữ ngày CÓ hoạt động. Lưu ý: dc->'in' trả jsonb 'null' (không phải SQL NULL)
         -- khi không chấm công → phải lọc bằng jsonb_typeof = 'string' (có giờ chấm thật).
-        FILTER (WHERE day_hours <> 0 OR adj_hours <> 0 OR reg_cnt > 0 OR jsonb_typeof(in_at) = 'string') AS days
+        FILTER (WHERE day_hours <> 0 OR adj_hours <> 0 OR reg_cnt > 0
+                   OR jsonb_typeof(in_at) = 'string' OR locked) AS days
     FROM per_day3
     GROUP BY id, name, position
   )
