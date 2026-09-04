@@ -79,35 +79,40 @@ export class FacebookService {
   async handleWebhook(body: Record<string, any>): Promise<void> {
     const entries = Array.isArray(body?.entry) ? body.entry : [];
     for (const entry of entries) {
-      // ── Bình luận / bài đăng ──
+      // ── Bình luận / bài đăng (fanpage `feed`, Instagram `comments`) ──
+      const igEntry = String(body?.object ?? '') === 'instagram';
       for (const ch of Array.isArray(entry?.changes) ? entry.changes : []) {
-        if (ch?.field !== 'feed') continue;
+        if (ch?.field !== 'feed' && ch?.field !== 'comments') continue;
         const v = ch?.value ?? {};
-        if (v?.item !== 'comment') continue;
+        // Instagram không có `item`; sự kiện field='comments' luôn là bình luận.
+        if (!igEntry && v?.item !== 'comment') continue;
         const psid = String(v?.from?.id ?? '');
         if (psid && psid === this.cfg().pageId) continue; // bình luận của chính page
 
-        const commentId = String(v?.comment_id ?? '');
+        // IG đặt id ở `id`, Facebook ở `comment_id`.
+        const commentId = String(v?.comment_id ?? v?.id ?? '');
         if (!commentId) continue;
         if (v?.verb === 'remove') {
           await this.proc.deleteComment(commentId).catch(() => undefined);
           continue;
         }
+        // IG dùng `text` cho nội dung và `username` cho tên người bình luận.
+        const message = String(v?.message ?? v?.text ?? '');
         await this.proc.upsertComment({
           id: commentId,
-          postId: String(v?.post_id ?? ''),
+          postId: String(v?.post_id ?? v?.media?.id ?? ''),
           parentId: String(v?.parent_id ?? ''),
           psid,
-          fromName: String(v?.from?.name ?? ''),
-          message: String(v?.message ?? ''),
+          fromName: String(v?.from?.name ?? v?.from?.username ?? ''),
+          message,
           createdTime: v?.created_time ? new Date(Number(v.created_time) * 1000).toISOString() : undefined,
+          platform: igEntry ? 'instagram' : 'facebook',
           raw: v,
         });
         // Luật tự động (ẩn SĐT / từ khoá, trả lời, nhắn riêng) — chạy nền, không chặn webhook.
-        if (v?.verb === 'add') {
-          void this.comments
-            .runAutoRules({ id: commentId, message: String(v?.message ?? ''), psid })
-            .catch(() => undefined);
+        // IG không gửi `verb`, coi như bình luận mới.
+        if (v?.verb === 'add' || igEntry) {
+          void this.comments.runAutoRules({ id: commentId, message, psid }).catch(() => undefined);
         }
       }
 
@@ -163,6 +168,31 @@ export class FacebookService {
       name: String(other.name),
       messageCount: Number(conv?.message_count) || 0,
     });
+  }
+
+  /**
+   * Số liệu fanpage cho thẻ KPI (Insights API): lượt xem page, tương tác bài, follow mới.
+   * Metric của Meta hay bị khai tử theo phiên bản nên gọi TỪNG cái và bỏ qua cái lỗi,
+   * thay vì để một metric chết làm hỏng cả khối.
+   */
+  async pageInsights(): Promise<Record<string, number>> {
+    const { pageId, token } = this.cfg();
+    if (!pageId || !token) return {};
+    const metrics = ['page_views_total', 'page_post_engagements', 'page_daily_follows'];
+    const out: Record<string, number> = {};
+    for (const m of metrics) {
+      try {
+        const res = await fetch(
+          `${GRAPH}/${pageId}/insights?metric=${m}&period=day&access_token=${encodeURIComponent(token)}`,
+        );
+        const body = (await res.json()) as { data?: { values?: { value?: number }[] }[] };
+        const values = body?.data?.[0]?.values ?? [];
+        out[m] = Number(values[values.length - 1]?.value ?? 0);
+      } catch {
+        // metric bị Meta bỏ ở phiên bản này → coi như không có
+      }
+    }
+    return out;
   }
 
   /**

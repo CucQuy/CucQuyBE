@@ -21,6 +21,7 @@ import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { FacebookService } from './facebook.service';
 import { FacebookCommentsService } from './facebook-comments.service';
+import { InstagramService } from './instagram.service';
 
 /** Webhook Facebook — PUBLIC (Meta gọi tới, không có token đăng nhập). */
 @ApiTags('Facebook')
@@ -75,6 +76,7 @@ export class FacebookController {
   constructor(
     private readonly service: FacebookService,
     private readonly comments: FacebookCommentsService,
+    private readonly instagram: InstagramService,
   ) {}
 
   /** Danh sách khách đã inbox page. filter: window (còn 24h) | optin | '' (tất cả). */
@@ -104,14 +106,23 @@ export class FacebookController {
   }
 
   // ── Bình luận fanpage ────────────────────────────────────
-  /** Danh sách bình luận. filter: pending | hidden | replied | '' (tất cả). */
+  /**
+   * Danh sách bình luận (gồm cả Instagram).
+   * filter: pending | hidden | replied | '' — platform: facebook | instagram | '' (cả hai).
+   */
   @Get('comments')
   listComments(
     @Query('filter') filter?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('platform') platform?: string,
   ) {
-    return this.comments.list(String(filter ?? ''), Number(limit) || 50, Number(offset) || 0);
+    return this.comments.list(
+      String(filter ?? ''),
+      Number(limit) || 50,
+      Number(offset) || 0,
+      String(platform ?? ''),
+    );
   }
 
   /** Kéo bài đăng + bình luận mới nhất từ Facebook về. */
@@ -142,6 +153,37 @@ export class FacebookController {
   @Delete('comments/:id')
   deleteComment(@Param('id') id: string) {
     return this.comments.remove(id);
+  }
+
+  /**
+   * Số liệu fanpage + Instagram cho thẻ KPI ngoài Dashboard.
+   * Gộp 1 endpoint để FE chỉ gọi 1 lần; phần nào lỗi thì trả 0, không làm hỏng cả thẻ.
+   */
+  @Get('insights')
+  async insights() {
+    const [page, ig] = await Promise.all([
+      this.service.pageInsights().catch(() => ({})),
+      this.instagram.insights().catch(() => ({})),
+    ]);
+    return {
+      pageViews: Number((page as Record<string, number>).page_views_total ?? 0),
+      postEngagements: Number((page as Record<string, number>).page_post_engagements ?? 0),
+      newFollows: Number((page as Record<string, number>).page_daily_follows ?? 0),
+      igReach: Number((ig as Record<string, number>).reach ?? 0),
+    };
+  }
+
+  // ── Instagram (cùng page token) ──────────────────────────
+  /** Hồ sơ tài khoản Instagram gắn với page — null nghĩa là chưa nối. */
+  @Get('instagram')
+  igProfile() {
+    return this.instagram.profile();
+  }
+
+  /** Kéo hội thoại Instagram Direct về danh sách khách. */
+  @Post('instagram/sync')
+  igSync() {
+    return this.instagram.syncConversations();
   }
 
   /** Cấu hình luật tự động (ẩn SĐT/từ khoá, trả lời, nhắn riêng). */

@@ -42,10 +42,18 @@ export class FacebookProc {
     filter: string,
     limit: number,
     offset: number,
+    platform = '',
   ): Promise<Record<string, unknown>> {
     const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
-      SELECT facebook_comment_list(${filter}, ${limit}, ${offset}) AS data`;
+      SELECT facebook_comment_list(${filter}, ${limit}, ${offset}, ${platform}) AS data`;
     return row?.data ?? { items: [], counts: { total: 0, pending: 0, hidden: 0, replied: 0 } };
+  }
+
+  /** 1 bình luận — service cần `platform` để chọn đúng đường dẫn Graph (IG khác FB). */
+  async getComment(id: string): Promise<Record<string, unknown> | null> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT facebook_comment_get(${id}) AS data`;
+    return row?.data ?? null;
   }
 
   /** hidden/replied = null → giữ nguyên giá trị cũ. */

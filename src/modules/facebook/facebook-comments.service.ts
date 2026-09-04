@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { FacebookProc } from './facebook.proc';
+import { InstagramService } from './instagram.service';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
@@ -30,7 +31,16 @@ const norm = (s: string): string =>
 export class FacebookCommentsService {
   private readonly logger = new Logger(FacebookCommentsService.name);
 
-  constructor(private readonly proc: FacebookProc) {}
+  constructor(
+    private readonly proc: FacebookProc,
+    private readonly instagram: InstagramService,
+  ) {}
+
+  /** Bình luận này thuộc Instagram? (đường dẫn Graph khác Facebook) */
+  private async isInstagram(commentId: string): Promise<boolean> {
+    const c = await this.proc.getComment(commentId);
+    return String(c?.platform ?? '') === 'instagram';
+  }
 
   private cfg() {
     return {
@@ -65,8 +75,23 @@ export class FacebookCommentsService {
   }
 
   // ── Đồng bộ ────────────────────────────────────────────────
-  /** Kéo bài đăng gần đây + bình luận của từng bài về DB. */
+  /**
+   * Kéo bài + bình luận của CẢ fanpage và Instagram về DB.
+   * IG lỗi (chưa nối tài khoản, thiếu quyền) không được làm hỏng phần Facebook.
+   */
   async sync(postLimit = 10): Promise<{ posts: number; comments: number }> {
+    const fb = await this.syncFacebook(postLimit);
+    let ig = { posts: 0, comments: 0 };
+    try {
+      ig = await this.instagram.syncComments(postLimit);
+    } catch (e) {
+      this.logger.warn(`Bỏ qua đồng bộ Instagram: ${String(e)}`);
+    }
+    return { posts: fb.posts + ig.posts, comments: fb.comments + ig.comments };
+  }
+
+  /** Riêng phần fanpage Facebook. */
+  private async syncFacebook(postLimit: number): Promise<{ posts: number; comments: number }> {
     const { pageId } = this.cfg();
     const feed = await this.graph(
       `/${pageId}/feed?fields=id,message,created_time,permalink_url&limit=${postLimit}`,
@@ -103,30 +128,35 @@ export class FacebookCommentsService {
     return { posts: posts.length, comments };
   }
 
-  list(filter: string, limit: number, offset: number) {
+  list(filter: string, limit: number, offset: number, platform = '') {
     const f = ['pending', 'hidden', 'replied'].includes(filter) ? filter : '';
-    return this.proc.listComments(f, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
+    const p = ['facebook', 'instagram'].includes(platform) ? platform : '';
+    return this.proc.listComments(f, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0), p);
   }
 
   // ── Thao tác trên 1 bình luận ──────────────────────────────
-  /** Trả lời CÔNG KHAI dưới bình luận. */
+  /** Trả lời CÔNG KHAI dưới bình luận (Instagram dùng `/replies`). */
   async reply(commentId: string, message: string): Promise<{ id: string }> {
     const text = String(message ?? '').trim();
     if (!text) throw new BadRequestException('Nội dung trả lời trống');
-    const r = await this.graph(`/${commentId}/comments`, { method: 'POST', body: { message: text } });
+    const r = (await this.isInstagram(commentId))
+      ? await this.instagram.reply(commentId, text)
+      : await this.graph(`/${commentId}/comments`, { method: 'POST', body: { message: text } });
     await this.proc.markComment(commentId, null, true, null);
     return { id: String(r?.id ?? '') };
   }
 
-  /** Ẩn / bỏ ẩn bình luận (chỉ người bình luận và bạn bè họ còn thấy). */
+  /** Ẩn / bỏ ẩn bình luận (Instagram dùng field `hide`, Facebook dùng `is_hidden`). */
   async setHidden(commentId: string, hidden: boolean): Promise<void> {
-    await this.graph(`/${commentId}`, { method: 'POST', body: { is_hidden: hidden } });
+    if (await this.isInstagram(commentId)) await this.instagram.setHidden(commentId, hidden);
+    else await this.graph(`/${commentId}`, { method: 'POST', body: { is_hidden: hidden } });
     await this.proc.markComment(commentId, hidden, null, null);
   }
 
   /** Xoá hẳn bình luận — KHÔNG hoàn tác được. */
   async remove(commentId: string): Promise<void> {
-    await this.graph(`/${commentId}`, { method: 'DELETE' });
+    if (await this.isInstagram(commentId)) await this.instagram.remove(commentId);
+    else await this.graph(`/${commentId}`, { method: 'DELETE' });
     await this.proc.deleteComment(commentId);
   }
 
@@ -137,10 +167,15 @@ export class FacebookCommentsService {
   async privateReply(commentId: string, message: string): Promise<void> {
     const text = String(message ?? '').trim();
     if (!text) throw new BadRequestException('Nội dung tin trống');
-    await this.graph(`/me/messages`, {
-      method: 'POST',
-      body: { recipient: { comment_id: commentId }, message: { text } },
-    });
+    if (await this.isInstagram(commentId)) {
+      // Instagram cho nhắn riêng trong 7 ngày kể từ bình luận (rộng hơn Messenger 24h).
+      await this.instagram.privateReply(commentId, text);
+    } else {
+      await this.graph(`/me/messages`, {
+        method: 'POST',
+        body: { recipient: { comment_id: commentId }, message: { text } },
+      });
+    }
     await this.proc.markComment(commentId, null, true, null);
   }
 

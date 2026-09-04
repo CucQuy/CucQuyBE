@@ -13,7 +13,7 @@ BEGIN
   IF v_id = '' THEN RETURN NULL; END IF;
 
   INSERT INTO facebook_comments (
-    id, post_id, parent_id, psid, from_name, message, is_hidden, created_time, raw
+    id, post_id, parent_id, psid, from_name, message, is_hidden, created_time, raw, platform
   ) VALUES (
     v_id,
     NULLIF(p_data->>'postId',''),
@@ -23,7 +23,8 @@ BEGIN
     p_data->>'message',
     COALESCE((p_data->>'isHidden')::boolean, false),
     COALESCE((p_data->>'createdTime')::timestamptz, now()),
-    p_data->'raw'
+    p_data->'raw',
+    CASE WHEN p_data->>'platform' = 'instagram' THEN 'instagram' ELSE 'facebook' END
   )
   ON CONFLICT (id) DO UPDATE SET
     message      = COALESCE(EXCLUDED.message, facebook_comments.message),
@@ -40,31 +41,41 @@ $$;
 CREATE OR REPLACE FUNCTION facebook_post_upsert(p_data jsonb)
 RETURNS void
 LANGUAGE sql AS $$
-  INSERT INTO facebook_posts (id, message, permalink, created_time, synced_at)
+  INSERT INTO facebook_posts (id, message, permalink, created_time, synced_at, platform, media_url, media_type)
   VALUES (
     p_data->>'id',
     p_data->>'message',
     p_data->>'permalink',
     COALESCE((p_data->>'createdTime')::timestamptz, now()),
-    now()
+    now(),
+    CASE WHEN p_data->>'platform' = 'instagram' THEN 'instagram' ELSE 'facebook' END,
+    NULLIF(p_data->>'mediaUrl',''),
+    NULLIF(p_data->>'mediaType','')
   )
   ON CONFLICT (id) DO UPDATE SET
     message      = COALESCE(EXCLUDED.message, facebook_posts.message),
     permalink    = COALESCE(EXCLUDED.permalink, facebook_posts.permalink),
     created_time = COALESCE(EXCLUDED.created_time, facebook_posts.created_time),
+    media_url    = COALESCE(EXCLUDED.media_url, facebook_posts.media_url),
+    media_type   = COALESCE(EXCLUDED.media_type, facebook_posts.media_type),
+    platform     = EXCLUDED.platform,
     synced_at    = now()
   WHERE COALESCE(p_data->>'id','') <> '';
 $$;
 
 -- Danh sách bình luận cho FE. p_filter: 'pending' (chưa trả lời, chưa ẩn) | 'hidden' | '' (tất cả).
-CREATE OR REPLACE FUNCTION facebook_comment_list(p_filter text, p_limit int, p_offset int)
+CREATE OR REPLACE FUNCTION facebook_comment_list(
+  p_filter text, p_limit int, p_offset int, p_platform text DEFAULT ''
+)
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
   WITH rows AS (
-    SELECT c.*, p.message AS post_message, p.permalink AS post_permalink
+    SELECT c.*, p.message AS post_message, p.permalink AS post_permalink,
+           p.media_url AS post_media_url
       FROM facebook_comments c
       LEFT JOIN facebook_posts p ON p.id = c.post_id
-     WHERE CASE COALESCE(p_filter,'')
+     WHERE (COALESCE(p_platform,'') = '' OR c.platform = p_platform)
+       AND CASE COALESCE(p_filter,'')
              WHEN 'pending' THEN c.replied_at IS NULL AND c.is_hidden = false
              WHEN 'hidden'  THEN c.is_hidden
              WHEN 'replied' THEN c.replied_at IS NOT NULL
@@ -80,6 +91,8 @@ LANGUAGE sql STABLE AS $$
         'postId',        r.post_id,
         'postMessage',   COALESCE(r.post_message, ''),
         'postPermalink', COALESCE(r.post_permalink, ''),
+        'postMediaUrl',  COALESCE(r.post_media_url, ''),
+        'platform',      r.platform,
         'psid',          r.psid,
         'fromName',      COALESCE(r.from_name, ''),
         'message',       COALESCE(r.message, ''),
@@ -93,8 +106,11 @@ LANGUAGE sql STABLE AS $$
         'total',   COUNT(*),
         'pending', COUNT(*) FILTER (WHERE replied_at IS NULL AND is_hidden = false),
         'hidden',  COUNT(*) FILTER (WHERE is_hidden),
-        'replied', COUNT(*) FILTER (WHERE replied_at IS NOT NULL)
+        'replied', COUNT(*) FILTER (WHERE replied_at IS NOT NULL),
+        'facebook', COUNT(*) FILTER (WHERE platform = 'facebook'),
+        'instagram', COUNT(*) FILTER (WHERE platform = 'instagram')
       ) FROM facebook_comments
+     WHERE COALESCE(p_platform,'') = '' OR platform = p_platform
     )
   );
 $$;
@@ -111,6 +127,20 @@ LANGUAGE sql AS $$
     replied_at  = CASE WHEN p_replied IS TRUE THEN now() ELSE replied_at END,
     auto_action = COALESCE(NULLIF(p_auto,''), auto_action)
   WHERE id = p_id;
+$$;
+
+-- Đọc 1 bình luận (service cần `platform` để chọn đúng đường dẫn Graph khi ẩn/trả lời).
+CREATE OR REPLACE FUNCTION facebook_comment_get(p_id text)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'id',       c.id,
+    'postId',   c.post_id,
+    'psid',     c.psid,
+    'platform', c.platform,
+    'message',  COALESCE(c.message, ''),
+    'isHidden', c.is_hidden
+  ) FROM facebook_comments c WHERE c.id = p_id;
 $$;
 
 CREATE OR REPLACE FUNCTION facebook_comment_delete(p_id text)

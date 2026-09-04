@@ -2135,14 +2135,15 @@ DECLARE
 BEGIN
   IF v_psid = '' THEN RETURN NULL; END IF;
 
-  INSERT INTO facebook_contacts (psid, name, profile_pic, last_inbound_at, message_count, updated_at)
+  INSERT INTO facebook_contacts (psid, name, profile_pic, last_inbound_at, message_count, updated_at, platform)
   VALUES (
     v_psid,
     NULLIF(p_data->>'name', ''),
     NULLIF(p_data->>'profilePic', ''),
     CASE WHEN p_data->>'lastInboundAt' IS NOT NULL THEN (p_data->>'lastInboundAt')::timestamptz END,
     COALESCE((p_data->>'messageCount')::int, 0),
-    now()
+    now(),
+    CASE WHEN p_data->>'platform' = 'instagram' THEN 'instagram' ELSE 'facebook' END
   )
   ON CONFLICT (psid) DO UPDATE SET
     name            = COALESCE(NULLIF(EXCLUDED.name, ''), facebook_contacts.name),
@@ -2218,7 +2219,8 @@ LANGUAGE sql STABLE AS $$
         'messageCount',  r.message_count,
         'optedInAt',     r.opted_in_at,
         'inWindow',      r.in_window,
-        'minutesLeft',   r.minutes_left
+        'minutesLeft',   r.minutes_left,
+        'platform',      r.platform
       ) ORDER BY r.last_inbound_at DESC NULLS LAST)
       FROM (
         SELECT * FROM rows
