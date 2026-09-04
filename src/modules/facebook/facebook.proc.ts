@@ -120,9 +120,10 @@ export class FacebookProc {
     filter: string,
     limit: number,
     offset: number,
+    platform = '',
   ): Promise<{ items: FacebookContact[]; counts: Record<string, number> }> {
     const [row] = await this.db.sql<{ data: { items: FacebookContact[]; counts: Record<string, number> } | null }[]>`
-      SELECT facebook_contact_list(${filter}, ${limit}, ${offset}) AS data`;
+      SELECT facebook_contact_list(${filter}, ${limit}, ${offset}, ${platform}) AS data`;
     return row?.data ?? { items: [], counts: { total: 0, inWindow: 0, optIn: 0 } };
   }
 }

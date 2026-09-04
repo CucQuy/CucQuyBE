@@ -356,9 +356,10 @@ export class FacebookService {
   }
 
   // ── Danh sách + gửi tin ────────────────────────────────────
-  async listContacts(filter: string, limit: number, offset: number) {
+  async listContacts(filter: string, limit: number, offset: number, platform = '') {
     const f = ['window', 'optin'].includes(filter) ? filter : '';
-    return this.proc.listContacts(f, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0));
+    const p = ['facebook', 'instagram'].includes(platform) ? platform : '';
+    return this.proc.listContacts(f, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0), p);
   }
 
   /** Gọi Send API 1 lần với `message` dựng sẵn (text / ảnh / thẻ). */

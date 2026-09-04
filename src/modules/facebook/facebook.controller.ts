@@ -81,17 +81,22 @@ export class FacebookController {
     private readonly posts: SocialPostsService,
   ) {}
 
-  /** Danh sách khách đã inbox page. filter: window (còn 24h) | optin | '' (tất cả). */
+  /**
+   * Danh sách khách đã inbox page. filter: window (còn 24h) | optin | '' (tất cả).
+   * platform: facebook | instagram | '' — tách 2 màn Facebook / Instagram.
+   */
   @Get('contacts')
   contacts(
     @Query('filter') filter?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('platform') platform?: string,
   ) {
     return this.service.listContacts(
       String(filter ?? ''),
       Number(limit) || 100,
       Number(offset) || 0,
+      String(platform ?? ''),
     );
   }
 
@@ -198,6 +203,12 @@ export class FacebookController {
   @Post('instagram/sync')
   igSync() {
     return this.instagram.syncConversations();
+  }
+
+  /** Kéo RIÊNG bài + bình luận Instagram (màn Instagram · Bình luận). */
+  @Post('instagram/comments/sync')
+  igSyncComments(@Body() body: { mediaLimit?: number }) {
+    return this.instagram.syncComments(Number(body?.mediaLimit) || 12);
   }
 
   // ── Đăng bài lên fanpage + Instagram ─────────────────────

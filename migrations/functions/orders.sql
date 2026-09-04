@@ -2195,7 +2195,9 @@ $$;
 
 -- Danh sách khách Facebook cho FE: kèm cờ CÒN nhắn tự do được không (trong 24h)
 -- và số phút còn lại — để nhân viên biết ai gửi được ngay, ai phải chờ khách nhắn lại.
-CREATE OR REPLACE FUNCTION facebook_contact_list(p_filter text, p_limit int, p_offset int)
+CREATE OR REPLACE FUNCTION facebook_contact_list(
+  p_filter text, p_limit int, p_offset int, p_platform text DEFAULT ''
+)
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
   WITH rows AS (
@@ -2206,6 +2208,7 @@ LANGUAGE sql STABLE AS $$
                 ELSE 0 END AS minutes_left
       FROM facebook_contacts c
      WHERE c.blocked = false
+       AND (COALESCE(p_platform,'') = '' OR c.platform = p_platform)
   )
   SELECT jsonb_build_object(
     'items', COALESCE((
