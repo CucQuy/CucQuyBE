@@ -18,5 +18,3 @@ CREATE INDEX IF NOT EXISTS idx_fb_contacts_platform ON facebook_contacts (platfo
 
 -- Bỏ bản 3 tham số cũ: bản mới thêm p_platform có DEFAULT, để cả hai sẽ "function is not unique".
 DROP FUNCTION IF EXISTS facebook_comment_list(text, int, int);
-
-DROP FUNCTION IF EXISTS facebook_contact_list(text, int, int);
