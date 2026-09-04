@@ -23,6 +23,8 @@ export interface FbSendResult {
 @Injectable()
 export class FacebookService {
   private readonly logger = new Logger(FacebookService.name);
+  /** Mốc lần quét hồ sơ (tên/ảnh) gần nhất — chặn quét dồn khi FE gọi liên tục. */
+  private lastProfileSweep = 0;
 
   constructor(
     private readonly proc: FacebookProc,
@@ -439,7 +441,19 @@ export class FacebookService {
   async listContacts(filter: string, limit: number, offset: number, platform = '') {
     const f = ['window', 'optin'].includes(filter) ? filter : '';
     const p = ['facebook', 'instagram'].includes(platform) ? platform : '';
-    return this.proc.listContacts(f, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0), p);
+    const res = await this.proc.listContacts(
+      f,
+      Math.min(Math.max(limit, 1), 500),
+      Math.max(offset, 0),
+      p,
+    );
+    // Ai chưa có ảnh thì kéo hồ sơ về NGẦM (mỗi lượt 40 người, cách nhau ≥5 phút):
+    // mở hộp thư vài lần là avatar đủ dần, không phải chờ bấm Đồng bộ.
+    if (res.items.some((c) => !c.profilePic) && Date.now() - this.lastProfileSweep > 5 * 60_000) {
+      this.lastProfileSweep = Date.now();
+      void this.refreshProfiles().catch(() => undefined);
+    }
+    return res;
   }
 
   /** Gọi Send API 1 lần với `message` dựng sẵn (text / ảnh / thẻ). */
