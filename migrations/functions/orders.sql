@@ -2169,7 +2169,10 @@ DECLARE
   v_dir  text := CASE WHEN p_data->>'direction' = 'out' THEN 'out' ELSE 'in' END;
 BEGIN
   IF v_psid = '' THEN RETURN; END IF;
-  INSERT INTO facebook_contacts (psid) VALUES (v_psid) ON CONFLICT (psid) DO NOTHING;
+  -- Người nhắn Instagram phải được gắn nhãn kênh ngay từ đầu, kẻo lọt vào hộp thư Facebook.
+  INSERT INTO facebook_contacts (psid, platform)
+  VALUES (v_psid, CASE WHEN p_data->>'platform' = 'instagram' THEN 'instagram' ELSE 'facebook' END)
+  ON CONFLICT (psid) DO NOTHING;
 
   INSERT INTO facebook_messages (id, psid, direction, text, attachments, error, created_at)
   VALUES (

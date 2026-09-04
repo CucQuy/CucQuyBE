@@ -25,6 +25,8 @@ export class FacebookService {
   private readonly logger = new Logger(FacebookService.name);
   /** Mốc lần quét hồ sơ (tên/ảnh) gần nhất — chặn quét dồn khi FE gọi liên tục. */
   private lastProfileSweep = 0;
+  /** id tài khoản Instagram gắn với page — dùng để loại tin do chính mình gửi. */
+  private igUserId = '';
 
   constructor(
     private readonly proc: FacebookProc,
@@ -118,14 +120,18 @@ export class FacebookService {
         }
       }
 
+      // Instagram Direct cũng tới qua `messaging[]`, chỉ khác `object` của webhook.
+      const platform = igEntry ? 'instagram' : 'facebook';
+      if (igEntry && !this.igUserId) await this.loadIgUserId();
       const events = Array.isArray(entry?.messaging) ? entry.messaging : [];
       for (const ev of events) {
         const psid = String(ev?.sender?.id ?? '').trim();
-        if (!psid || psid === this.cfg().pageId) continue;
+        // Bỏ tin do CHÍNH page/IG gửi (echo) — nếu không sẽ tạo "khách" là chính mình.
+        if (!psid || psid === this.cfg().pageId || psid === this.igUserId) continue;
 
         // Khách bấm nút "Đăng ký nhận tin" (recurring notifications) → cho phép gửi ngoài 24h.
         if (ev?.messaging_optins) {
-          await this.proc.upsertContact({ psid });
+          await this.proc.upsertContact({ psid, platform });
           this.logger.log(`FB opt-in từ ${psid}`);
           continue;
         }
@@ -139,10 +145,18 @@ export class FacebookService {
           direction: 'in',
           text,
           attachments,
+          platform,
           createdAt: ev?.timestamp ? new Date(Number(ev.timestamp)).toISOString() : undefined,
         });
+        await this.proc.upsertContact({
+          psid,
+          platform,
+          lastInboundAt: ev?.timestamp ? new Date(Number(ev.timestamp)).toISOString() : undefined,
+        });
         // Tên/ảnh khách: lấy nền, lỗi thì thôi (không chặn webhook — Meta cần 200 nhanh).
-        void this.fetchProfile(psid).catch(() => undefined);
+        // Hồ sơ người nhắn Instagram phải hỏi qua hộp thư IG, không phải endpoint của Facebook.
+        if (platform === 'instagram') void this.fetchIgProfile(psid).catch(() => undefined);
+        else void this.fetchProfile(psid).catch(() => undefined);
       }
     }
   }
@@ -190,6 +204,46 @@ export class FacebookService {
     await this.proc.upsertContact({
       psid,
       name: String(other.name),
+      messageCount: Number(conv?.message_count) || 0,
+    });
+  }
+
+  /** id tài khoản Instagram của page — hỏi Graph 1 lần rồi nhớ. */
+  private async loadIgUserId(): Promise<void> {
+    const { pageId, token } = this.cfg();
+    if (!pageId || !token) return;
+    try {
+      const res = await fetch(
+        `${GRAPH}/${pageId}?fields=instagram_business_account&access_token=${encodeURIComponent(token)}`,
+      );
+      const body = (await res.json()) as { instagram_business_account?: { id?: string } };
+      this.igUserId = String(body?.instagram_business_account?.id ?? '');
+    } catch {
+      // không lấy được thì thôi, chỉ mất bộ lọc tin echo
+    }
+  }
+
+  /**
+   * Tên + ảnh người nhắn INSTAGRAM. Endpoint /{igsid} của Facebook không dùng được,
+   * phải đi qua hộp thư IG của page (participants có username + profile_pic).
+   */
+  private async fetchIgProfile(psid: string): Promise<void> {
+    const { pageId, token } = this.cfg();
+    if (!pageId || !token) return;
+    const res = await fetch(
+      `${GRAPH}/${pageId}/conversations?platform=instagram&user_id=${encodeURIComponent(psid)}` +
+        `&fields=participants,updated_time,message_count&access_token=${encodeURIComponent(token)}`,
+    );
+    if (!res.ok) return;
+    const body = (await res.json()) as { data?: any[] };
+    const conv = body?.data?.[0];
+    const other = (conv?.participants?.data ?? []).find((p: any) => String(p?.id) !== pageId);
+    if (!other) return;
+    await this.proc.upsertContact({
+      psid,
+      name: String(other.username ?? other.name ?? ''),
+      profilePic: String(other.profile_pic ?? ''),
+      platform: 'instagram',
       messageCount: Number(conv?.message_count) || 0,
     });
   }
