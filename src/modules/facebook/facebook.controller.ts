@@ -7,11 +7,12 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../../auth/roles.decorator';
 import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
@@ -23,7 +24,11 @@ import { FacebookService } from './facebook.service';
 export class FacebookWebhookController {
   constructor(private readonly service: FacebookService) {}
 
-  /** Meta gọi 1 lần khi khai webhook: trả lại hub.challenge nếu verify token khớp. */
+  /**
+   * Meta gọi 1 lần khi khai webhook: phải trả ĐÚNG chuỗi hub.challenge dạng TEXT THÔ.
+   * Dùng @Res() để bypass envelope {data,message,...} toàn cục — trả JSON là Meta báo
+   * "The URL couldn't be validated".
+   */
   @Public()
   @UseGuards(IpThrottlerGuard)
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
@@ -32,8 +37,10 @@ export class FacebookWebhookController {
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
-  ): string {
-    return this.service.verifyWebhook(mode, token, challenge);
+    @Res() res: Response,
+  ): void {
+    const value = this.service.verifyWebhook(mode, token, challenge);
+    res.status(200).type('text/plain').send(value);
   }
 
   /**
@@ -42,12 +49,17 @@ export class FacebookWebhookController {
    */
   @Public()
   @Post()
-  async receive(@Req() req: Request & { rawBody?: Buffer }, @Body() body: Record<string, any>) {
+  async receive(
+    @Req() req: Request & { rawBody?: Buffer },
+    @Body() body: Record<string, any>,
+    @Res() res: Response,
+  ): Promise<void> {
     if (!this.service.verifySignature(req.rawBody, req.header('x-hub-signature-256'))) {
       throw new ForbiddenException('FB_BAD_SIGNATURE');
     }
     await this.service.handleWebhook(body ?? {});
-    return 'EVENT_RECEIVED';
+    // Meta chỉ cần 200 + text thô, không cần envelope.
+    res.status(200).type('text/plain').send('EVENT_RECEIVED');
   }
 }
 
