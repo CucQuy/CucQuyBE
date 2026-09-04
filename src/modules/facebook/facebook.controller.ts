@@ -2,9 +2,12 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
+  Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -17,6 +20,7 @@ import { Public } from '../../auth/roles.decorator';
 import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { FacebookService } from './facebook.service';
+import { FacebookCommentsService } from './facebook-comments.service';
 
 /** Webhook Facebook — PUBLIC (Meta gọi tới, không có token đăng nhập). */
 @ApiTags('Facebook')
@@ -68,7 +72,10 @@ export class FacebookWebhookController {
 @Controller('facebook')
 @UseGuards(SsoAuthGuard)
 export class FacebookController {
-  constructor(private readonly service: FacebookService) {}
+  constructor(
+    private readonly service: FacebookService,
+    private readonly comments: FacebookCommentsService,
+  ) {}
 
   /** Danh sách khách đã inbox page. filter: window (còn 24h) | optin | '' (tất cả). */
   @Get('contacts')
@@ -94,6 +101,58 @@ export class FacebookController {
   @Post('sync')
   sync() {
     return this.service.syncConversations();
+  }
+
+  // ── Bình luận fanpage ────────────────────────────────────
+  /** Danh sách bình luận. filter: pending | hidden | replied | '' (tất cả). */
+  @Get('comments')
+  listComments(
+    @Query('filter') filter?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.comments.list(String(filter ?? ''), Number(limit) || 50, Number(offset) || 0);
+  }
+
+  /** Kéo bài đăng + bình luận mới nhất từ Facebook về. */
+  @Post('comments/sync')
+  syncComments(@Body() body: { postLimit?: number }) {
+    return this.comments.sync(Number(body?.postLimit) || 10);
+  }
+
+  /** Trả lời CÔNG KHAI dưới bình luận. */
+  @Post('comments/:id/reply')
+  replyComment(@Param('id') id: string, @Body() body: { message?: string }) {
+    return this.comments.reply(id, String(body?.message ?? ''));
+  }
+
+  /** Nhắn RIÊNG người bình luận — mở cửa sổ 24h với họ. */
+  @Post('comments/:id/private-reply')
+  privateReply(@Param('id') id: string, @Body() body: { message?: string }) {
+    return this.comments.privateReply(id, String(body?.message ?? ''));
+  }
+
+  /** Ẩn / bỏ ẩn bình luận. */
+  @Post('comments/:id/hide')
+  hideComment(@Param('id') id: string, @Body() body: { hidden?: boolean }) {
+    return this.comments.setHidden(id, body?.hidden !== false);
+  }
+
+  /** Xoá hẳn bình luận (không hoàn tác). */
+  @Delete('comments/:id')
+  deleteComment(@Param('id') id: string) {
+    return this.comments.remove(id);
+  }
+
+  /** Cấu hình luật tự động (ẩn SĐT/từ khoá, trả lời, nhắn riêng). */
+  @Get('config')
+  getConfig() {
+    return this.comments.getConfig();
+  }
+
+  @Put('config')
+  saveConfig(@Body() body: Record<string, unknown>) {
+    return this.comments.saveConfig(body ?? {});
   }
 
   /**

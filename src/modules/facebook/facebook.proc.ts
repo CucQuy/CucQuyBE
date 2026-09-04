@@ -29,6 +29,51 @@ export class FacebookProc {
     await this.db.sql`SELECT facebook_message_add(${this.db.json(data)}::jsonb)`;
   }
 
+  // ── Bình luận fanpage (086) ──────────────────────────────
+  async upsertPost(data: Record<string, unknown>): Promise<void> {
+    await this.db.sql`SELECT facebook_post_upsert(${this.db.json(data)}::jsonb)`;
+  }
+
+  async upsertComment(data: Record<string, unknown>): Promise<void> {
+    await this.db.sql`SELECT facebook_comment_upsert(${this.db.json(data)}::jsonb)`;
+  }
+
+  async listComments(
+    filter: string,
+    limit: number,
+    offset: number,
+  ): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT facebook_comment_list(${filter}, ${limit}, ${offset}) AS data`;
+    return row?.data ?? { items: [], counts: { total: 0, pending: 0, hidden: 0, replied: 0 } };
+  }
+
+  /** hidden/replied = null → giữ nguyên giá trị cũ. */
+  async markComment(
+    id: string,
+    hidden: boolean | null,
+    replied: boolean | null,
+    auto: string | null,
+  ): Promise<void> {
+    await this.db.sql`SELECT facebook_comment_mark(${id}, ${hidden}, ${replied}, ${auto})`;
+  }
+
+  async deleteComment(id: string): Promise<void> {
+    await this.db.sql`SELECT facebook_comment_delete(${id})`;
+  }
+
+  async commentConfig(): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT facebook_config_get() AS data`;
+    return row?.data ?? {};
+  }
+
+  async saveCommentConfig(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT facebook_config_save(${this.db.json(data)}::jsonb) AS data`;
+    return row?.data ?? {};
+  }
+
   async listContacts(
     filter: string,
     limit: number,

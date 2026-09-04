@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { FacebookProc, type FacebookContact } from './facebook.proc';
+import { FacebookCommentsService } from './facebook-comments.service';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
@@ -23,7 +24,10 @@ export interface FbSendResult {
 export class FacebookService {
   private readonly logger = new Logger(FacebookService.name);
 
-  constructor(private readonly proc: FacebookProc) {}
+  constructor(
+    private readonly proc: FacebookProc,
+    private readonly comments: FacebookCommentsService,
+  ) {}
 
   private cfg() {
     return {
@@ -68,10 +72,45 @@ export class FacebookService {
     return a.length === b.length && timingSafeEqual(a, b);
   }
 
-  /** Xử lý payload webhook: lưu tin khách nhắn + cập nhật mốc 24h. */
+  /**
+   * Xử lý payload webhook: tin nhắn (`entry[].messaging[]`) và BÌNH LUẬN
+   * (`entry[].changes[]` với field='feed'). Bình luận mới → lưu + chạy luật tự động.
+   */
   async handleWebhook(body: Record<string, any>): Promise<void> {
     const entries = Array.isArray(body?.entry) ? body.entry : [];
     for (const entry of entries) {
+      // ── Bình luận / bài đăng ──
+      for (const ch of Array.isArray(entry?.changes) ? entry.changes : []) {
+        if (ch?.field !== 'feed') continue;
+        const v = ch?.value ?? {};
+        if (v?.item !== 'comment') continue;
+        const psid = String(v?.from?.id ?? '');
+        if (psid && psid === this.cfg().pageId) continue; // bình luận của chính page
+
+        const commentId = String(v?.comment_id ?? '');
+        if (!commentId) continue;
+        if (v?.verb === 'remove') {
+          await this.proc.deleteComment(commentId).catch(() => undefined);
+          continue;
+        }
+        await this.proc.upsertComment({
+          id: commentId,
+          postId: String(v?.post_id ?? ''),
+          parentId: String(v?.parent_id ?? ''),
+          psid,
+          fromName: String(v?.from?.name ?? ''),
+          message: String(v?.message ?? ''),
+          createdTime: v?.created_time ? new Date(Number(v.created_time) * 1000).toISOString() : undefined,
+          raw: v,
+        });
+        // Luật tự động (ẩn SĐT / từ khoá, trả lời, nhắn riêng) — chạy nền, không chặn webhook.
+        if (v?.verb === 'add') {
+          void this.comments
+            .runAutoRules({ id: commentId, message: String(v?.message ?? ''), psid })
+            .catch(() => undefined);
+        }
+      }
+
       const events = Array.isArray(entry?.messaging) ? entry.messaging : [];
       for (const ev of events) {
         const psid = String(ev?.sender?.id ?? '').trim();
