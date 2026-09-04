@@ -128,10 +128,22 @@ export class FacebookCommentsService {
     return { posts: posts.length, comments };
   }
 
-  list(filter: string, limit: number, offset: number, platform = '') {
+  list(filter: string, limit: number, offset: number, platform = '', postId = '') {
     const f = ['pending', 'hidden', 'replied'].includes(filter) ? filter : '';
     const p = ['facebook', 'instagram'].includes(platform) ? platform : '';
-    return this.proc.listComments(f, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0), p);
+    return this.proc.listComments(
+      f,
+      Math.min(Math.max(limit, 1), 200),
+      Math.max(offset, 0),
+      p,
+      String(postId ?? ''),
+    );
+  }
+
+  /** Danh sách bài đã kéo về, kèm số bình luận / số chưa trả lời. */
+  posts(platform: string, limit: number, offset: number) {
+    const p = ['facebook', 'instagram'].includes(platform) ? platform : '';
+    return this.proc.listPagePosts(p, Math.min(Math.max(limit, 1), 100), Math.max(offset, 0));
   }
 
   // ── Thao tác trên 1 bình luận ──────────────────────────────

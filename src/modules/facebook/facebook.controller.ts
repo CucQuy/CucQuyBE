@@ -114,6 +114,31 @@ export class FacebookController {
 
   // ── Bình luận fanpage ────────────────────────────────────
   /**
+   * Bài đã kéo về (fanpage / Instagram) kèm số bình luận — cho màn "Bài viết".
+   * platform: facebook | instagram | '' (cả hai).
+   */
+  @Get('page-posts')
+  pagePosts(
+    @Query('platform') platform?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.comments.posts(String(platform ?? ''), Number(limit) || 30, Number(offset) || 0);
+  }
+
+  /**
+   * Hội thoại với 1 người: kéo lịch sử từ Graph (webhook chỉ có tin mới) rồi trả cả cuộc.
+   */
+  @Get('contacts/:psid/messages')
+  thread(
+    @Param('psid') psid: string,
+    @Query('platform') platform?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.thread(psid, String(platform ?? ''), Number(limit) || 50);
+  }
+
+  /**
    * Danh sách bình luận (gồm cả Instagram).
    * filter: pending | hidden | replied | '' — platform: facebook | instagram | '' (cả hai).
    */
@@ -123,12 +148,14 @@ export class FacebookController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('platform') platform?: string,
+    @Query('postId') postId?: string,
   ) {
     return this.comments.list(
       String(filter ?? ''),
       Number(limit) || 50,
       Number(offset) || 0,
       String(platform ?? ''),
+      String(postId ?? ''),
     );
   }
 

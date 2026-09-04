@@ -171,6 +171,45 @@ export class FacebookService {
   }
 
   /**
+   * Kéo lịch sử hội thoại với 1 người từ Graph về DB, rồi trả cả cuộc trò chuyện.
+   * Webhook chỉ đẩy tin MỚI nên người nhắn trước khi nối app sẽ không có tin nào trong DB;
+   * hàm này lấp phần lịch sử đó khi mở cửa sổ chat.
+   *
+   * `platform='instagram'` thì hỏi hộp thư Instagram (cùng endpoint, khác tham số).
+   */
+  async thread(psid: string, platform = '', limit = 50): Promise<Record<string, unknown>> {
+    const { pageId, token } = this.cfg();
+    if (pageId && token) {
+      try {
+        const igPart = platform === 'instagram' ? '&platform=instagram' : '';
+        const res = await fetch(
+          `${GRAPH}/${pageId}/conversations?user_id=${encodeURIComponent(psid)}${igPart}` +
+            `&fields=messages.limit(${limit}){id,message,from,created_time,attachments}` +
+            `&access_token=${encodeURIComponent(token)}`,
+        );
+        const body = (await res.json()) as Record<string, any>;
+        const msgs = body?.data?.[0]?.messages?.data ?? [];
+        for (const m of Array.isArray(msgs) ? msgs : []) {
+          const fromId = String(m?.from?.id ?? '');
+          await this.proc.addMessage({
+            id: String(m?.id ?? ''),
+            psid,
+            // Tin của page là 'out', của khách là 'in'.
+            direction: fromId && fromId !== psid ? 'out' : 'in',
+            text: String(m?.message ?? ''),
+            attachments: Array.isArray(m?.attachments?.data) ? m.attachments.data : null,
+            createdAt: m?.created_time ?? undefined,
+          });
+        }
+      } catch (e) {
+        // Không kéo được lịch sử thì vẫn hiện những gì DB đang có.
+        this.logger.warn(`Không kéo được hội thoại ${psid}: ${String(e)}`);
+      }
+    }
+    return this.proc.listMessages(psid, limit);
+  }
+
+  /**
    * Đánh giá khách để lại trên fanpage (tab "Đề xuất"). Chỉ ĐỌC — Meta không cho
    * trả lời đánh giá qua API, nên phần này để theo dõi và phản hồi tay trên page.
    */

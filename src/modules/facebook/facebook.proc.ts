@@ -43,10 +43,29 @@ export class FacebookProc {
     limit: number,
     offset: number,
     platform = '',
+    postId = '',
   ): Promise<Record<string, unknown>> {
     const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
-      SELECT facebook_comment_list(${filter}, ${limit}, ${offset}, ${platform}) AS data`;
+      SELECT facebook_comment_list(${filter}, ${limit}, ${offset}, ${platform}, ${postId}) AS data`;
     return row?.data ?? { items: [], counts: { total: 0, pending: 0, hidden: 0, replied: 0 } };
+  }
+
+  /** Bài đã kéo về (fanpage / Instagram) kèm số bình luận. */
+  async listPagePosts(
+    platform: string,
+    limit: number,
+    offset: number,
+  ): Promise<Record<string, unknown>[]> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown>[] | null }[]>`
+      SELECT facebook_post_list(${platform}, ${limit}, ${offset}) AS data`;
+    return Array.isArray(row?.data) ? row.data : [];
+  }
+
+  /** Hội thoại với 1 người (tin cũ → mới) + thông tin người đó. */
+  async listMessages(psid: string, limit: number): Promise<Record<string, unknown>> {
+    const [row] = await this.db.sql<{ data: Record<string, unknown> | null }[]>`
+      SELECT facebook_message_list(${psid}, ${limit}) AS data`;
+    return row?.data ?? { contact: null, items: [] };
   }
 
   /** 1 bình luận — service cần `platform` để chọn đúng đường dẫn Graph (IG khác FB). */

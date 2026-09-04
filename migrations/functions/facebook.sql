@@ -65,7 +65,7 @@ $$;
 
 -- Danh sách bình luận cho FE. p_filter: 'pending' (chưa trả lời, chưa ẩn) | 'hidden' | '' (tất cả).
 CREATE OR REPLACE FUNCTION facebook_comment_list(
-  p_filter text, p_limit int, p_offset int, p_platform text DEFAULT ''
+  p_filter text, p_limit int, p_offset int, p_platform text DEFAULT '', p_post_id text DEFAULT ''
 )
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -75,6 +75,7 @@ LANGUAGE sql STABLE AS $$
       FROM facebook_comments c
       LEFT JOIN facebook_posts p ON p.id = c.post_id
      WHERE (COALESCE(p_platform,'') = '' OR c.platform = p_platform)
+       AND (COALESCE(p_post_id,'') = '' OR c.post_id = p_post_id)
        AND CASE COALESCE(p_filter,'')
              WHEN 'pending' THEN c.replied_at IS NULL AND c.is_hidden = false
              WHEN 'hidden'  THEN c.is_hidden
@@ -110,7 +111,8 @@ LANGUAGE sql STABLE AS $$
         'facebook', COUNT(*) FILTER (WHERE platform = 'facebook'),
         'instagram', COUNT(*) FILTER (WHERE platform = 'instagram')
       ) FROM facebook_comments
-     WHERE COALESCE(p_platform,'') = '' OR platform = p_platform
+     WHERE (COALESCE(p_platform,'') = '' OR platform = p_platform)
+       AND (COALESCE(p_post_id,'') = '' OR post_id = p_post_id)
     )
   );
 $$;
@@ -280,4 +282,62 @@ CREATE OR REPLACE FUNCTION social_post_delete(p_id text)
 RETURNS void
 LANGUAGE sql AS $$
   DELETE FROM social_posts WHERE id = p_id AND status <> 'published';
+$$;
+
+-- Danh sách bài đã kéo về (fanpage / Instagram) kèm số bình luận chưa trả lời —
+-- để màn "Bài viết" biết bài nào đang cần chăm.
+CREATE OR REPLACE FUNCTION facebook_post_list(p_platform text, p_limit int, p_offset int)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(t.x ORDER BY t.created_time DESC NULLS LAST), '[]'::jsonb) FROM (
+    SELECT jsonb_build_object(
+      'id',           p.id,
+      'message',      COALESCE(p.message, ''),
+      'permalink',    COALESCE(p.permalink, ''),
+      'mediaUrl',     COALESCE(p.media_url, ''),
+      'mediaType',    COALESCE(p.media_type, ''),
+      'platform',     p.platform,
+      'createdTime',  p.created_time,
+      'commentCount', (SELECT count(*) FROM facebook_comments c WHERE c.post_id = p.id),
+      'pendingCount', (SELECT count(*) FROM facebook_comments c
+                        WHERE c.post_id = p.id AND c.replied_at IS NULL AND c.is_hidden = false)
+    ) AS x, p.created_time
+      FROM facebook_posts p
+     WHERE COALESCE(p_platform,'') = '' OR p.platform = p_platform
+     ORDER BY p.created_time DESC NULLS LAST
+     LIMIT GREATEST(1, COALESCE(p_limit, 30)) OFFSET GREATEST(0, COALESCE(p_offset, 0))
+  ) t;
+$$;
+
+-- Hội thoại với 1 người: tin cũ → mới (đọc từ dưới lên như cửa sổ chat).
+CREATE OR REPLACE FUNCTION facebook_message_list(p_psid text, p_limit int)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'contact', (
+      SELECT jsonb_build_object(
+        'psid', c.psid,
+        'name', COALESCE(c.name, ''),
+        'profilePic', COALESCE(c.profile_pic, ''),
+        'platform', c.platform,
+        'lastInboundAt', c.last_inbound_at,
+        'inWindow', (c.last_inbound_at IS NOT NULL AND c.last_inbound_at > now() - interval '24 hours')
+      ) FROM facebook_contacts c WHERE c.psid = p_psid
+    ),
+    'items', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'id',          m.id,
+        'direction',   m.direction,
+        'text',        COALESCE(m.text, ''),
+        'attachments', COALESCE(m.attachments, '[]'::jsonb),
+        'error',       COALESCE(m.error, ''),
+        'createdAt',   m.created_at
+      ) ORDER BY m.created_at)
+      FROM (
+        SELECT * FROM facebook_messages
+         WHERE psid = p_psid
+         ORDER BY created_at DESC
+         LIMIT GREATEST(1, COALESCE(p_limit, 100))
+      ) m), '[]'::jsonb)
+  );
 $$;
