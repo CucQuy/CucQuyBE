@@ -217,12 +217,17 @@ END;
 $$;
 
 -- ─────────────── Tính CÔNG theo ca ĐĂNG KÝ (đăng ký công) ───────────────
--- Với 1 NV + 1 ngày: đối chiếu ca ĐÃ ĐĂNG KÝ (shift_assignments) với ca ĐÃ LÀM
--- (khoảng [check-in đầu … check-out cuối] phủ ≥ 50% thời lượng ca).
---   Ca hợp lệ (tính công) = đăng ký ∩ đã làm.
---   status: 'valid' (đăng ký + làm) | 'missed' (đăng ký, không làm) |
---           'unregistered' (làm, không đăng ký → KHÔNG tính công) | 'off' (không đăng ký, không làm).
--- Ngày = hôm nay & chưa check-out → dùng now() làm mốc ra tạm (hiện ca hợp lệ realtime).
+-- Với 1 NV + 1 ngày: đối chiếu ca ĐÃ ĐĂNG KÝ (shift_assignments) với thời gian ĐÃ CHẤM
+-- (khoảng [check-in đầu … check-out cuối]).
+--   GIỜ LÀM = số phút thời gian chấm phủ lên khung ca ĐÃ ĐĂNG KÝ (giờ THỰC, không tính
+--   trọn ca) → về sớm/vào trễ tính đúng phần đã làm, và giờ nghỉ giữa 2 ca tự bị loại
+--   vì nằm ngoài mọi khung ca.
+--   Số CÔNG (cong) vẫn theo ngưỡng phủ ≥ 50% thời lượng ca — công là đơn vị đếm ca,
+--   còn lương thì tính theo GIỜ.
+--   status: 'valid' (đăng ký + phủ ≥50%) | 'partial' (đăng ký, có làm nhưng <50%)
+--           | 'missed' (đăng ký, không làm) | 'unregistered' (làm, không đăng ký)
+--           | 'off' (không đăng ký, không làm).
+-- Ngày = hôm nay & chưa check-out → dùng now() làm mốc ra tạm (hiện giờ làm realtime).
 -- p_input: { employeeId, date?('yyyy-mm-dd', mặc định hôm nay) }.
 CREATE OR REPLACE FUNCTION attendance_day_compute(p_input jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE AS $$
@@ -237,7 +242,7 @@ DECLARE
   v_out_min int;
   v_shifts  jsonb;
   v_cong    numeric := 0;
-  v_hours   numeric := 0;   -- tổng GIỜ hợp lệ (thời gian chấm cắt trong khung ca hợp lệ)
+  v_hours   numeric := 0;   -- tổng GIỜ THỰC làm trong các khung ca đã đăng ký
 BEGIN
   IF v_emp IS NULL THEN RETURN NULL; END IF;
 
@@ -274,24 +279,26 @@ BEGIN
           - (EXTRACT(hour FROM ws.start_time)*60 + EXTRACT(minute FROM ws.start_time))::int) AS dur_min
     FROM work_shifts ws WHERE ws.active
   ), c2 AS (
-    -- worked = phủ ≥ 50% thời lượng ca. Ca hợp lệ tính TRỌN thời lượng ca (dur_min),
-    -- KHÔNG tính giờ chấm lẻ → giờ/lương ra số chẵn (mỗi ca = 4h).
+    -- worked = phủ ≥ 50% thời lượng ca (dùng để đếm CÔNG).
+    -- GIỜ thì lấy đúng overlap_min: về sớm 1 tiếng là bớt 1 tiếng, không tính trọn ca.
     SELECT code, name, cong_factor, sort_order, reg,
            (overlap_min >= 0.5 * dur_min AND dur_min > 0) AS worked,
-           dur_min
+           overlap_min, dur_min
     FROM c
   )
   SELECT jsonb_agg(jsonb_build_object(
            'code', code, 'name', name, 'congFactor', cong_factor,
            'registered', reg, 'worked', worked, 'valid', (reg AND worked),
-           'hours', CASE WHEN reg AND worked THEN round(dur_min / 60.0, 2) ELSE 0 END,
+           -- Giờ thực của ca này (chỉ tính ca đã đăng ký; làm ngoài ca thì dùng "bổ sung công").
+           'hours', CASE WHEN reg THEN round(overlap_min / 60.0, 2) ELSE 0 END,
            'status', CASE WHEN reg AND worked THEN 'valid'
+                          WHEN reg AND overlap_min > 0 THEN 'partial'
                           WHEN reg THEN 'missed'
-                          WHEN worked THEN 'unregistered'
+                          WHEN overlap_min > 0 THEN 'unregistered'
                           ELSE 'off' END
          ) ORDER BY sort_order),
          COALESCE(sum(cong_factor) FILTER (WHERE reg AND worked), 0),
-         COALESCE(round(sum(dur_min) FILTER (WHERE reg AND worked) / 60.0, 2), 0)
+         COALESCE(round(sum(overlap_min) FILTER (WHERE reg) / 60.0, 2), 0)
     INTO v_shifts, v_cong, v_hours
   FROM c2;
 
