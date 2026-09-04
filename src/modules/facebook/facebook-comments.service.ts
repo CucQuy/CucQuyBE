@@ -93,8 +93,11 @@ export class FacebookCommentsService {
   /** Riêng phần fanpage Facebook. */
   private async syncFacebook(postLimit: number): Promise<{ posts: number; comments: number }> {
     const { pageId } = this.cfg();
+    // `full_picture` = ảnh bài (album/photo/video đều có); `attachments{media_type}`
+    // cho biết bài là ảnh / album / video để hiện đúng nhãn.
     const feed = await this.graph(
-      `/${pageId}/feed?fields=id,message,created_time,permalink_url&limit=${postLimit}`,
+      `/${pageId}/feed?fields=id,message,created_time,permalink_url,full_picture,` +
+        `attachments%7Bmedia_type%7D&limit=${postLimit}`,
     );
     let comments = 0;
     const posts = Array.isArray(feed?.data) ? feed.data : [];
@@ -105,6 +108,9 @@ export class FacebookCommentsService {
         message: p.message ?? '',
         permalink: p.permalink_url ?? '',
         createdTime: p.created_time ?? null,
+        platform: 'facebook',
+        mediaUrl: p.full_picture ?? '',
+        mediaType: p.attachments?.data?.[0]?.media_type ?? '',
       });
       const cmts = await this.graph(
         `/${p.id}/comments?fields=id,message,from,created_time,is_hidden,parent&limit=50`,
