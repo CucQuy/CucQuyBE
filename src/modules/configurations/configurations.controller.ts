@@ -116,6 +116,21 @@ export class ConfigurationsController {
 
   // ==================== SHIPPING ====================
 
+  /** Mục tiêu doanh thu dùng chung (tháng + tối thiểu/kỳ vọng mỗi ngày). */
+  @Get('revenue-goals')
+  getRevenueGoals(): Promise<Record<string, unknown>> {
+    return this.service.getRevenueGoals();
+  }
+
+  @Put('revenue-goals')
+  @ResponseMessage('Đã lưu mục tiêu doanh thu')
+  saveRevenueGoals(
+    @Body() body: { monthlyTarget?: number; dailyMin?: number; dailyExpected?: number },
+    @CurrentUser() user: AuthUser,
+  ): Promise<Record<string, unknown>> {
+    return this.service.saveRevenueGoals(body ?? {}, user?.email);
+  }
+
   @Get('shipping')
   getShipping(): Promise<ShippingConfiguration> {
     return this.service.fetchShippingConfiguration();

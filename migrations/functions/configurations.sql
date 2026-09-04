@@ -460,3 +460,39 @@ BEGIN
   );
 END;
 $$;
+
+-- ─────────────── MỤC TIÊU DOANH THU (092) ───────────────
+CREATE OR REPLACE FUNCTION revenue_goals_get()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_object(
+    'monthlyTarget',  COALESCE(g.monthly_target, 0),
+    'dailyMin',       COALESCE(g.daily_min, 0),
+    'dailyExpected',  COALESCE(g.daily_expected, 0),
+    'updatedAt',      g.updated_at,
+    'updatedBy',      COALESCE(g.updated_by, '')
+  ) FROM revenue_goals g WHERE g.id = 'goals';
+$$;
+
+-- Chỉ ghi field nào được gửi (patch), để sửa 1 ô không xoá 2 ô kia.
+CREATE OR REPLACE FUNCTION revenue_goals_save(p_data jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO revenue_goals (id) VALUES ('goals') ON CONFLICT (id) DO NOTHING;
+  UPDATE revenue_goals SET
+    monthly_target = CASE WHEN p_data ? 'monthlyTarget'
+                          THEN GREATEST(0, COALESCE((p_data->>'monthlyTarget')::numeric, 0))
+                          ELSE monthly_target END,
+    daily_min      = CASE WHEN p_data ? 'dailyMin'
+                          THEN GREATEST(0, COALESCE((p_data->>'dailyMin')::numeric, 0))
+                          ELSE daily_min END,
+    daily_expected = CASE WHEN p_data ? 'dailyExpected'
+                          THEN GREATEST(0, COALESCE((p_data->>'dailyExpected')::numeric, 0))
+                          ELSE daily_expected END,
+    updated_by     = COALESCE(NULLIF(p_data->>'updatedBy',''), updated_by),
+    updated_at     = now()
+  WHERE id = 'goals';
+  RETURN revenue_goals_get();
+END;
+$$;

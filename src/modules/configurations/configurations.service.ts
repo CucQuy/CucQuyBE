@@ -127,4 +127,19 @@ export class ConfigurationsService {
     const [row] = await this.proc.paymentAccountDelete(id);
     return row.data ?? [];
   }
+
+  /** Mục tiêu doanh thu (tháng + mỗi ngày) — dùng chung cho cả tiệm. */
+  async getRevenueGoals(): Promise<Record<string, unknown>> {
+    const [row] = await this.proc.revenueGoalsGet();
+    return row?.data ?? {};
+  }
+
+  /** Lưu theo kiểu patch: gửi field nào ghi field đó. */
+  async saveRevenueGoals(
+    payload: Record<string, unknown>,
+    updatedBy?: string,
+  ): Promise<Record<string, unknown>> {
+    const [row] = await this.proc.revenueGoalsSave({ ...payload, updatedBy });
+    return row?.data ?? {};
+  }
 }

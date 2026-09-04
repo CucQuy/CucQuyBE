@@ -111,4 +111,15 @@ export class ConfigurationProc {
     return this.db.sql<{ data: PaymentAccount[] }[]>`
       SELECT payment_account_delete(${id ?? ''}) AS data`;
   }
+
+  // ── Mục tiêu doanh thu (092) ─────────────────────────────
+  revenueGoalsGet(): Promise<{ data: Record<string, unknown> }[]> {
+    return this.db.sql<{ data: Record<string, unknown> }[]>`
+      SELECT revenue_goals_get() AS data`;
+  }
+
+  revenueGoalsSave(payload: unknown): Promise<{ data: Record<string, unknown> }[]> {
+    return this.db.sql<{ data: Record<string, unknown> }[]>`
+      SELECT revenue_goals_save(${this.db.json(payload ?? {})}::jsonb) AS data`;
+  }
 }
