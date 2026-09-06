@@ -28,13 +28,19 @@ export class ShiftsService {
     return rows[0]?.result ?? [];
   }
 
+  /** Lịch sử thay đổi đăng ký ca — ai đổi, đổi gì, lúc nào. */
+  async logs(input: { employeeId?: string; from?: string; to?: string; limit?: number }) {
+    const [row] = await this.proc.logs(input ?? {});
+    return row?.result ?? [];
+  }
+
   async setDay(input: SetDayInput): Promise<ShiftAssignment[]> {
     const rows = await this.proc.setDay(input);
     return rows[0]?.result ?? [];
   }
 
-  async remove(id: string): Promise<{ ok: boolean; reason?: string }> {
-    const rows = await this.proc.remove(id);
+  async remove(id: string, by?: string): Promise<{ ok: boolean; reason?: string }> {
+    const rows = await this.proc.remove(id, by);
     return rows[0].result;
   }
 }

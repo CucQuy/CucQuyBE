@@ -90,6 +90,7 @@ DECLARE
   v_date  date   := NULLIF(p_input->>'workDate', '')::date;
   v_shift text   := NULLIF(p_input->>'shiftCode', '');
   v_ids   text[] := COALESCE(ARRAY(SELECT jsonb_array_elements_text(p_input->'employeeIds')), '{}');
+  v_by    text   := NULLIF(p_input->>'changedBy', '');
 BEGIN
   IF v_date IS NULL OR v_shift IS NULL THEN
     RAISE EXCEPTION 'workDate và shiftCode là bắt buộc';
@@ -99,9 +100,27 @@ BEGIN
   END IF;
 
   -- Xoá NV không còn trong danh sách (v_ids rỗng => xoá tất cả của ca đó trong ngày).
+  -- Ghi lịch sử TRƯỚC khi xoá để còn biết ai vừa bị gỡ khỏi ca.
+  INSERT INTO shift_assignment_logs (employee_id, work_date, shift_code, action, source, changed_by)
+  SELECT a.employee_id, a.work_date, a.shift_code, 'remove', 'admin', v_by
+    FROM shift_assignments a
+   WHERE a.work_date = v_date AND a.shift_code = v_shift
+     AND NOT (a.employee_id = ANY (v_ids));
+
   DELETE FROM shift_assignments
   WHERE work_date = v_date AND shift_code = v_shift
     AND NOT (employee_id = ANY (v_ids));
+
+  -- Ghi log 'add' TRƯỚC khi thêm — dùng đúng điều kiện của lệnh INSERT bên dưới
+  -- (NV có thật + chưa được xếp ca này) nên chỉ ghi đúng người thực sự mới thêm.
+  INSERT INTO shift_assignment_logs (employee_id, work_date, shift_code, action, source, changed_by)
+  SELECT eid, v_date, v_shift, 'add', 'admin', v_by
+    FROM unnest(v_ids) AS eid
+   WHERE EXISTS (SELECT 1 FROM employees e WHERE e.id = eid)
+     AND NOT EXISTS (
+       SELECT 1 FROM shift_assignments x
+       WHERE x.work_date = v_date AND x.shift_code = v_shift AND x.employee_id = eid
+     );
 
   -- Thêm NV mới (bỏ qua id không có thật; chống trùng).
   INSERT INTO shift_assignments (id, employee_id, work_date, shift_code)
@@ -123,9 +142,13 @@ END;
 $$;
 
 -- Xoá 1 phân ca theo id.
-CREATE OR REPLACE FUNCTION shift_assignment_remove(p_id text)
+CREATE OR REPLACE FUNCTION shift_assignment_remove(p_id text, p_by text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 BEGIN
+  INSERT INTO shift_assignment_logs (employee_id, work_date, shift_code, action, source, changed_by)
+  SELECT employee_id, work_date, shift_code, 'remove', 'admin', p_by
+    FROM shift_assignments WHERE id = p_id;
+
   DELETE FROM shift_assignments WHERE id = p_id;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'not_found');
@@ -164,8 +187,22 @@ BEGIN
   IF EXISTS (SELECT 1 FROM unnest(v_codes) c WHERE NOT EXISTS (SELECT 1 FROM work_shifts w WHERE w.code = c)) THEN
     RAISE EXCEPTION 'Ca không hợp lệ';
   END IF;
+  INSERT INTO shift_assignment_logs (employee_id, work_date, shift_code, action, source)
+  SELECT a.employee_id, a.work_date, a.shift_code, 'remove', 'self'
+    FROM shift_assignments a
+   WHERE a.employee_id = v_emp AND a.work_date = v_date AND NOT (a.shift_code = ANY (v_codes));
+
   DELETE FROM shift_assignments
    WHERE employee_id = v_emp AND work_date = v_date AND NOT (shift_code = ANY (v_codes));
+
+  INSERT INTO shift_assignment_logs (employee_id, work_date, shift_code, action, source)
+  SELECT v_emp, v_date, c, 'add', 'self'
+    FROM unnest(v_codes) c
+   WHERE NOT EXISTS (
+     SELECT 1 FROM shift_assignments x
+      WHERE x.employee_id = v_emp AND x.work_date = v_date AND x.shift_code = c
+   );
+
   INSERT INTO shift_assignments (id, employee_id, work_date, shift_code)
   SELECT 'sa_' || encode(gen_random_bytes(9), 'hex'), v_emp, v_date, c
   FROM unnest(v_codes) c
@@ -277,4 +314,32 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
   ) ORDER BY e.name), '[]'::jsonb)
   FROM employees e
   WHERE e.status = 'active' AND NULLIF(trim(e.phone), '') IS NOT NULL;
+$$;
+
+
+-- ─────────────── LỊCH SỬ THAY ĐỔI ĐĂNG KÝ CA (093) ───────────────
+-- p_input: { employeeId?, from?, to?, limit? } — trống thì lấy toàn tiệm, mới nhất trước.
+CREATE OR REPLACE FUNCTION shift_assignment_log_list(p_input jsonb)
+RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(jsonb_agg(x ORDER BY x_created DESC), '[]'::jsonb) FROM (
+    SELECT jsonb_build_object(
+      'id',          g.id,
+      'employeeId',  g.employee_id,
+      'employeeName', COALESCE((SELECT e.name FROM employees e WHERE e.id = g.employee_id), ''),
+      'workDate',    to_char(g.work_date, 'YYYY-MM-DD'),
+      'shiftCode',   g.shift_code,
+      'shiftName',   COALESCE((SELECT w.name FROM work_shifts w WHERE w.code = g.shift_code), g.shift_code),
+      'action',      g.action,
+      'source',      g.source,
+      'changedBy',   COALESCE(g.changed_by, ''),
+      'note',        COALESCE(g.note, ''),
+      'createdAt',   g.created_at
+    ) AS x, g.created_at AS x_created
+      FROM shift_assignment_logs g
+     WHERE (NULLIF(p_input->>'employeeId','') IS NULL OR g.employee_id = p_input->>'employeeId')
+       AND (NULLIF(p_input->>'from','') IS NULL OR g.work_date >= (p_input->>'from')::date)
+       AND (NULLIF(p_input->>'to','')   IS NULL OR g.work_date <= (p_input->>'to')::date)
+     ORDER BY g.created_at DESC
+     LIMIT GREATEST(1, LEAST(500, COALESCE((p_input->>'limit')::int, 100)))
+  ) t;
 $$;

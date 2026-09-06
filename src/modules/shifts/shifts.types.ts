@@ -42,4 +42,6 @@ export interface SetDayInput {
   workDate: string; // yyyy-mm-dd
   shiftCode: string;
   employeeIds: string[];
+  /** Email admin đang sửa — ghi vào lịch sử thay đổi ca (BE tự gắn, FE không gửi). */
+  changedBy?: string;
 }

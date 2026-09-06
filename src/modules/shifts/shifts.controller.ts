@@ -12,7 +12,8 @@ import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
-import { UserRole } from '../../auth/user.types';
+import { UserRole, AuthUser } from '../../auth/user.types';
+import { CurrentUser } from '../../auth/current-user.decorator';
 import { ShiftsService } from './shifts.service';
 import { SetDayInput, WorkShiftSaveItem } from './shifts.types';
 
@@ -42,15 +43,29 @@ export class ShiftsController {
     return this.service.range({ from, to });
   }
 
-  /** Đặt trọn danh sách NV cho 1 (ngày, ca). */
+  /** Đặt trọn danh sách NV cho 1 (ngày, ca). Ghi lịch sử kèm email người sửa. */
   @Put('assignments/day')
-  setDay(@Body() body: SetDayInput) {
-    return this.service.setDay(body);
+  setDay(@CurrentUser() user: AuthUser, @Body() body: SetDayInput) {
+    return this.service.setDay({ ...body, changedBy: user?.email });
   }
 
   /** Xoá 1 phân ca theo id. */
   @Delete('assignments/:id')
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.remove(id, user?.email);
+  }
+
+  /**
+   * Lịch sử thay đổi đăng ký ca — NV tick nhầm rồi admin sửa thì còn dấu vết.
+   * Lọc theo nhân viên / khoảng ngày làm việc.
+   */
+  @Get('assignments/logs')
+  logs(
+    @Query('employeeId') employeeId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.logs({ employeeId, from, to, limit: Number(limit) || 100 });
   }
 }

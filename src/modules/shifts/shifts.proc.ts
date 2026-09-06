@@ -33,8 +33,14 @@ export class ShiftsProc {
       SELECT shift_assignment_set_day(${this.db.json(input)}::jsonb) AS result`;
   }
 
-  remove(id: string): Promise<Array<{ result: { ok: boolean; reason?: string } }>> {
+  remove(id: string, by?: string): Promise<Array<{ result: { ok: boolean; reason?: string } }>> {
     return this.db.sql<Array<{ result: { ok: boolean; reason?: string } }>>`
-      SELECT shift_assignment_remove(${id}) AS result`;
+      SELECT shift_assignment_remove(${id}, ${by ?? null}) AS result`;
+  }
+
+  /** Lịch sử thay đổi đăng ký ca (093). */
+  logs(input: Record<string, unknown>): Promise<Array<{ result: unknown[] }>> {
+    return this.db.sql<Array<{ result: unknown[] }>>`
+      SELECT shift_assignment_log_list(${this.db.json(input)}::jsonb) AS result`;
   }
 }
