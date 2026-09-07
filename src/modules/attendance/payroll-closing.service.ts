@@ -47,7 +47,7 @@ export interface ClosingResult {
  * - CHỈ gửi cho từng NV tương ứng (file lương riêng), KHÔNG gửi bản tổng vào nhóm.
  * - File KHÔNG lưu ở cloud/đĩa: gửi qua sendFileZalo với link token — Abit tải link
  *   đó về rồi đính kèm; khi có request, BE mới SINH file tại chỗ rồi stream (xem
- *   buildDownload + payroll-download.controller). Link cũng nằm trong text dự phòng.
+ *   buildDownload + payroll-download.controller).
  * Không khoá dữ liệu chấm công (chỉ tính + gửi). Tái dùng payroll_compute.
  */
 @Injectable()
@@ -94,7 +94,11 @@ export class PayrollClosingService {
     );
   }
 
-  /** Link tải bảng lương (token hết hạn) — file sinh khi bấm, không lưu đâu. */
+  /**
+   * Link tải bảng lương (token hết hạn) — file sinh khi bấm, không lưu đâu.
+   * Đuôi `.xlsx` trong đường dẫn là BẮT BUỘC: Abit/Zalo nhận dạng file theo đuôi
+   * URL, link dạng `?token=` làm Zalo báo "Có lỗi trong quá trình tải File".
+   */
   private downloadLink(
     scope: 'emp' | 'full',
     from: string,
@@ -102,7 +106,7 @@ export class PayrollClosingService {
     employeeId?: string,
   ): string {
     const token = signPayrollLink({ scope, employeeId, from, to });
-    return `${this.apiBase()}/payroll/download?token=${token}`;
+    return `${this.apiBase()}/payroll/download/${token}.xlsx`;
   }
 
   /**
@@ -188,13 +192,12 @@ export class PayrollClosingService {
             `Bảng lương ${monthLabel} của bạn:\n` +
             `• Tổng giờ công: ${hrs(emp.totalHours)} giờ\n` +
             `• Tổng lương: ${vnd(emp.salary)}đ\n` +
-            `File Excel chi tiết gửi kèm bên dưới. Nếu không mở được:\n${url}`;
+            `Chi tiết xem file Excel gửi kèm bên dưới nhé!`;
           await this.zalo.send({
             message: msg,
             toNumbers: [phone],
-            // Abit tự tải link (token) về rồi gửi kèm dưới dạng file .xlsx → NV
-            // nhận file thật. Link vẫn để trong text làm phương án dự phòng vì
-            // gửi qua queue, lỗi tải file phía Abit không quay lại được đây.
+            // Abit tự tải link (token) về rồi đính kèm dưới dạng file .xlsx →
+            // NV nhận file thật, không cần dán link trong tin nhắn nữa.
             files: [
               {
                 url,
