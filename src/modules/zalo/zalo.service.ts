@@ -16,9 +16,6 @@ const ZALO_ENDPOINT = {
 /**
  * Tính năng thông báo — mỗi nhóm Zalo tự khai nhận loại nào (Cài đặt Zalo → Nhóm).
  * Caller gửi `feature` thay vì tự biết ID nhóm; BE tra `zalo_group_ids_for_feature`.
- *
- * Danh mục THẬT nằm ở bảng zalo_features (097) — thêm chức năng mới làm từ UI, hằng
- * số dưới đây chỉ là các key builtin mà CODE tự bắn (để không gõ sai chuỗi).
  */
 export const ZALO_NOTIFY_FEATURES = [
   'order_create',
@@ -94,7 +91,7 @@ export interface ZaloSendPayload {
    * Tính năng thông báo → BE tự tra nhóm đích. Dùng khi caller KHÔNG tự biết nhóm
    * (trước đây rơi vào "nhóm chính"). Bỏ qua nếu đã truyền groupIds.
    */
-  feature?: string;
+  feature?: ZaloNotifyFeature;
   /** Gửi tin nhắn CÁ NHÂN tới các SĐT (đã chuẩn hoá 84...). Ưu tiên hơn groupIds nếu có. */
   toNumbers?: string[];
   image?: {

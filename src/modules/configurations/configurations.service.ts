@@ -9,10 +9,8 @@ import {
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ShippingConfiguration,
-  UpsertZaloFeaturePayload,
   ZaloFeatureFlag,
   ZaloGroupsConfiguration,
-  ZaloTemplateVar,
 } from './configurations.types';
 
 /** Service chỉ orchestration + map; mọi call DB qua ConfigurationProc. */
@@ -96,26 +94,6 @@ export class ConfigurationsService {
     updatedBy?: string | null,
   ): Promise<ZaloFeatureFlag[]> {
     const [row] = await this.proc.zaloFeaturesSave(payload, updatedBy ?? null);
-    return row.data ?? [];
-  }
-
-  /** Tạo/sửa 1 chức năng TỰ SOẠN (kind='template'); builtin bị SQL chặn. */
-  async upsertZaloFeature(
-    payload: UpsertZaloFeaturePayload,
-    updatedBy?: string | null,
-  ): Promise<ZaloFeatureFlag[]> {
-    const [row] = await this.proc.zaloFeatureUpsert(payload, updatedBy ?? null);
-    return row.data ?? [];
-  }
-
-  async deleteZaloFeature(feature: string): Promise<ZaloFeatureFlag[]> {
-    const [row] = await this.proc.zaloFeatureDelete(feature);
-    return row.data ?? [];
-  }
-
-  /** Danh sách biến chèn được vào tin tự soạn. */
-  async fetchZaloTemplateVars(): Promise<ZaloTemplateVar[]> {
-    const [row] = await this.proc.zaloTemplateVars();
     return row.data ?? [];
   }
 

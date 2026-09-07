@@ -7,7 +7,6 @@ import {
   ShippingConfiguration,
   ZaloFeatureFlag,
   ZaloGroupsConfiguration,
-  ZaloTemplateVar,
 } from './configurations.types';
 
 /**
@@ -77,24 +76,6 @@ export class ConfigurationProc {
   ): Promise<{ data: ZaloFeatureFlag[] }[]> {
     return this.db.sql<{ data: ZaloFeatureFlag[] }[]>`
       SELECT zalo_features_save(${this.db.json(payload ?? {})}::jsonb, ${by ?? null}) AS data`;
-  }
-
-  zaloFeatureUpsert(
-    payload: unknown,
-    by?: string | null,
-  ): Promise<{ data: ZaloFeatureFlag[] }[]> {
-    return this.db.sql<{ data: ZaloFeatureFlag[] }[]>`
-      SELECT zalo_feature_upsert(${this.db.json(payload ?? {})}::jsonb, ${by ?? null}) AS data`;
-  }
-
-  zaloFeatureDelete(feature: string): Promise<{ data: ZaloFeatureFlag[] }[]> {
-    return this.db.sql<{ data: ZaloFeatureFlag[] }[]>`
-      SELECT zalo_feature_delete(${feature}) AS data`;
-  }
-
-  zaloTemplateVars(): Promise<{ data: ZaloTemplateVar[] }[]> {
-    return this.db.sql<{ data: ZaloTemplateVar[] }[]>`
-      SELECT zalo_template_var_list() AS data`;
   }
 
   zaloConfigSave(

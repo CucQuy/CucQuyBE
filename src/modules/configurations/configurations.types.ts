@@ -107,23 +107,9 @@ export interface CreatePaymentAccountPayload {
   qrTemplate?: string;
 }
 
-/**
- * 1 chức năng thông báo Zalo (bảng zalo_features — 097). Danh mục nằm ở DB nên thêm
- * chức năng mới làm từ UI, không cần deploy.
- * - kind='builtin': nội dung do code soạn, không sửa/xoá được ở UI.
- * - kind='template': user tự gõ nội dung, render biến {{...}} bằng zalo_feature_render.
- */
+/** 1 chức năng thông báo Zalo + cờ bật/tắt + nhóm đang nhận (màn "Chức năng"). */
 export interface ZaloFeatureFlag {
   feature: string;
-  label: string;
-  description: string;
-  kind: 'builtin' | 'template';
-  section: string;
-  template: string;
-  composer: string | null;
-  /** Đặt lịch nhắc được (có composer của code, hoặc là tin tự soạn). */
-  schedulable: boolean;
-  builtin: boolean;
   enabled: boolean;
   updatedAt?: string;
   updatedBy?: string | null;
@@ -133,23 +119,6 @@ export interface ZaloFeatureFlag {
 /** Payload PUT zalo-features: chỉ ghi các feature có trong list. */
 export interface SaveZaloFeaturesPayload {
   features: { feature: string; enabled: boolean }[];
-}
-
-/** Payload POST zalo-features: tạo/sửa 1 chức năng TỰ SOẠN. */
-export interface UpsertZaloFeaturePayload {
-  /** Trống = tạo mới (BE sinh slug từ label). */
-  feature?: string;
-  label: string;
-  description?: string;
-  section?: string;
-  template: string;
-  enabled?: boolean;
-}
-
-/** 1 biến dùng được trong tin tự soạn. */
-export interface ZaloTemplateVar {
-  key: string;
-  label: string;
 }
 
 /** Payload PUT zalo-groups (danh sách nhóm + tính năng thông báo mỗi nhóm). */
