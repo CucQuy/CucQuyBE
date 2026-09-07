@@ -50,9 +50,14 @@ export class ZaloProc {
              (SELECT p.code FROM promotions p
                WHERE p.id = c.customer_notify_promotion_id
                  AND COALESCE(p.code, '') <> ''
-                 AND COALESCE(p.status, 'ACTIVE') = 'ACTIVE'
-                 AND (p.start_at IS NULL OR p.start_at = '' OR p.start_at <= now()::text)
-                 AND (p.end_at IS NULL OR p.end_at = '' OR p.end_at >= now()::text)
+                 -- status lưu chữ thường ('active') → so sánh không phân biệt hoa/thường.
+                 AND lower(COALESCE(p.status, 'active')) = 'active'
+                 -- start_at/end_at là timestamptz: KHÔNG so với '' hay now()::text,
+                 -- Postgres cast '' → timestamptz ngay lúc plan nên cả query nổ
+                 -- ("invalid input syntax for type timestamp with time zone") và
+                 -- notify-customer 500 mọi lần gọi.
+                 AND (p.start_at IS NULL OR p.start_at <= now())
+                 AND (p.end_at IS NULL OR p.end_at >= now())
                  AND (p.max_uses IS NULL OR COALESCE(p.used_count, 0) < p.max_uses)
              ) AS promo_code,
              customer_notify_sent_today() AS sent_today
