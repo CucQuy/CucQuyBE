@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { AttendanceProc } from './attendance.proc';
 import { ZaloService } from '../zalo/zalo.service';
@@ -30,6 +33,10 @@ function asciiSlug(s: string): string {
     .toLowerCase();
 }
 
+/** Cache file trong pod: dùng lại trong 6h, xoá sau 40 ngày (token sống 30 ngày). */
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const CACHE_KEEP_MS = 40 * 24 * 60 * 60 * 1000;
+
 export interface ClosingResult {
   month: string; // nhãn "tháng M/YYYY"
   from: string;
@@ -45,9 +52,9 @@ export interface ClosingResult {
 /**
  * Chốt công cuối tháng: tính bảng lương → gửi Zalo cá nhân cho từng NV kèm FILE .xlsx.
  * - CHỈ gửi cho từng NV tương ứng (file lương riêng), KHÔNG gửi bản tổng vào nhóm.
- * - File KHÔNG lưu ở cloud/đĩa: gửi qua sendFileZalo với link token — Abit tải link
- *   đó về rồi đính kèm; khi có request, BE mới SINH file tại chỗ rồi stream (xem
- *   buildDownload + payroll-download.controller).
+ * - File KHÔNG lên cloud: gửi qua sendFileZalo với link token — Abit tải link đó
+ *   về rồi đính kèm; khi có request, BE SINH file, cache trong pod và trả bằng
+ *   res.sendFile (xem buildDownloadPath + payroll-download.controller).
  * Không khoá dữ liệu chấm công (chỉ tính + gửi). Tái dùng payroll_compute.
  */
 @Injectable()
@@ -145,6 +152,72 @@ export class PayrollClosingService {
       this.exporter.buildFullWorkbook(payroll),
     );
     return { filename: `bang-luong-${asciiSlug(monthLabel)}.xlsx`, buffer };
+  }
+
+  /**
+   * Sinh file ra ĐĨA rồi trả đường dẫn, để controller dùng `res.sendFile` —
+   * Zalo chỉ tải được file khi response có hành vi của file tĩnh (ETag mạnh,
+   * Last-Modified, Accept-Ranges/206); trả buffer bằng res.send/end thì Zalo báo
+   * "nội dung không có trên máy này và không có trên máy chủ Zalo".
+   * Cache trong pod (ephemeral): còn mới thì dùng lại, mất/pod restart thì sinh
+   * lại từ token nên link vẫn sống đủ 30 ngày.
+   */
+  async buildDownloadPath(
+    token: string,
+  ): Promise<{ filename: string; path: string } | null> {
+    const claims = verifyPayrollLink(token);
+    if (!claims) return null;
+
+    // Mỗi token 1 thư mục, trong đó là file mang đúng tên hiển thị → nhánh cache
+    // không cần tính lại bảng lương (payroll_compute + dựng workbook ~400ms).
+    const root = process.env.PAYROLL_CACHE_DIR || '/tmp/payroll';
+    const dir = join(
+      root,
+      createHash('sha256').update(token).digest('hex').slice(0, 24),
+    );
+
+    const cached = await this.freshCached(dir);
+    if (cached) return cached;
+
+    const out = await this.buildDownload(token);
+    if (!out) return null;
+    const path = join(dir, out.filename);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path, out.buffer);
+    await this.pruneCache(root);
+    return { filename: out.filename, path };
+  }
+
+  /** File .xlsx trong cache còn hạn dùng lại (nếu có). */
+  private async freshCached(
+    dir: string,
+  ): Promise<{ filename: string; path: string } | null> {
+    const names = await fs.readdir(dir).catch(() => [] as string[]);
+    const filename = names.find((n) => n.endsWith('.xlsx'));
+    if (!filename) return null;
+    const path = join(dir, filename);
+    const st = await fs.stat(path).catch(() => null);
+    if (!st || !st.size || Date.now() - st.mtimeMs >= CACHE_TTL_MS) return null;
+    return { filename, path };
+  }
+
+  /** Dọn cache quá hạn token (không để rác tích trong pod). */
+  private async pruneCache(root: string): Promise<void> {
+    try {
+      const deadline = Date.now() - CACHE_KEEP_MS;
+      const dirs = await fs.readdir(root);
+      await Promise.all(
+        dirs.map(async (d) => {
+          const f = join(root, d);
+          const st = await fs.stat(f).catch(() => null);
+          if (st && st.mtimeMs < deadline) {
+            await fs.rm(f, { recursive: true, force: true });
+          }
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(`Dọn cache bảng lương lỗi: ${String(err)}`);
+    }
   }
 
   /**
