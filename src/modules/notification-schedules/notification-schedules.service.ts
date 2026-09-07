@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationScheduleProc } from './notification-schedules.proc';
-import { ZaloService } from '../zalo/zalo.service';
+import { ZaloService, type ZaloNotifyFeature } from '../zalo/zalo.service';
 import { NotificationSchedule, ScheduleInput } from './notification-schedules.types';
 
 /** yyyy-mm-dd + n ngày (theo lịch, xử lý chuỗi ISO). */
@@ -9,6 +9,16 @@ const addDays = (ymd: string, n: number): string => {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 };
+
+/**
+ * Loại lịch → tính năng thông báo (095) để BE tra nhóm đích khi lịch không tự
+ * chọn nhóm. delivery_* đều là "đơn cần giao" nên dùng chung 1 feature.
+ */
+function featureOfType(type: string): ZaloNotifyFeature {
+  if (type === 'daily_summary') return 'daily_summary';
+  if (type === 'production_tomorrow') return 'production_tomorrow';
+  return 'delivery_due';
+}
 
 @Injectable()
 export class NotificationSchedulesService {
@@ -38,7 +48,7 @@ export class NotificationSchedulesService {
     await this.proc.remove(id);
   }
 
-  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm mặc định) — dùng cho nút thủ công.
+  /** Gửi NGAY 1 loại thông báo qua Zalo (nhóm gán feature tương ứng) — nút thủ công.
    *  opts (chỉ dùng cho delivery_by_day): fromDate = ngày giao bắt đầu, days = số ngày gom. */
   async sendNow(
     type: string,
@@ -48,7 +58,7 @@ export class NotificationSchedulesService {
     const today = d?.today ?? new Date().toISOString().slice(0, 10);
     const msg = await this.compose(type, today, opts);
     if (!msg) return { sent: false };
-    await this.zalo.send({ message: msg });
+    await this.zalo.send({ message: msg, feature: featureOfType(type) });
     return { sent: true };
   }
 
@@ -104,6 +114,8 @@ export class NotificationSchedulesService {
           await this.zalo.send({
             message: msg,
             groupIds: s.targetGroupIds && s.targetGroupIds.length > 0 ? s.targetGroupIds : undefined,
+            // Lịch không chọn nhóm riêng → nhóm nào được gán feature của loại này.
+            feature: featureOfType(s.type),
           });
         }
         await this.proc.markRun(s.id, s.today);

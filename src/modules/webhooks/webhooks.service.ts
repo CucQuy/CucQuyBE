@@ -14,26 +14,6 @@ export class WebhooksService {
     private readonly config: ConfigurationsService,
   ) {}
 
-  /**
-   * Group Zalo đích cho thông báo THANH TOÁN = các nhóm có cờ notifyOnPayment
-   * (cấu hình theo từng nhóm ở Cài đặt Zalo). Fallback: paymentGroupId (config cũ)
-   * → undefined (ZaloService dùng env). Tách khỏi nhóm đơn hàng.
-   */
-  private async paymentGroupIds(): Promise<string[] | undefined> {
-    try {
-      const cfg = await this.config.fetchZaloGroupsConfiguration();
-      const fromGroups = (cfg.groups ?? [])
-        .filter((g) => g.notifyOnPayment === true)
-        .map((g) => (g.zaloGroupId ?? '').trim())
-        .filter(Boolean);
-      if (fromGroups.length > 0) return [...new Set(fromGroups)];
-      const legacy = (cfg.paymentGroupId ?? '').trim();
-      return legacy ? [legacy] : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   /** SePay: lưu transaction + (nếu khớp orderNumber) set order = PAID. */
   async handleSepay(body: any): Promise<{ status: number; payload: Record<string, unknown> }> {
     if (!body || !body.id) {
@@ -119,11 +99,11 @@ export class WebhooksService {
     amount: number,
     tx: Record<string, any>,
   ): Promise<void> {
-    const groupIds = await this.paymentGroupIds();
+    // Nhóm nhận thông báo THANH TOÁN do Cài đặt Zalo khai (feature 'payment').
     await this.zalo
       .send({
         message: this.buildPaidMessage(orderNumber, amount, tx),
-        ...(groupIds ? { groupIds } : {}),
+        feature: 'payment',
       })
       .catch(() => undefined);
   }
@@ -146,8 +126,7 @@ export class WebhooksService {
       `🔎 ${ambiguousCount} đơn cùng số tiền — không tự khớp được`,
       '👉 Vào màn Giao dịch để đối soát thủ công',
     ].join('\n');
-    const groupIds = await this.paymentGroupIds();
-    await this.zalo.send({ message, ...(groupIds ? { groupIds } : {}) }).catch(() => undefined);
+    await this.zalo.send({ message, feature: 'payment' }).catch(() => undefined);
   }
 
   /**

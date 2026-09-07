@@ -36,24 +36,15 @@ export interface ZaloGroupConfig {
   id: string;
   name: string;
   zaloGroupId: string;
+  /** CTV thuộc nhóm — nhóm CÓ member chỉ nhận đơn của member đó (nhóm CTV). */
   memberUids: string[];
-  notifyOnCreate?: boolean;
-  notifyOnUpdate?: boolean;
-  notifyOnDelete?: boolean;
-  /** Nhận thông báo THANH TOÁN (webhook SePay) cho nhóm này. */
-  notifyOnPayment?: boolean;
+  /** Tính năng thông báo nhóm này nhận (ZALO_NOTIFY_FEATURES) — thay 4 cờ notifyOn* cũ. */
+  features: string[];
   updateFieldWhitelist?: string[];
 }
 
 export interface ZaloGroupsConfiguration {
   groups: ZaloGroupConfig[];
-  mainGroupId?: string;
-  /** Nhóm Zalo nhận thông báo THANH TOÁN (webhook SePay) — tách khỏi nhóm đơn hàng. */
-  paymentGroupId?: string;
-  mainNotifyOnCreate?: boolean;
-  mainNotifyOnUpdate?: boolean;
-  mainNotifyOnDelete?: boolean;
-  mainUpdateFieldWhitelist?: string[];
   updatedAt?: string;
   updatedBy?: string | null;
 }
@@ -116,13 +107,7 @@ export interface CreatePaymentAccountPayload {
   qrTemplate?: string;
 }
 
-/** Payload PUT zalo-groups (groups + main settings tùy chọn). */
+/** Payload PUT zalo-groups (danh sách nhóm + tính năng thông báo mỗi nhóm). */
 export interface SaveZaloGroupsPayload {
   groups: ZaloGroupConfig[];
-  mainGroupId?: string;
-  paymentGroupId?: string;
-  mainNotifyOnCreate?: boolean;
-  mainNotifyOnUpdate?: boolean;
-  mainNotifyOnDelete?: boolean;
-  mainUpdateFieldWhitelist?: string[];
 }

@@ -276,7 +276,9 @@ DROP FUNCTION IF EXISTS payment_config_save(jsonb);
 
 -- ==================== ZALO GROUPS ====================
 
--- Trả {groups[{id,name,zaloGroupId,memberUids[],notifyOn*,updateFieldWhitelist[]}], mainGroupId, mainNotifyOn*, mainUpdateFieldWhitelist}.
+-- Trả {groups[{id,name,zaloGroupId,memberUids[],features[],updateFieldWhitelist[]}], customerNotify*}.
+-- 095: mỗi nhóm tự khai TÍNH NĂNG thông báo nó nhận (features) — không còn khái niệm
+-- "nhóm chính"/"nhóm thanh toán" (main_group_id/payment_group_id đã ngừng dùng).
 CREATE OR REPLACE FUNCTION zalo_config_get()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -291,22 +293,11 @@ LANGUAGE sql STABLE AS $$
                    FROM zalo_group_members m WHERE m.group_id = g.id),
                   '[]'::jsonb
                 ),
-                'notifyOnCreate', COALESCE(g.notify_on_create, true),
-                'notifyOnUpdate', COALESCE(g.notify_on_update, true),
-                'notifyOnDelete', COALESCE(g.notify_on_delete, true),
-                'notifyOnPayment', COALESCE(g.notify_on_payment, false),
+                -- Tính năng thông báo gán cho nhóm (095) — thay 4 cờ notify_on_* cũ.
+                'features', COALESCE(to_jsonb(g.notify_features), '[]'::jsonb),
                 'updateFieldWhitelist', COALESCE(to_jsonb(g.update_field_whitelist), '[]'::jsonb)
               ) ORDER BY g.id)
        FROM zalo_groups g),
-      '[]'::jsonb
-    ),
-    'mainGroupId', COALESCE((SELECT main_group_id FROM zalo_config WHERE id = 'zalo'), ''),
-    'paymentGroupId', COALESCE((SELECT payment_group_id FROM zalo_config WHERE id = 'zalo'), ''),
-    'mainNotifyOnCreate', COALESCE((SELECT main_notify_on_create FROM zalo_config WHERE id = 'zalo'), true),
-    'mainNotifyOnUpdate', COALESCE((SELECT main_notify_on_update FROM zalo_config WHERE id = 'zalo'), true),
-    'mainNotifyOnDelete', COALESCE((SELECT main_notify_on_delete FROM zalo_config WHERE id = 'zalo'), true),
-    'mainUpdateFieldWhitelist', COALESCE(
-      (SELECT to_jsonb(main_update_field_whitelist) FROM zalo_config WHERE id = 'zalo'),
       '[]'::jsonb
     ),
     -- Thông báo Zalo cho KHÁCH HÀNG (084): bật/tắt, chiến dịch KM chèn vào tin, hạn mức tin/ngày.
@@ -316,9 +307,22 @@ LANGUAGE sql STABLE AS $$
   );
 $$;
 
+-- ID nhóm Zalo (zalo_group_id) của các nhóm được gán tính năng thông báo p_feature.
+-- BE gọi hàm này để quyết định gửi vào đâu thay vì đọc main_group_id/payment_group_id.
+CREATE OR REPLACE FUNCTION zalo_group_ids_for_feature(p_feature text)
+RETURNS text[]
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(array_agg(DISTINCT btrim(g.zalo_group_id)), '{}'::text[])
+    FROM zalo_groups g
+   WHERE COALESCE(btrim(g.zalo_group_id), '') <> ''
+     AND btrim(COALESCE(p_feature, '')) <> ''
+     AND btrim(p_feature) = ANY (g.notify_features);
+$$;
+
 -- Lưu cấu hình zalo groups từ jsonb payload (groups + main settings tuỳ chọn).
--- - groups: ghi đè toàn bộ; mỗi group có id (gen nếu thiếu), member_uids → bảng nối (chỉ uid có trong users).
--- - main*: chỉ cập nhật field nào CÓ trong payload (key tồn tại); các field khác giữ nguyên.
+-- - groups: ghi đè toàn bộ; mỗi group có id (gen nếu thiếu), features[] = tính năng thông
+--   báo nhóm nhận, member_uids → bảng nối (chỉ uid có trong users).
+-- - customerNotify*: chỉ cập nhật field nào CÓ trong payload (key tồn tại).
 -- - đồng bộ users.zalo_ctv_group_chat_id theo membership (clear nếu không thuộc group nào có zaloGroupId).
 CREATE OR REPLACE FUNCTION zalo_config_save(p_data jsonb)
 RETURNS jsonb
@@ -331,21 +335,6 @@ BEGIN
   -- ----- upsert zalo_config (main settings; chỉ field có trong payload) -----
   INSERT INTO zalo_config (id) VALUES ('zalo') ON CONFLICT (id) DO NOTHING;
 
-  IF p_data ? 'mainGroupId' THEN
-    UPDATE zalo_config SET main_group_id = btrim(COALESCE(p_data->>'mainGroupId','')) WHERE id = 'zalo';
-  END IF;
-  IF p_data ? 'paymentGroupId' THEN
-    UPDATE zalo_config SET payment_group_id = btrim(COALESCE(p_data->>'paymentGroupId','')) WHERE id = 'zalo';
-  END IF;
-  IF p_data ? 'mainNotifyOnCreate' THEN
-    UPDATE zalo_config SET main_notify_on_create = (p_data->'mainNotifyOnCreate')::boolean WHERE id = 'zalo';
-  END IF;
-  IF p_data ? 'mainNotifyOnUpdate' THEN
-    UPDATE zalo_config SET main_notify_on_update = (p_data->'mainNotifyOnUpdate')::boolean WHERE id = 'zalo';
-  END IF;
-  IF p_data ? 'mainNotifyOnDelete' THEN
-    UPDATE zalo_config SET main_notify_on_delete = (p_data->'mainNotifyOnDelete')::boolean WHERE id = 'zalo';
-  END IF;
   IF p_data ? 'customerNotifyEnabled' THEN
     UPDATE zalo_config SET customer_notify_enabled = COALESCE((p_data->>'customerNotifyEnabled')::boolean, false) WHERE id = 'zalo';
   END IF;
@@ -355,16 +344,6 @@ BEGIN
   IF p_data ? 'customerNotifyDailyLimit' THEN
     UPDATE zalo_config SET customer_notify_daily_limit = GREATEST(0, COALESCE((p_data->>'customerNotifyDailyLimit')::int, 40)) WHERE id = 'zalo';
   END IF;
-  IF p_data ? 'mainUpdateFieldWhitelist' THEN
-    UPDATE zalo_config SET main_update_field_whitelist = (
-      SELECT COALESCE(array_agg(s), '{}'::text[])
-      FROM jsonb_array_elements_text(
-        CASE WHEN jsonb_typeof(p_data->'mainUpdateFieldWhitelist') = 'array'
-             THEN p_data->'mainUpdateFieldWhitelist' ELSE '[]'::jsonb END
-      ) AS s
-      WHERE COALESCE(s,'') <> ''
-    ) WHERE id = 'zalo';
-  END IF;
 
   -- ----- replace groups -----
   -- normalize: gán id nếu thiếu, lọc item object
@@ -373,10 +352,10 @@ BEGIN
     COALESCE(NULLIF(x->>'id',''), 'grp_' || md5(random()::text || clock_timestamp()::text)) AS id,
     COALESCE(x->>'name', '')                  AS name,
     COALESCE(x->>'zaloGroupId', '')           AS zalo_group_id,
-    (COALESCE((x->>'notifyOnCreate')::boolean, true)) AS notify_on_create,
-    (COALESCE((x->>'notifyOnUpdate')::boolean, true)) AS notify_on_update,
-    (COALESCE((x->>'notifyOnDelete')::boolean, true)) AS notify_on_delete,
-    (COALESCE((x->>'notifyOnPayment')::boolean, false)) AS notify_on_payment,
+    (SELECT COALESCE(array_agg(DISTINCT s), '{}'::text[])
+       FROM jsonb_array_elements_text(
+         CASE WHEN jsonb_typeof(x->'features') = 'array' THEN x->'features' ELSE '[]'::jsonb END
+       ) AS s WHERE COALESCE(s,'') <> '') AS notify_features,
     (SELECT COALESCE(array_agg(s), '{}'::text[])
        FROM jsonb_array_elements_text(
          CASE WHEN jsonb_typeof(x->'updateFieldWhitelist') = 'array' THEN x->'updateFieldWhitelist' ELSE '[]'::jsonb END
@@ -391,15 +370,12 @@ BEGIN
   DELETE FROM zalo_groups WHERE id NOT IN (SELECT id FROM _grp);
 
   -- upsert groups
-  INSERT INTO zalo_groups (id, name, zalo_group_id, notify_on_create, notify_on_update, notify_on_delete, notify_on_payment, update_field_whitelist)
-  SELECT id, name, zalo_group_id, notify_on_create, notify_on_update, notify_on_delete, notify_on_payment, update_field_whitelist FROM _grp
+  INSERT INTO zalo_groups (id, name, zalo_group_id, notify_features, update_field_whitelist)
+  SELECT id, name, zalo_group_id, notify_features, update_field_whitelist FROM _grp
   ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     zalo_group_id = EXCLUDED.zalo_group_id,
-    notify_on_create = EXCLUDED.notify_on_create,
-    notify_on_update = EXCLUDED.notify_on_update,
-    notify_on_delete = EXCLUDED.notify_on_delete,
-    notify_on_payment = EXCLUDED.notify_on_payment,
+    notify_features = EXCLUDED.notify_features,
     update_field_whitelist = EXCLUDED.update_field_whitelist;
 
   -- replace members (chỉ uid có trong users → FK an toàn, tự bỏ uid lạ)

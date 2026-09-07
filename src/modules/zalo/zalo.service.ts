@@ -13,6 +13,26 @@ const ZALO_ENDPOINT = {
   sendFileToGroup: '/zalo/sendFileToGroupZalo/2', // file tài liệu vào nhóm
   listGroups: '/zalo/listAllGroupForPartner/2', // danh sách nhóm của 1 nick đã kết nối
 };
+/**
+ * Tính năng thông báo — mỗi nhóm Zalo tự khai nhận loại nào (Cài đặt Zalo → Nhóm).
+ * Caller gửi `feature` thay vì tự biết ID nhóm; BE tra `zalo_group_ids_for_feature`.
+ */
+export const ZALO_NOTIFY_FEATURES = [
+  'order_create',
+  'order_update',
+  'order_delete',
+  'payment',
+  'unpaid',
+  'pending',
+  'delivery_due',
+  'production_tomorrow',
+  'stuck_pending',
+  'daily_summary',
+  'custom',
+  'health_check',
+] as const;
+export type ZaloNotifyFeature = (typeof ZALO_NOTIFY_FEATURES)[number];
+
 // SĐT tài khoản Zalo dùng để GỬI (bridge phải đang đăng nhập số này).
 // Đổi số → set env ZALO_SENDER_NUMBER là đủ, không cần build lại image.
 const ZALO_SENDER_NUMBER = process.env.ZALO_SENDER_NUMBER || '84349049567';
@@ -54,7 +74,7 @@ export function toZaloNumber(raw: string): string | null {
  * Payload body của POST /zalo/send. Bao đủ mọi biến thể mà lớp gửi HTTP của FE
  * (sendZaloMessage / postTextToGroups / postImageToGroups) cần:
  * - message: nội dung text (bắt buộc cho mọi loại).
- * - groupIds: danh sách group đích. Nếu rỗng → dùng ZALO_MAIN_GROUP_ID từ env.
+ * - groupIds: danh sách group đích. Rỗng → tra theo `feature` (Cài đặt Zalo → Nhóm).
  * - image: tham số gửi kèm ảnh (caption + image_url) → dùng endpoint sendImage.
  * - files: tham số gửi kèm file tài liệu (xlsx/pdf/doc) → dùng endpoint sendFile*.
  */
@@ -67,6 +87,11 @@ export interface ZaloSendPayload {
   /** Kênh gửi ('zalo' mặc định; sau này 'facebook'…) — cột trong ma trận thông báo. */
   channel?: string;
   groupIds?: string[];
+  /**
+   * Tính năng thông báo → BE tự tra nhóm đích. Dùng khi caller KHÔNG tự biết nhóm
+   * (trước đây rơi vào "nhóm chính"). Bỏ qua nếu đã truyền groupIds.
+   */
+  feature?: ZaloNotifyFeature;
   /** Gửi tin nhắn CÁ NHÂN tới các SĐT (đã chuẩn hoá 84...). Ưu tiên hơn groupIds nếu có. */
   toNumbers?: string[];
   image?: {
@@ -179,7 +204,7 @@ export class ZaloService {
           target:
             (payload?.toNumbers ?? []).join(', ') ||
             (payload?.groupIds ?? []).join(', ') ||
-            'nhóm chính',
+            (payload?.feature ? `feature:${payload.feature}` : '-'),
           status: 'sent',
           payload,
           triggeredBy: opts.triggeredBy,
@@ -195,7 +220,7 @@ export class ZaloService {
           target:
             (payload?.toNumbers ?? []).join(', ') ||
             (payload?.groupIds ?? []).join(', ') ||
-            'nhóm chính',
+            (payload?.feature ? `feature:${payload.feature}` : '-'),
           status: 'failed',
           error: err instanceof Error ? err.message : String(err),
           payload,
@@ -234,12 +259,6 @@ export class ZaloService {
     const baseUrl = String(process.env.ZALO_URL ?? '').trim();
     const shopCode = String(process.env.ZALO_SHOP_CODE ?? '').trim();
     const token = String(process.env.ZALO_TOKEN ?? '').trim();
-    // Nhóm chính: ưu tiên DB (Cài đặt Zalo — user đổi ID nhóm là áp dụng ngay),
-    // env ZALO_MAIN_GROUP_ID chỉ là fallback khi DB chưa cấu hình.
-    const mainGroupId =
-      (await this.proc.mainGroupId().catch(() => '')) ||
-      String(process.env.ZALO_MAIN_GROUP_ID ?? '').trim();
-
     if (!baseUrl || !shopCode || !token) {
       throw new BadRequestException('Zalo configuration is missing');
     }
@@ -282,11 +301,25 @@ export class ZaloService {
       return;
     }
 
-    // Nếu FE không truyền groupIds (tương đương sendZaloMessage cũ) → group chính từ env.
-    const groupIds =
-      Array.isArray(payload?.groupIds) && payload.groupIds.length > 0
-        ? payload.groupIds
-        : [mainGroupId];
+    // Không truyền groupIds → tra nhóm theo tính năng (095). Không nhóm nào được gán
+    // thì THROW để nhật ký ghi 'failed' kèm lý do, thay vì gửi lặng vào nhóm chính cũ.
+    const explicit = Array.isArray(payload?.groupIds)
+      ? payload.groupIds.map((g) => String(g ?? '').trim()).filter(Boolean)
+      : [];
+    let groupIds = explicit;
+    if (groupIds.length === 0) {
+      if (!payload?.feature) {
+        throw new BadRequestException(
+          'Thiếu nhóm đích: truyền groupIds hoặc feature khi gửi Zalo',
+        );
+      }
+      groupIds = await this.proc.groupIdsForFeature(payload.feature);
+      if (groupIds.length === 0) {
+        throw new BadRequestException(
+          `Chưa có nhóm Zalo nào được gán thông báo "${payload.feature}" (Cài đặt Zalo → Nhóm)`,
+        );
+      }
+    }
 
     const useImage =
       payload?.image &&
