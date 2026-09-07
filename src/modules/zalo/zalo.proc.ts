@@ -113,6 +113,13 @@ export class ZaloProc {
     return row?.data ?? null;
   }
 
+  /** Chức năng thông báo có đang BẬT không (096) — chưa có hàng cờ = bật. */
+  async featureEnabled(feature: string): Promise<boolean> {
+    const [row] = await this.db.sql<{ ok: boolean | null }[]>`
+      SELECT zalo_feature_enabled(${feature}) AS ok`;
+    return row?.ok !== false;
+  }
+
   /**
    * ID nhóm Zalo được gán tính năng thông báo `feature` (095). Thay khái niệm
    * "nhóm chính"/"nhóm thanh toán" cũ — nhóm nào nhận gì do Cài đặt Zalo khai.

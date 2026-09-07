@@ -20,11 +20,13 @@ import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import {
   PaymentAccount,
   Role,
+  SaveZaloFeaturesPayload,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
-  ScreenVisibilityMap,
   ScreenRolesMap,
+  ScreenVisibilityMap,
   ShippingConfiguration,
+  ZaloFeatureFlag,
   ZaloGroupsConfiguration,
 } from './configurations.types';
 
@@ -103,6 +105,26 @@ export class ConfigurationsController {
     @CurrentUser() user: AuthUser,
   ): Promise<ZaloGroupsConfiguration> {
     return this.service.saveZaloGroupsConfiguration(
+      body,
+      user.displayName || user.email || user.uid,
+    );
+  }
+
+  // ==================== ZALO FEATURE FLAGS ====================
+
+  /** Danh sách chức năng thông báo Zalo + đang bật/tắt + nhóm nào nhận. */
+  @Get('zalo-features')
+  getZaloFeatures(): Promise<ZaloFeatureFlag[]> {
+    return this.service.fetchZaloFeatures();
+  }
+
+  @Put('zalo-features')
+  @ResponseMessage('Đã lưu chức năng thông báo Zalo')
+  saveZaloFeatures(
+    @Body() body: SaveZaloFeaturesPayload,
+    @CurrentUser() user: AuthUser,
+  ): Promise<ZaloFeatureFlag[]> {
+    return this.service.saveZaloFeatures(
       body,
       user.displayName || user.email || user.uid,
     );

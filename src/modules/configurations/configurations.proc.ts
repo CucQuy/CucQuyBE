@@ -5,6 +5,7 @@ import {
   Role,
   ScreenConfiguration,
   ShippingConfiguration,
+  ZaloFeatureFlag,
   ZaloGroupsConfiguration,
 } from './configurations.types';
 
@@ -62,6 +63,19 @@ export class ConfigurationProc {
   zaloConfigGet(): Promise<{ data: ZaloGroupsConfiguration }[]> {
     return this.db.sql<{ data: ZaloGroupsConfiguration }[]>`
       SELECT zalo_config_get() AS data`;
+  }
+
+  zaloFeaturesGet(): Promise<{ data: ZaloFeatureFlag[] }[]> {
+    return this.db.sql<{ data: ZaloFeatureFlag[] }[]>`
+      SELECT zalo_features_get() AS data`;
+  }
+
+  zaloFeaturesSave(
+    payload: unknown,
+    by?: string | null,
+  ): Promise<{ data: ZaloFeatureFlag[] }[]> {
+    return this.db.sql<{ data: ZaloFeatureFlag[] }[]>`
+      SELECT zalo_features_save(${this.db.json(payload ?? {})}::jsonb, ${by ?? null}) AS data`;
   }
 
   zaloConfigSave(

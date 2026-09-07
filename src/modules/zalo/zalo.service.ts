@@ -125,7 +125,13 @@ export class ZaloService {
   async send(
     payload: ZaloSendPayload,
     opts: { delayMs?: number } = {},
-  ): Promise<{ ok: true; queued?: boolean }> {
+  ): Promise<{ ok: true; queued?: boolean; skipped?: 'feature_off' }> {
+    // Chức năng bị TẮT ở màn "Chức năng" (096) → không enqueue, không ghi nhật ký
+    // failed (tắt là chủ ý, không phải lỗi). Trả skipped để caller báo lại cho user.
+    if (payload?.feature && !(await this.proc.featureEnabled(payload.feature))) {
+      this.logger.log(`Bỏ qua Zalo: chức năng "${payload.feature}" đang tắt`);
+      return { ok: true, skipped: 'feature_off' };
+    }
     try {
       // delayMs: rải tin (gửi cho KHÁCH) để không bắn dồn → bridge Abit chặn IP.
       await this.queue.add('zalo', payload, opts.delayMs ? { delay: opts.delayMs } : undefined);
@@ -299,6 +305,14 @@ export class ZaloService {
         }),
       );
       return;
+    }
+
+    // Gửi trực tiếp (worker/gửi lại) cũng phải tôn trọng cờ bật/tắt — throw để lần
+    // "gửi lại" 1 noti của chức năng đã tắt báo rõ thay vì gửi lén.
+    if (payload?.feature && !(await this.proc.featureEnabled(payload.feature))) {
+      throw new BadRequestException(
+        `Chức năng thông báo "${payload.feature}" đang tắt (Cài đặt Zalo → Chức năng)`,
+      );
     }
 
     // Không truyền groupIds → tra nhóm theo tính năng (095). Không nhóm nào được gán

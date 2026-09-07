@@ -5,9 +5,11 @@ import {
   DEFAULT_SHIPPING_CONFIG,
   PaymentAccount,
   Role,
+  SaveZaloFeaturesPayload,
   SaveZaloGroupsPayload,
   ScreenConfiguration,
   ShippingConfiguration,
+  ZaloFeatureFlag,
   ZaloGroupsConfiguration,
 } from './configurations.types';
 
@@ -78,6 +80,21 @@ export class ConfigurationsService {
   ): Promise<ZaloGroupsConfiguration> {
     const [row] = await this.proc.zaloConfigSave(payload);
     return row.data;
+  }
+
+  // ==================== ZALO FEATURE FLAGS ====================
+
+  async fetchZaloFeatures(): Promise<ZaloFeatureFlag[]> {
+    const [row] = await this.proc.zaloFeaturesGet();
+    return row.data ?? [];
+  }
+
+  async saveZaloFeatures(
+    payload: SaveZaloFeaturesPayload,
+    updatedBy?: string | null,
+  ): Promise<ZaloFeatureFlag[]> {
+    const [row] = await this.proc.zaloFeaturesSave(payload, updatedBy ?? null);
+    return row.data ?? [];
   }
 
   /**

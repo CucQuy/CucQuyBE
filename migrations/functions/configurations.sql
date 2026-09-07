@@ -307,6 +307,68 @@ LANGUAGE sql STABLE AS $$
   );
 $$;
 
+-- ==================== ZALO FEATURE FLAGS (096) ====================
+
+-- Danh sách chức năng thông báo + đang bật/tắt + nhóm nào đang nhận (để màn
+-- "Chức năng" hiện luôn, khỏi gọi 2 API). Chức năng chưa có hàng cờ = coi như BẬT.
+CREATE OR REPLACE FUNCTION zalo_features_get()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    jsonb_agg(jsonb_build_object(
+      'feature', f.feature,
+      'enabled', COALESCE(f.enabled, true),
+      'updatedAt', f.updated_at,
+      'updatedBy', f.updated_by,
+      'groups', COALESCE(
+        (SELECT jsonb_agg(jsonb_build_object('name', COALESCE(g.name, ''), 'zaloGroupId', g.zalo_group_id)
+                  ORDER BY g.name)
+           FROM zalo_groups g
+          WHERE COALESCE(btrim(g.zalo_group_id), '') <> ''
+            AND f.feature = ANY (g.notify_features)),
+        '[]'::jsonb
+      )
+    ) ORDER BY f.feature),
+    '[]'::jsonb
+  )
+  FROM zalo_notify_flags f;
+$$;
+
+-- Bật/tắt chức năng: p_data = {"features": [{"feature": "...", "enabled": true}]}.
+-- Chỉ ghi những feature CÓ trong payload (không xoá/không reset cái khác).
+CREATE OR REPLACE FUNCTION zalo_features_save(p_data jsonb, p_by text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO zalo_notify_flags (feature, enabled, updated_at, updated_by)
+  SELECT btrim(x->>'feature'),
+         COALESCE((x->>'enabled')::boolean, true),
+         now(),
+         p_by
+    FROM jsonb_array_elements(
+           CASE WHEN jsonb_typeof(p_data->'features') = 'array'
+                THEN p_data->'features' ELSE '[]'::jsonb END
+         ) AS x
+   WHERE COALESCE(btrim(x->>'feature'), '') <> ''
+  ON CONFLICT (feature) DO UPDATE SET
+    enabled = EXCLUDED.enabled,
+    updated_at = now(),
+    updated_by = EXCLUDED.updated_by;
+
+  RETURN zalo_features_get();
+END;
+$$;
+
+-- Chức năng có đang bật không (chưa có hàng cờ = bật). ZaloService gọi trước khi gửi.
+CREATE OR REPLACE FUNCTION zalo_feature_enabled(p_feature text)
+RETURNS boolean
+LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    (SELECT f.enabled FROM zalo_notify_flags f WHERE f.feature = btrim(p_feature)),
+    true
+  );
+$$;
+
 -- ID nhóm Zalo (zalo_group_id) của các nhóm được gán tính năng thông báo p_feature.
 -- BE gọi hàm này để quyết định gửi vào đâu thay vì đọc main_group_id/payment_group_id.
 CREATE OR REPLACE FUNCTION zalo_group_ids_for_feature(p_feature text)

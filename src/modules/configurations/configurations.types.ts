@@ -107,6 +107,20 @@ export interface CreatePaymentAccountPayload {
   qrTemplate?: string;
 }
 
+/** 1 chức năng thông báo Zalo + cờ bật/tắt + nhóm đang nhận (màn "Chức năng"). */
+export interface ZaloFeatureFlag {
+  feature: string;
+  enabled: boolean;
+  updatedAt?: string;
+  updatedBy?: string | null;
+  groups: { name: string; zaloGroupId: string }[];
+}
+
+/** Payload PUT zalo-features: chỉ ghi các feature có trong list. */
+export interface SaveZaloFeaturesPayload {
+  features: { feature: string; enabled: boolean }[];
+}
+
 /** Payload PUT zalo-groups (danh sách nhóm + tính năng thông báo mỗi nhóm). */
 export interface SaveZaloGroupsPayload {
   groups: ZaloGroupConfig[];
