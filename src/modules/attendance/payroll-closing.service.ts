@@ -253,6 +253,10 @@ export class PayrollClosingService {
           skipped += 1;
           continue;
         }
+        // Rải tin 30s/NV như gửi khách (customer-notify): mỗi tin cá nhân bắt Abit
+        // search SĐT, bắn dồn là hết quota/giờ ("đã sử dụng tối đa cấu hình số lần
+        // tìm kiếm/giờ") và cả loạt sau đó fail.
+        const delayMs = sent * 30_000;
         try {
           const url = this.downloadLink(
             'emp',
@@ -266,20 +270,23 @@ export class PayrollClosingService {
             `• Tổng giờ công: ${hrs(emp.totalHours)} giờ\n` +
             `• Tổng lương: ${vnd(emp.salary)}đ\n` +
             `Chi tiết xem file Excel gửi kèm bên dưới nhé!`;
-          await this.zalo.send({
-            message: msg,
-            toNumbers: [phone],
-            // Abit tự tải link (token) về rồi đính kèm dưới dạng file .xlsx →
-            // NV nhận file thật, không cần dán link trong tin nhắn nữa.
-            files: [
-              {
-                url,
-                // KHÔNG kèm '.xlsx': Abit ghép tên hiển thị = name + đuôi lấy từ
-                // url, kèm đuôi ở đây ra '...xlsx.xlsx'.
-                name: `bang-luong-${asciiSlug(emp.name)}-${asciiSlug(monthLabel)}`,
-              },
-            ],
-          });
+          await this.zalo.send(
+            {
+              message: msg,
+              toNumbers: [phone],
+              // Abit tự tải link (token) về rồi đính kèm dưới dạng file .xlsx →
+              // NV nhận file thật, không cần dán link trong tin nhắn nữa.
+              files: [
+                {
+                  url,
+                  // KHÔNG kèm '.xlsx': Abit ghép tên hiển thị = name + đuôi lấy
+                  // từ url, kèm đuôi ở đây ra '...xlsx.xlsx'.
+                  name: `bang-luong-${asciiSlug(emp.name)}-${asciiSlug(monthLabel)}`,
+                },
+              ],
+            },
+            { delayMs },
+          );
           sent += 1;
         } catch (err) {
           skipped += 1;
