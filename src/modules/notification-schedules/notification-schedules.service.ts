@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationScheduleProc } from './notification-schedules.proc';
-import { ZaloService, type ZaloNotifyFeature } from '../zalo/zalo.service';
+import { ZaloService } from '../zalo/zalo.service';
 import { NotificationSchedule, ScheduleInput } from './notification-schedules.types';
 
 /** yyyy-mm-dd + n ngày (theo lịch, xử lý chuỗi ISO). */
@@ -14,10 +14,13 @@ const addDays = (ymd: string, n: number): string => {
  * Loại lịch → tính năng thông báo (095) để BE tra nhóm đích khi lịch không tự
  * chọn nhóm. delivery_* đều là "đơn cần giao" nên dùng chung 1 feature.
  */
-function featureOfType(type: string): ZaloNotifyFeature {
+function featureOfType(type: string): string {
   if (type === 'daily_summary') return 'daily_summary';
   if (type === 'production_tomorrow') return 'production_tomorrow';
-  return 'delivery_due';
+  if (type === 'delivery_today_tomorrow') return 'delivery_due';
+  if (type === 'delivery_by_day') return 'delivery_by_day';
+  // Chức năng tự soạn: key lịch = key chức năng.
+  return type;
 }
 
 @Injectable()
@@ -91,7 +94,10 @@ export class NotificationSchedulesService {
       const [r] = await this.proc.composeDeliveryByDay(from, days);
       return r?.msg ?? null;
     }
-    return null;
+    // Không phải 4 loại code soạn → chức năng TỰ SOẠN thêm từ UI (097): render
+    // template của nó với biến {{...}}. Không phải template thì trả null.
+    const [r] = await this.proc.renderFeature(type, today);
+    return r?.msg ?? null;
   }
 
   /**

@@ -26,8 +26,10 @@ import {
   ScreenRolesMap,
   ScreenVisibilityMap,
   ShippingConfiguration,
+  UpsertZaloFeaturePayload,
   ZaloFeatureFlag,
   ZaloGroupsConfiguration,
+  ZaloTemplateVar,
 } from './configurations.types';
 
 @ApiTags('Cấu hình')
@@ -128,6 +130,31 @@ export class ConfigurationsController {
       body,
       user.displayName || user.email || user.uid,
     );
+  }
+
+  /** Biến chèn được vào tin tự soạn (UI hiện nút "chèn biến"). */
+  @Get('zalo-features/vars')
+  getZaloTemplateVars(): Promise<ZaloTemplateVar[]> {
+    return this.service.fetchZaloTemplateVars();
+  }
+
+  /** Tạo/sửa 1 chức năng TỰ SOẠN từ UI (không cần deploy). */
+  @Post('zalo-features')
+  @ResponseMessage('Đã lưu chức năng thông báo')
+  upsertZaloFeature(
+    @Body() body: UpsertZaloFeaturePayload,
+    @CurrentUser() user: AuthUser,
+  ): Promise<ZaloFeatureFlag[]> {
+    return this.service.upsertZaloFeature(
+      body,
+      user.displayName || user.email || user.uid,
+    );
+  }
+
+  @Delete('zalo-features/:feature')
+  @ResponseMessage('Đã xoá chức năng thông báo')
+  deleteZaloFeature(@Param('feature') feature: string): Promise<ZaloFeatureFlag[]> {
+    return this.service.deleteZaloFeature(feature);
   }
 
   /** CTV có thuộc nhóm Zalo nào không (boolean). */

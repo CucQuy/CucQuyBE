@@ -54,4 +54,13 @@ export class NotificationScheduleProc {
     return this.db.sql<Array<{ today: string }>>`
       SELECT to_char(now() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD') AS today`;
   }
+
+  /** Nội dung tin TỰ SOẠN của 1 chức năng (097) — NULL nếu không phải template. */
+  renderFeature(
+    feature: string,
+    today: string,
+  ): Promise<Array<{ msg: string | null }>> {
+    return this.db.sql<Array<{ msg: string | null }>>`
+      SELECT zalo_feature_render(${feature}, ${today}) AS msg`;
+  }
 }

@@ -307,17 +307,25 @@ LANGUAGE sql STABLE AS $$
   );
 $$;
 
--- ==================== ZALO FEATURE FLAGS (096) ====================
+-- ==================== ZALO FEATURES (096/097) ====================
 
--- Danh sách chức năng thông báo + đang bật/tắt + nhóm nào đang nhận (để màn
--- "Chức năng" hiện luôn, khỏi gọi 2 API). Chức năng chưa có hàng cờ = coi như BẬT.
+-- Danh mục chức năng thông báo + cờ bật/tắt + nhóm nào nhận (màn "Chức năng" tự
+-- sinh theo đây, không hardcode ở code nữa).
 CREATE OR REPLACE FUNCTION zalo_features_get()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
     jsonb_agg(jsonb_build_object(
       'feature', f.feature,
-      'enabled', COALESCE(f.enabled, true),
+      'label', f.label,
+      'description', COALESCE(f.description, ''),
+      'kind', f.kind,
+      'section', f.section,
+      'template', COALESCE(f.template, ''),
+      'composer', f.composer,
+      'schedulable', (f.composer IS NOT NULL OR f.kind = 'template'),
+      'builtin', f.builtin,
+      'enabled', f.enabled,
       'updatedAt', f.updated_at,
       'updatedBy', f.updated_by,
       'groups', COALESCE(
@@ -328,29 +336,80 @@ LANGUAGE sql STABLE AS $$
             AND f.feature = ANY (g.notify_features)),
         '[]'::jsonb
       )
-    ) ORDER BY f.feature),
+    ) ORDER BY f.sort_order, f.label),
     '[]'::jsonb
   )
-  FROM zalo_notify_flags f;
+  FROM zalo_features f;
 $$;
 
--- Bật/tắt chức năng: p_data = {"features": [{"feature": "...", "enabled": true}]}.
--- Chỉ ghi những feature CÓ trong payload (không xoá/không reset cái khác).
+-- Bật/tắt: p_data = {"features": [{"feature": "...", "enabled": true}]}.
+-- Chỉ đụng feature CÓ trong payload, không tạo mới (tạo dùng zalo_feature_upsert).
 CREATE OR REPLACE FUNCTION zalo_features_save(p_data jsonb, p_by text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
 BEGIN
-  INSERT INTO zalo_notify_flags (feature, enabled, updated_at, updated_by)
-  SELECT btrim(x->>'feature'),
-         COALESCE((x->>'enabled')::boolean, true),
-         now(),
-         p_by
+  UPDATE zalo_features f
+     SET enabled = COALESCE((x->>'enabled')::boolean, f.enabled),
+         updated_at = now(),
+         updated_by = p_by
     FROM jsonb_array_elements(
            CASE WHEN jsonb_typeof(p_data->'features') = 'array'
                 THEN p_data->'features' ELSE '[]'::jsonb END
          ) AS x
-   WHERE COALESCE(btrim(x->>'feature'), '') <> ''
+   WHERE f.feature = btrim(x->>'feature');
+
+  RETURN zalo_features_get();
+END;
+$$;
+
+-- Tạo/sửa 1 chức năng TỰ SOẠN từ UI. p_data: {feature?, label, description?, section?,
+-- template, enabled?}. feature trống → sinh slug từ label (ASCII, không dấu).
+-- KHÔNG cho sửa/tạo kind='builtin' (nội dung do code soạn).
+CREATE OR REPLACE FUNCTION zalo_feature_upsert(p_data jsonb, p_by text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_key   text := NULLIF(btrim(COALESCE(p_data->>'feature','')), '');
+  v_label text := NULLIF(btrim(COALESCE(p_data->>'label','')), '');
+  v_slug  text;
+BEGIN
+  IF v_label IS NULL THEN
+    RAISE EXCEPTION 'Thiếu tên chức năng';
+  END IF;
+
+  IF v_key IS NULL THEN
+    -- slug: bỏ dấu tiếng Việt → [a-z0-9_], tránh đụng key builtin.
+    v_slug := lower(regexp_replace(unaccent_vi(v_label), '[^a-zA-Z0-9]+', '_', 'g'));
+    v_slug := btrim(v_slug, '_');
+    IF v_slug = '' THEN v_slug := 'tin'; END IF;
+    v_key := v_slug;
+    WHILE EXISTS (SELECT 1 FROM zalo_features WHERE feature = v_key) LOOP
+      v_key := v_slug || '_' || floor(random() * 1000)::int;
+    END LOOP;
+  ELSE
+    IF EXISTS (SELECT 1 FROM zalo_features WHERE feature = v_key AND builtin) THEN
+      RAISE EXCEPTION 'Chức năng "%" là mặc định của hệ thống, không sửa được ở đây', v_key;
+    END IF;
+  END IF;
+
+  INSERT INTO zalo_features (feature, label, description, kind, section, template, enabled, builtin, sort_order, updated_by)
+  VALUES (
+    v_key,
+    v_label,
+    NULLIF(btrim(COALESCE(p_data->>'description','')), ''),
+    'template',
+    COALESCE(NULLIF(btrim(COALESCE(p_data->>'section','')), ''), 'Tự soạn'),
+    COALESCE(p_data->>'template', ''),
+    COALESCE((p_data->>'enabled')::boolean, true),
+    false,
+    500,
+    p_by
+  )
   ON CONFLICT (feature) DO UPDATE SET
+    label = EXCLUDED.label,
+    description = EXCLUDED.description,
+    section = EXCLUDED.section,
+    template = EXCLUDED.template,
     enabled = EXCLUDED.enabled,
     updated_at = now(),
     updated_by = EXCLUDED.updated_by;
@@ -359,14 +418,136 @@ BEGIN
 END;
 $$;
 
--- Chức năng có đang bật không (chưa có hàng cờ = bật). ZaloService gọi trước khi gửi.
+-- Xoá chức năng tự soạn: dọn luôn khỏi nhóm + lịch nhắc để không còn tham chiếu chết.
+CREATE OR REPLACE FUNCTION zalo_feature_delete(p_feature text)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE v_key text := btrim(COALESCE(p_feature, ''));
+BEGIN
+  IF EXISTS (SELECT 1 FROM zalo_features WHERE feature = v_key AND builtin) THEN
+    RAISE EXCEPTION 'Chức năng "%" là mặc định của hệ thống, không xoá được', v_key;
+  END IF;
+  DELETE FROM notification_schedules WHERE type = v_key;
+  UPDATE zalo_groups SET notify_features = array_remove(notify_features, v_key)
+   WHERE v_key = ANY (notify_features);
+  DELETE FROM zalo_features WHERE feature = v_key;
+  RETURN zalo_features_get();
+END;
+$$;
+
+-- Chức năng có đang BẬT không (không có hàng = bật, để feature lạ không bị chặn oan).
 CREATE OR REPLACE FUNCTION zalo_feature_enabled(p_feature text)
 RETURNS boolean
 LANGUAGE sql STABLE AS $$
   SELECT COALESCE(
-    (SELECT f.enabled FROM zalo_notify_flags f WHERE f.feature = btrim(p_feature)),
+    (SELECT f.enabled FROM zalo_features f WHERE f.feature = btrim(p_feature)),
     true
   );
+$$;
+
+-- Bỏ dấu tiếng Việt (không cần extension unaccent) → dùng để sinh slug feature.
+CREATE OR REPLACE FUNCTION unaccent_vi(p_text text)
+RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT translate(
+    COALESCE(p_text, ''),
+    'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ',
+    'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyydAAAAAAAAAAAAAAAAAEEEEEEEEEEEIIIIIOOOOOOOOOOOOOOOOOUUUUUUUUUUUYYYYYD'
+  );
+$$;
+
+-- Số tiền VND có dấu phân cách nghìn (1250000 → 1.250.000).
+CREATE OR REPLACE FUNCTION vnd_fmt(p_amount numeric)
+RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT replace(to_char(COALESCE(p_amount, 0), 'FM999G999G999G999'), ',', '.');
+$$;
+
+/**
+ * Biến dùng được trong tin TỰ SOẠN ({{ten_bien}}). Thêm biến mới = thêm 1 key ở đây,
+ * UI tự hiện trong danh sách chèn biến (đọc từ zalo_template_var_list()).
+ * p_date = ngày tham chiếu yyyy-mm-dd (giờ VN, lịch nhắc truyền vào).
+ */
+CREATE OR REPLACE FUNCTION zalo_template_vars(p_date text)
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  WITH d AS (
+    SELECT COALESCE(NULLIF(btrim(COALESCE(p_date, '')), ''),
+                    to_char((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, 'YYYY-MM-DD')) AS today
+  ),
+  today_orders AS (
+    SELECT count(*)::int AS cnt,
+           COALESCE(sum(o.total), 0) AS revenue,
+           COALESCE(sum(o.total) FILTER (WHERE o.payment_status IS DISTINCT FROM 'PAID'), 0) AS unpaid_amt
+      FROM orders o, d
+     WHERE o.delivery_date = d.today
+       AND COALESCE(o.is_test, false) = false
+       AND o.status IS DISTINCT FROM 'CANCELLED'
+       AND o.status IS DISTINCT FROM 'RETURNED'
+  ),
+  tomorrow_orders AS (
+    SELECT count(*)::int AS cnt
+      FROM orders o, d
+     WHERE o.delivery_date = to_char(to_date(d.today, 'YYYY-MM-DD') + 1, 'YYYY-MM-DD')
+       AND COALESCE(o.is_test, false) = false
+       AND o.status IS DISTINCT FROM 'CANCELLED'
+       AND o.status IS DISTINCT FROM 'RETURNED'
+  )
+  SELECT jsonb_build_object(
+    'ngay',                    to_char(to_date(d.today, 'YYYY-MM-DD'), 'DD/MM/YYYY'),
+    'thu',                     vn_weekday_short(to_date(d.today, 'YYYY-MM-DD')),
+    'gio',                     to_char(now() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'HH24:MI'),
+    'so_don_hom_nay',          t.cnt::text,
+    'doanh_thu_hom_nay',       vnd_fmt(t.revenue),
+    'tien_chua_thu_hom_nay',   vnd_fmt(t.unpaid_amt),
+    'so_don_can_giao_mai',     m.cnt::text,
+    'so_don_cho_xu_ly',        COALESCE(order_counts()->>'pending', '0'),
+    'so_don_chua_thanh_toan',  COALESCE(order_counts()->>'unpaid', '0')
+  )
+  FROM d, today_orders t, tomorrow_orders m;
+$$;
+
+-- Danh sách biến + mô tả để UI hiện nút "chèn biến" (không hardcode ở FE).
+CREATE OR REPLACE FUNCTION zalo_template_var_list()
+RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+  SELECT jsonb_build_array(
+    jsonb_build_object('key', 'ngay', 'label', 'Ngày (dd/mm/yyyy)'),
+    jsonb_build_object('key', 'thu', 'label', 'Thứ trong tuần'),
+    jsonb_build_object('key', 'gio', 'label', 'Giờ gửi (HH:MM)'),
+    jsonb_build_object('key', 'so_don_hom_nay', 'label', 'Số đơn giao hôm nay'),
+    jsonb_build_object('key', 'doanh_thu_hom_nay', 'label', 'Doanh thu hôm nay'),
+    jsonb_build_object('key', 'tien_chua_thu_hom_nay', 'label', 'Tiền còn chưa thu hôm nay'),
+    jsonb_build_object('key', 'so_don_can_giao_mai', 'label', 'Số đơn cần giao ngày mai'),
+    jsonb_build_object('key', 'so_don_cho_xu_ly', 'label', 'Số đơn đang chờ xử lý'),
+    jsonb_build_object('key', 'so_don_chua_thanh_toan', 'label', 'Số đơn chưa thanh toán')
+  );
+$$;
+
+-- Nội dung tin TỰ SOẠN: render template của 1 chức năng với biến {{...}}.
+-- Trả NULL nếu không phải chức năng tự soạn / template rỗng.
+CREATE OR REPLACE FUNCTION zalo_feature_render(p_feature text, p_date text)
+RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_tpl  text;
+  v_vars jsonb;
+  v_k    text;
+  v_out  text;
+BEGIN
+  SELECT NULLIF(btrim(COALESCE(template, '')), '')
+    INTO v_tpl
+    FROM zalo_features
+   WHERE feature = btrim(COALESCE(p_feature, '')) AND kind = 'template';
+  IF v_tpl IS NULL THEN RETURN NULL; END IF;
+
+  v_vars := zalo_template_vars(p_date);
+  v_out := v_tpl;
+  FOR v_k IN SELECT jsonb_object_keys(v_vars) LOOP
+    v_out := replace(v_out, '{{' || v_k || '}}', COALESCE(v_vars->>v_k, ''));
+  END LOOP;
+  RETURN v_out;
+END;
 $$;
 
 -- ID nhóm Zalo (zalo_group_id) của các nhóm được gán tính năng thông báo p_feature.
