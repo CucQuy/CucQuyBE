@@ -76,7 +76,9 @@ export interface ZaloSendPayload {
   /**
    * File tài liệu gửi kèm (Excel/PDF/Word). Abit KHÔNG nhận upload — nó tự tải
    * `url` về rồi gửi, nên url phải công khai trên internet (vd link tải bảng lương
-   * có token). `name` là tên hiển thị cho người nhận.
+   * có token) và PHẢI có đuôi file trong đường dẫn: Abit ghép tên hiển thị =
+   * `name` + đuôi lấy từ url, url không đuôi → Zalo báo "Có lỗi trong quá trình
+   * tải File". Vì vậy `name` để TRẦN, không kèm '.xlsx'.
    */
   files?: { url: string; name: string }[];
 }

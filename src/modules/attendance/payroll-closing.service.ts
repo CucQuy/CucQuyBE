@@ -201,7 +201,9 @@ export class PayrollClosingService {
             files: [
               {
                 url,
-                name: `bang-luong-${asciiSlug(emp.name)}-${asciiSlug(monthLabel)}.xlsx`,
+                // KHÔNG kèm '.xlsx': Abit ghép tên hiển thị = name + đuôi lấy từ
+                // url, kèm đuôi ở đây ra '...xlsx.xlsx'.
+                name: `bang-luong-${asciiSlug(emp.name)}-${asciiSlug(monthLabel)}`,
               },
             ],
           });

@@ -1,6 +1,14 @@
-import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Logger,
+  Param,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ApiTags, ApiParam, ApiQuery } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../../auth/roles.decorator';
 import { PayrollClosingService } from './payroll-closing.service';
 
@@ -17,6 +25,8 @@ const XLSX_MIME =
 @ApiTags('Bảng lương')
 @Controller('payroll')
 export class PayrollDownloadController {
+  private readonly logger = new Logger(PayrollDownloadController.name);
+
   constructor(private readonly closing: PayrollClosingService) {}
 
   /**
@@ -30,8 +40,9 @@ export class PayrollDownloadController {
   async downloadFile(
     @Param('file') file: string,
     @Res() res: Response,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.stream(String(file ?? '').replace(/\.xlsx$/i, ''), res);
+    await this.stream(String(file ?? '').replace(/\.xlsx$/i, ''), res, req);
   }
 
   /** Dạng query cũ — giữ để link đã gửi các kỳ trước vẫn tải được. */
@@ -41,11 +52,22 @@ export class PayrollDownloadController {
   async download(
     @Query('token') token: string,
     @Res() res: Response,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.stream(token, res);
+    await this.stream(token, res, req);
   }
 
-  private async stream(token: string, res: Response): Promise<void> {
+  private async stream(
+    token: string,
+    res: Response,
+    req?: Request,
+  ): Promise<void> {
+    // Log ai tải: cần để soi bridge Zalo/Abit có thật sự vào lấy file không
+    // (Cloudflare có thể chặn fetcher của họ trước khi tới đây).
+    this.logger.log(
+      `payroll download: ua="${String(req?.headers['user-agent'] ?? '-')}" ` +
+        `ip=${String(req?.headers['cf-connecting-ip'] ?? req?.ip ?? '-')}`,
+    );
     const out = token ? await this.closing.buildDownload(token) : null;
     if (!out) {
       res.status(404).send('Link không hợp lệ hoặc đã hết hạn.');
