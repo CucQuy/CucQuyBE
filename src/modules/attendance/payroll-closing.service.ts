@@ -43,10 +43,11 @@ export interface ClosingResult {
 }
 
 /**
- * Chốt công cuối tháng: tính bảng lương → gửi Zalo cá nhân cho từng NV kèm LINK tải.
- * - CHỈ gửi cho từng NV tương ứng (link file riêng), KHÔNG gửi bản tổng vào nhóm.
- * - File KHÔNG lưu ở cloud/đĩa: Zalo gửi LINK có token hết hạn; khi NV bấm, BE mới
- *   SINH file tại chỗ rồi stream (xem buildDownload + payroll-download.controller).
+ * Chốt công cuối tháng: tính bảng lương → gửi Zalo cá nhân cho từng NV kèm FILE .xlsx.
+ * - CHỈ gửi cho từng NV tương ứng (file lương riêng), KHÔNG gửi bản tổng vào nhóm.
+ * - File KHÔNG lưu ở cloud/đĩa: gửi qua sendFileZalo với link token — Abit tải link
+ *   đó về rồi đính kèm; khi có request, BE mới SINH file tại chỗ rồi stream (xem
+ *   buildDownload + payroll-download.controller). Link cũng nằm trong text dự phòng.
  * Không khoá dữ liệu chấm công (chỉ tính + gửi). Tái dùng payroll_compute.
  */
 @Injectable()
@@ -164,7 +165,7 @@ export class PayrollClosingService {
     // File tổng: chỉ dựng LINK cho admin tự xem (không gửi ai, không lưu file).
     const fullFileUrl = this.downloadLink('full', payroll.from, payroll.to);
 
-    // ── Từng NV → Zalo cá nhân kèm link file riêng (chỉ gửi cho NV tương ứng) ──
+    // ── Từng NV → Zalo cá nhân kèm file .xlsx riêng (chỉ gửi cho NV tương ứng) ──
     let sent = 0;
     let skipped = 0;
     if (!dryRun) {
@@ -187,8 +188,20 @@ export class PayrollClosingService {
             `Bảng lương ${monthLabel} của bạn:\n` +
             `• Tổng giờ công: ${hrs(emp.totalHours)} giờ\n` +
             `• Tổng lương: ${vnd(emp.salary)}đ\n` +
-            `Tải bảng lương chi tiết (Excel):\n${url}`;
-          await this.zalo.send({ message: msg, toNumbers: [phone] });
+            `File Excel chi tiết gửi kèm bên dưới. Nếu không mở được:\n${url}`;
+          await this.zalo.send({
+            message: msg,
+            toNumbers: [phone],
+            // Abit tự tải link (token) về rồi gửi kèm dưới dạng file .xlsx → NV
+            // nhận file thật. Link vẫn để trong text làm phương án dự phòng vì
+            // gửi qua queue, lỗi tải file phía Abit không quay lại được đây.
+            files: [
+              {
+                url,
+                name: `bang-luong-${asciiSlug(emp.name)}-${asciiSlug(monthLabel)}.xlsx`,
+              },
+            ],
+          });
           sent += 1;
         } catch (err) {
           skipped += 1;

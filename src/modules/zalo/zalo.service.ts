@@ -9,6 +9,8 @@ const ZALO_ENDPOINT = {
   sendImageToGroup: '/zalo/sendImageToGroupZalo/2',
   sendMessToGroup: '/zalo/sendMessageToGroupZalo/2',
   sendMessToNumber: '/zalo/sendMessageZalo/2', // gửi tin nhắn Zalo CÁ NHÂN theo SĐT
+  sendFileToNumber: '/zalo/sendFileZalo/2', // file tài liệu (xlsx/pdf/doc) cho CÁ NHÂN
+  sendFileToGroup: '/zalo/sendFileToGroupZalo/2', // file tài liệu vào nhóm
   listGroups: '/zalo/listAllGroupForPartner/2', // danh sách nhóm của 1 nick đã kết nối
 };
 // SĐT tài khoản Zalo dùng để GỬI (bridge phải đang đăng nhập số này).
@@ -54,6 +56,7 @@ export function toZaloNumber(raw: string): string | null {
  * - message: nội dung text (bắt buộc cho mọi loại).
  * - groupIds: danh sách group đích. Nếu rỗng → dùng ZALO_MAIN_GROUP_ID từ env.
  * - image: tham số gửi kèm ảnh (caption + image_url) → dùng endpoint sendImage.
+ * - files: tham số gửi kèm file tài liệu (xlsx/pdf/doc) → dùng endpoint sendFile*.
  */
 export interface ZaloSendPayload {
   message: string;
@@ -70,6 +73,12 @@ export interface ZaloSendPayload {
     caption: string;
     image_url: string[];
   };
+  /**
+   * File tài liệu gửi kèm (Excel/PDF/Word). Abit KHÔNG nhận upload — nó tự tải
+   * `url` về rồi gửi, nên url phải công khai trên internet (vd link tải bảng lương
+   * có token). `name` là tên hiển thị cho người nhận.
+   */
+  files?: { url: string; name: string }[];
 }
 
 @Injectable()
@@ -233,23 +242,37 @@ export class ZaloService {
       throw new BadRequestException('Zalo configuration is missing');
     }
 
+    // File tài liệu (xlsx/pdf/doc): Abit tự tải url về rồi gửi kèm tin nhắn.
+    // Có file → chuyển sang endpoint sendFile* (cá nhân/nhóm), bỏ qua nhánh ảnh.
+    const fileUrl =
+      Array.isArray(payload?.files) && payload.files.length > 0
+        ? payload.files
+            .filter((f) => f?.url)
+            .map((f) => ({ file_url_item: f.url, file_name_item: f.name || 'file' }))
+        : null;
+
     // Gửi CÁ NHÂN theo SĐT (nhắc đăng ký ca…) — ưu tiên khi có toNumbers.
     const toNumbers = Array.isArray(payload?.toNumbers)
       ? payload.toNumbers.map((n) => toZaloNumber(n)).filter((n): n is string => !!n)
       : [];
     if (toNumbers.length > 0) {
-      const url = `${baseUrl}${ZALO_ENDPOINT.sendMessToNumber}/${shopCode}/${token}`;
+      const endpoint = fileUrl
+        ? ZALO_ENDPOINT.sendFileToNumber
+        : ZALO_ENDPOINT.sendMessToNumber;
+      const url = `${baseUrl}${endpoint}/${shopCode}/${token}`;
       await Promise.all(
         toNumbers.map(async (num) => {
+          const body: Record<string, unknown> = {
+            send_from_number: ZALO_SENDER_NUMBER,
+            send_to_number: num,
+            message,
+            action: 'make_friend', // kèm yêu cầu kết bạn để NV chưa kết bạn vẫn nhận được
+          };
+          if (fileUrl) body.file_url = fileUrl;
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              send_from_number: ZALO_SENDER_NUMBER,
-              send_to_number: num,
-              message,
-              action: 'make_friend', // kèm yêu cầu kết bạn để NV chưa kết bạn vẫn nhận được
-            }),
+            body: JSON.stringify(body),
           });
           await assertBridgeOk(res, `Zalo personal send (${num})`);
         }),
@@ -268,9 +291,11 @@ export class ZaloService {
       Array.isArray(payload.image.image_url) &&
       payload.image.image_url.length > 0;
 
-    const endpoint = useImage
-      ? ZALO_ENDPOINT.sendImageToGroup
-      : ZALO_ENDPOINT.sendMessToGroup;
+    const endpoint = fileUrl
+      ? ZALO_ENDPOINT.sendFileToGroup
+      : useImage
+        ? ZALO_ENDPOINT.sendImageToGroup
+        : ZALO_ENDPOINT.sendMessToGroup;
     const url = `${baseUrl}${endpoint}/${shopCode}/${token}`;
 
     await Promise.all(
@@ -280,7 +305,8 @@ export class ZaloService {
           send_to_groupid: groupId,
           message,
         };
-        if (useImage && payload.image) {
+        if (fileUrl) body.file_url = fileUrl;
+        else if (useImage && payload.image) {
           body.caption = envTag + (payload.image.caption ?? '');
           body.image_url = payload.image.image_url;
         }
