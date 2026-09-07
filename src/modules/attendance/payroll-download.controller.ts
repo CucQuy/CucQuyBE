@@ -62,17 +62,23 @@ export class PayrollDownloadController {
     res: Response,
     req?: Request,
   ): Promise<void> {
-    // Log ai tải: cần để soi bridge Zalo/Abit có thật sự vào lấy file không
-    // (Cloudflare có thể chặn fetcher của họ trước khi tới đây).
-    this.logger.log(
-      `payroll download: ua="${String(req?.headers['user-agent'] ?? '-')}" ` +
-        `ip=${String(req?.headers['cf-connecting-ip'] ?? req?.ip ?? '-')}`,
-    );
+    // Log ai tải + kết quả: Zalo KHÔNG giữ file trên server nó, client tự tải từ
+    // url này, nên khi NV báo "không tải được file" phải soi được request thật.
+    const t0 = Date.now();
+    const who =
+      `ua="${String(req?.headers['user-agent'] ?? '-')}" ` +
+      `ip=${String(req?.headers['cf-connecting-ip'] ?? req?.ip ?? '-')} ` +
+      `method=${String(req?.method ?? '-')} ` +
+      `range=${String(req?.headers['range'] ?? '-')}`;
     const out = token ? await this.closing.buildDownload(token) : null;
     if (!out) {
+      this.logger.warn(`payroll download 404: ${who}`);
       res.status(404).send('Link không hợp lệ hoặc đã hết hạn.');
       return;
     }
+    this.logger.log(
+      `payroll download 200 (${out.buffer.length}B, ${Date.now() - t0}ms): ${who}`,
+    );
     res.setHeader('Content-Type', XLSX_MIME);
     res.setHeader(
       'Content-Disposition',
