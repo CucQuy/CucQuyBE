@@ -13,6 +13,7 @@ import { verifySsoToken } from '../../auth/sso.util';
 import {
   SOCKET_EVENTS,
   type OrderPaidEvent,
+  type ZaloFetchDbResult,
 } from './events.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MqttService } from '../../mqtt/mqtt.service';
@@ -24,6 +25,8 @@ export type { OrderPaidEvent };
 const PAYMENTS_ROOM = 'payments';
 /** Room của agent máy in ở quán (connect bằng PRINT_AGENT_TOKEN, không phải user). */
 const PRINTERS_ROOM = 'printers';
+/** Room của agent đọc Zalo (connect bằng ZALO_AGENT_TOKEN, đọc nhóm "Hoá đơn Tiệm"). */
+const ZALO_AGENTS_ROOM = 'zalo-agents';
 const NOTIFY_ROLES = new Set<UserRole>([UserRole.SUPER_ADMIN, UserRole.ADMIN]);
 
 /** Chuẩn hoá role thô về UserRole (giống guard/FE). */
@@ -48,6 +51,9 @@ function normalizeRole(raw: unknown): UserRole | undefined {
 @WebSocketGateway({
   path: '/api/socket.io',
   cors: { origin: true, credentials: true },
+  // Agent Zalo trả FILE DB nhóm (base64 ~1MB+) qua ACK → nới trần (mặc định 1MB
+  // sẽ đóng kết nối "transport close" khi payload lớn hơn). 25MB đủ cho DB nhóm lớn.
+  maxHttpBufferSize: 25 * 1024 * 1024,
 })
 export class EventsGateway implements OnGatewayConnection {
   private readonly logger = new Logger(EventsGateway.name);
@@ -73,6 +79,29 @@ export class EventsGateway implements OnGatewayConnection {
         if (expected && printerToken === expected) {
           client.join(PRINTERS_ROOM);
           this.logger.log('printer agent connected');
+        } else {
+          client.disconnect(true);
+        }
+        return;
+      }
+
+      // Agent đọc Zalo: xác thực bằng ZALO_AGENT_TOKEN. Khớp → join room 'zalo-agents',
+      // lưu machineId/name + groupId lên socket để BE chọn máy + hiển thị trạng thái.
+      const zaloAgentToken = client.handshake.auth?.zaloAgentToken as
+        | string
+        | undefined;
+      if (zaloAgentToken !== undefined) {
+        const expected = process.env.ZALO_AGENT_TOKEN;
+        if (expected && zaloAgentToken === expected) {
+          client.data.machineId = String(
+            client.handshake.auth?.machineId ?? client.id,
+          );
+          client.data.machineName = String(
+            client.handshake.auth?.machineName ?? client.data.machineId,
+          );
+          client.data.groupId = String(client.handshake.auth?.groupId ?? '');
+          client.join(ZALO_AGENTS_ROOM);
+          this.logger.log(`zalo agent connected: ${client.data.machineName}`);
         } else {
           client.disconnect(true);
         }
@@ -125,6 +154,70 @@ export class EventsGateway implements OnGatewayConnection {
     }
     this.logger.log(`print:job → ${n} agent(s), ${base64.length} b64 chars`);
     return n;
+  }
+
+  /** Danh sách agent Zalo đang online (để FE chọn máy + hiện trạng thái). */
+  listZaloAgents(): { machineId: string; machineName: string; groupId: string }[] {
+    if (!this.server) return [];
+    const room = this.server.sockets.adapter.rooms.get(ZALO_AGENTS_ROOM);
+    if (!room) return [];
+    const out: { machineId: string; machineName: string; groupId: string }[] = [];
+    for (const sid of room) {
+      const s = this.server.sockets.sockets.get(sid);
+      if (!s) continue;
+      out.push({
+        machineId: String(s.data.machineId ?? sid),
+        machineName: String(s.data.machineName ?? sid),
+        groupId: String(s.data.groupId ?? ''),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Xin FILE DB nhóm + cipherKey từ agent Zalo (request/response qua ACK). Chọn máy
+   * theo `machineId` (rỗng = agent đầu tiên online). BE tự giải mã DB. Timeout 60s
+   * (agent copy file + trích key có thể mất vài giây).
+   */
+  async requestZaloDb(
+    machineId: string | undefined,
+  ): Promise<ZaloFetchDbResult> {
+    const empty = (error: string): ZaloFetchDbResult => ({
+      ok: false,
+      groupId: '',
+      cipherKey: '',
+      dbBase64: '',
+      error,
+    });
+    if (!this.server) return empty('server chưa sẵn sàng');
+    const room = this.server.sockets.adapter.rooms.get(ZALO_AGENTS_ROOM);
+    if (!room || room.size === 0) return empty('Không có máy đọc Zalo online');
+
+    // Chọn socket agent: đúng machineId nếu có, không thì lấy cái đầu.
+    let targetSid: string | undefined;
+    for (const sid of room) {
+      const s = this.server.sockets.sockets.get(sid);
+      if (!machineId || String(s?.data.machineId ?? '') === machineId) {
+        targetSid = sid;
+        break;
+      }
+    }
+    if (!targetSid) return empty(`Không thấy máy ${machineId} online`);
+    const sock = this.server.sockets.sockets.get(targetSid);
+    if (!sock) return empty('Máy vừa ngắt kết nối');
+
+    try {
+      const res = (await sock
+        .timeout(60000)
+        .emitWithAck(SOCKET_EVENTS.ZALO_FETCH_DB, {})) as ZaloFetchDbResult | undefined;
+      if (!res || !res.ok) return empty(res?.error || 'Agent trả lỗi hoặc rỗng');
+      this.logger.log(
+        `zalo:fetch-db ← group ${res.groupId}, ${Math.round((res.dbBase64?.length ?? 0) / 1365)}KB`,
+      );
+      return res;
+    } catch (e) {
+      return empty(`Agent không phản hồi: ${e instanceof Error ? e.message : e}`);
+    }
   }
 
   /**

@@ -32,6 +32,7 @@ import { WagesModule } from './modules/wages/wages.module';
 import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { FacebookModule } from './modules/facebook/facebook.module';
+import { TiktokModule } from './modules/tiktok/tiktok.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
 import { OcrModule } from './modules/ocr/ocr.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -48,6 +49,7 @@ import { ShippingModule } from './modules/shipping/shipping.module';
 import { TtsModule } from './modules/tts/tts.module';
 import { RecipesModule } from './modules/recipes/recipes.module';
 import { PrintModule } from './modules/print/print.module';
+import { ZaloBillsModule } from './modules/zalo-bills/zalo-bills.module';
 
 @Module({
   imports: [
@@ -94,6 +96,7 @@ import { PrintModule } from './modules/print/print.module';
     ImagesModule,
     WebhooksModule,
     FacebookModule,
+    TiktokModule,
     SerpapiModule,
     OcrModule,
     AiModule,
@@ -109,6 +112,7 @@ import { PrintModule } from './modules/print/print.module';
     TtsModule,
     RecipesModule,
     PrintModule,
+    ZaloBillsModule,
   ],
   controllers: [HealthController, SsoLoginController],
 })

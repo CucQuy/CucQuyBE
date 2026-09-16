@@ -202,6 +202,7 @@ BEGIN
       COALESCE((pd.dc->>'hours')::numeric, 0) AS work_hours,
       pd.dc->'in'  AS in_at,          -- giờ vào (chấm) — null nếu không chấm
       pd.dc->'out' AS out_at,         -- giờ ra
+      COALESCE((pd.dc->>'missingCheckout')::boolean, false) AS missing_out,  -- quên tan ca → ca dở dang không tính công
       COALESCE(pd.dc->'shifts', '[]'::jsonb) AS shifts,  -- chi tiết từng ca (đăng ký/làm/hợp lệ)
       COALESCE(sc.reg_cnt, 0)   AS reg_cnt,
       COALESCE(sc.valid_cnt, 0) AS valid_cnt,
@@ -248,6 +249,7 @@ BEGIN
         'out',        out_at,
         'locked',     locked,
         'lockNote',   COALESCE(lock_note, ''),
+        'missingCheckout', missing_out,
         'shifts',     shifts
       ) ORDER BY d)
         -- Chỉ giữ ngày CÓ hoạt động. Lưu ý: dc->'in' trả jsonb 'null' (không phải SQL NULL)

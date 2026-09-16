@@ -40,6 +40,14 @@ export interface EmployeeRef {
   faceCount: number;
 }
 
+/** Lần chấm vào chưa có chấm ra (phiên đang mở / bị bỏ vì quên tan ca). */
+export interface AttendanceOpenSession {
+  at: string; // ISO giờ chấm vào
+  date: string; // yyyy-mm-dd
+  shift: AttendanceShift | null;
+  deadline: string | null; // hạn phải chấm ra (ISO)
+}
+
 /** Trạng thái chấm công hôm nay của 1 NV. */
 export interface AttendanceStatus {
   employeeId: string;
@@ -52,6 +60,10 @@ export interface AttendanceStatus {
   todayOut: string | null;
   todayCount: number;
   todayShifts: AttendanceShiftStatus[]; // vào/ra từng ca hôm nay
+  openSince: string | null; // giờ vào của phiên đang mở (chưa quá hạn tan ca)
+  checkoutDeadline: string | null; // hạn phải chấm ra của phiên đang mở
+  /** Lần chấm vào đã bị BỎ QUA vì quá hạn tan ca (ca đó tính thiếu công). */
+  skippedCheckout: AttendanceOpenSession | null;
 }
 
 export interface IpStatus {

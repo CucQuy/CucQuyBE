@@ -308,15 +308,25 @@ export class AttendanceService {
       imageUrl = undefined;
     }
 
-    const rows = await this.proc.add({
-      employeeId: employee.id,
-      kind,
-      ip,
-      faceDistance: distance,
-      imageUrl,
-      note,
-    });
-    return { record: rows[0].result, distance };
+    try {
+      const rows = await this.proc.add({
+        employeeId: employee.id,
+        kind,
+        ip,
+        faceDistance: distance,
+        imageUrl,
+        note,
+      });
+      return { record: rows[0].result, distance };
+    } catch (e) {
+      // Ca trước quên tan ca + đã quá giờ → BE đã tự bỏ qua lần ra đó, giờ chỉ chấm VÀO được.
+      if (String((e as { message?: string })?.message ?? '').includes('NO_OPEN_SESSION')) {
+        throw new BadRequestException(
+          'Bạn chưa chấm vào ca (ca trước đã quá giờ nên hệ thống bỏ qua lần tan ca). Hãy chấm VÀO CA.',
+        );
+      }
+      throw e;
+    }
   }
 
   // ---- Quản lý (admin) ----

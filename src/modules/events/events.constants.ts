@@ -9,7 +9,22 @@ export const SOCKET_EVENTS = {
   PRINT_JOB: 'print:job',
   /** Đơn hàng MỚI vừa được tạo → máy quán (kiosk) phát âm + tự in phiếu bếp. */
   ORDER_CREATED: 'order:created',
+  /** BE → agent Zalo: xin FILE DB nhóm (SQLCipher) + key (request/response qua ACK). */
+  ZALO_FETCH_DB: 'zalo:fetch-db',
 } as const;
+
+/** ACK agent trả cho `zalo:fetch-db`: file DB nhóm (base64) + cipherKey để BE tự giải mã. */
+export interface ZaloFetchDbResult {
+  ok: boolean;
+  groupId: string;
+  /** cipherKey (passphrase SQLCipher) trích từ app đang chạy qua CDP. */
+  cipherKey: string;
+  /** Nội dung file g<groupId>.db (đã copy) dạng base64. */
+  dbBase64: string;
+  /** File -wal kèm theo (base64) để BE áp → thấy bill vừa đăng. Rỗng nếu không có. */
+  walBase64?: string;
+  error?: string;
+}
 
 /** Payload sự kiện `order:paid`. */
 export interface OrderPaidEvent {

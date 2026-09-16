@@ -8,6 +8,11 @@ export interface PayrollShift {
   registered?: boolean;
   worked?: boolean;
   valid?: boolean;
+  status?: string; // valid | partial | no_checkout | missed | unregistered | off
+  hours?: number; // giờ CHẤM của ca
+  adjHours?: number; // giờ admin bổ sung gắn ca này
+  totalHours?: number; // hours + adjHours
+  pay?: number | null; // tiền của ca = totalHours × mức lương/giờ (null khi chưa đặt mức)
 }
 
 /** 1 ngày trong bảng công của NV. */
@@ -23,6 +28,7 @@ export interface PayrollDay {
   valid: number; // số ca hợp lệ
   in: string | null; // giờ chấm vào (null nếu không chấm)
   out: string | null; // giờ chấm ra
+  missingCheckout: boolean; // có lần chấm vào bị bỏ vì quên tan ca (ca dở dang không tính công)
   shifts: PayrollShift[];
 }
 
