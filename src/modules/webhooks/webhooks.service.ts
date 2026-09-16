@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { WebhookProc, type SepayResult } from './webhooks.proc';
 import { EventsGateway } from '../events/events.gateway';
 import { ZaloService } from '../zalo/zalo.service';
@@ -7,6 +7,8 @@ import { ConfigurationsService } from '../configurations/configurations.service'
 /** Service chỉ orchestration + dựng payload HTTP; mọi DB qua WebhookProc. */
 @Injectable()
 export class WebhooksService {
+  private readonly logger = new Logger(WebhooksService.name);
+
   constructor(
     private readonly proc: WebhookProc,
     private readonly events: EventsGateway,
@@ -17,8 +19,9 @@ export class WebhooksService {
   /**
    * SePay: lưu transaction + (nếu khớp orderNumber) cộng tiền vào đơn.
    *
-   * Mọi giao dịch đều được báo Zalo — trước đây chỉ đơn auto-PAID mới có tin, nên
-   * tiền RA và tiền vào không khớp đơn đi qua hoàn toàn im lặng.
+   * Mọi giao dịch của tài khoản trong `SEPAY_NOTIFY_ACCOUNTS` đều được báo Zalo —
+   * trước đây chỉ đơn auto-PAID mới có tin, nên tiền RA và tiền vào không khớp đơn
+   * đi qua hoàn toàn im lặng.
    */
   async handleSepay(body: any): Promise<{ status: number; payload: Record<string, unknown> }> {
     if (!body || !body.id) {
@@ -40,7 +43,7 @@ export class WebhooksService {
     // Tiền RA: không bao giờ khớp đơn (webhook_sepay gate transfer_type='in'), nhưng
     // vẫn phải báo — chủ tiệm cần biết tài khoản vừa bị trừ tiền.
     if (res.transferType === 'out') {
-      void this.sendZalo(this.buildOutgoingMessage(amount, tx));
+      void this.sendZalo(this.buildOutgoingMessage(amount, tx), tx);
       return {
         status: 200,
         payload: { success: true, message: 'Outgoing transaction saved', transactionId: body.id },
@@ -53,6 +56,7 @@ export class WebhooksService {
         res.needsReview
           ? this.buildReviewMessage(amount, res.ambiguousCount ?? 0, tx)
           : this.buildUnmatchedInMessage(amount, tx),
+        tx,
       );
       return {
         status: 200,
@@ -71,7 +75,7 @@ export class WebhooksService {
     // transaction = to_jsonb(transactions) (snake_case).
     if (res.orderNumber) {
       this.events.emitOrderPaid({ orderNumber: res.orderNumber, amount });
-      void this.sendZalo(this.buildPaidMessage(res.orderNumber, amount, tx, res));
+      void this.sendZalo(this.buildPaidMessage(res.orderNumber, amount, tx, res), tx);
     }
 
     return {
@@ -81,11 +85,40 @@ export class WebhooksService {
   }
 
   /**
+   * Tài khoản ngân hàng được phép bắn Zalo (env `SEPAY_NOTIFY_ACCOUNTS`, ngăn cách dấu phẩy).
+   * Trống = bắn tất cả — SePay đẩy webhook của MỌI tài khoản đã đăng ký (kể cả TK cũ,
+   * TK test), nên không lọc là nhóm Zalo nhận cả những thứ không liên quan tới tiệm.
+   */
+  private notifyAccounts(): string[] {
+    return String(process.env.SEPAY_NOTIFY_ACCOUNTS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Chỉ quyết định CÓ BÁO ZALO HAY KHÔNG — giao dịch vẫn được ghi và vẫn khớp đơn
+   * bình thường dù tài khoản không nằm trong danh sách.
+   */
+  private shouldNotify(tx: Record<string, any>): boolean {
+    const allowed = this.notifyAccounts();
+    if (allowed.length === 0) return true;
+    const acc = String(tx.account_number ?? '').trim();
+    return allowed.includes(acc);
+  }
+
+  /**
    * Gửi vào nhóm nhận thông báo THANH TOÁN (feature 'payment' — Cài đặt Zalo → Nhóm).
    * Fire-and-forget: webhook SePay không được chờ Zalo, và Zalo lỗi không được làm
    * hỏng việc đã ghi giao dịch.
    */
-  private async sendZalo(message: string): Promise<void> {
+  private async sendZalo(message: string, tx: Record<string, any>): Promise<void> {
+    if (!this.shouldNotify(tx)) {
+      this.logger.log(
+        `Bỏ qua noti Zalo: tài khoản ${String(tx.account_number ?? '?')} không nằm trong SEPAY_NOTIFY_ACCOUNTS`,
+      );
+      return;
+    }
     await this.zalo.send({ message, feature: 'payment' }).catch(() => undefined);
   }
 
