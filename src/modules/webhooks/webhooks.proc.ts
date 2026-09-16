@@ -12,6 +12,13 @@ export type SepayResult = {
   reviewNote?: string | null;
   /** Số đơn ứng viên khi khớp theo số tiền. */
   ambiguousCount?: number;
+  /** 'in' (tiền vào) | 'out' (tiền ra) — quyết định kiểu noti Zalo. */
+  transferType?: 'in' | 'out';
+  /** Tiền đã nhận của đơn SAU giao dịch này (null nếu không khớp đơn). */
+  paidAmount?: number | null;
+  orderTotal?: number | null;
+  /** UNPAID | DEPOSITED | PAID | REFUNDED sau khi cộng tiền. */
+  payStatus?: string | null;
   transaction?: unknown;
 };
 export type OrderPaidItem = {

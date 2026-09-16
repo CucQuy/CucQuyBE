@@ -8,6 +8,8 @@
 --      - đúng 1 đơn khớp → auto-PAID + gắn order_number cho giao dịch;
 --      - ≥2 đơn cùng số tiền → KHÔNG auto-PAID, gắn needs_review + review_note để đối soát tay.
 -- Khớp được → set order = PAID.
+-- Hàm trả thêm transferType + paidAmount/orderTotal/payStatus để WebhooksService dựng
+-- noti Zalo cho CẢ tiền ra lẫn tiền vào (kể cả giao dịch không khớp đơn nào).
 CREATE OR REPLACE FUNCTION webhook_sepay(p_body jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
@@ -25,6 +27,11 @@ DECLARE
   v_cand_order_id text;
   v_cand_order_number text;
   v_review_note text := NULL;
+  -- Số liệu đơn SAU khi cộng tiền — để noti Zalo nói được "đã trả X/Y, còn thiếu Z"
+  -- thay vì đoán cọc/trả-đủ bằng prefix "C" trong nội dung CK.
+  v_paid numeric := NULL;
+  v_total numeric := NULL;
+  v_pay_status text := NULL;
 BEGIN
   v_res := transaction_create_from_sepay(p_body);
   IF COALESCE((v_res->>'duplicate')::boolean, false) THEN
@@ -50,7 +57,12 @@ BEGIN
            updated_at = now()
      WHERE order_number = v_order_number;
     GET DIAGNOSTICS v_matched = ROW_COUNT;
-    IF v_matched > 0 THEN v_match_by := 'content'; END IF;
+    IF v_matched > 0 THEN
+      v_match_by := 'content';
+      SELECT COALESCE(o.paid_amount, 0), COALESCE(o.total, 0), o.payment_status
+        INTO v_paid, v_total, v_pay_status
+        FROM orders o WHERE o.order_number = v_order_number;
+    END IF;
 
   ELSIF v_transfer_type = 'in' AND v_order_number IS NULL
         AND v_amount > 0 AND v_tx_date IS NOT NULL
@@ -91,6 +103,9 @@ BEGIN
         v_order_number := v_cand_order_number;
         v_match_by := 'amount';
         UPDATE transactions SET order_number = v_cand_order_number WHERE id = v_tx_id;
+        SELECT COALESCE(o.paid_amount, 0), COALESCE(o.total, 0), o.payment_status
+          INTO v_paid, v_total, v_pay_status
+          FROM orders o WHERE o.id = v_cand_order_id;
       END IF;
 
     ELSIF v_cand_count >= 2 THEN
@@ -108,7 +123,13 @@ BEGIN
     'matchBy', v_match_by,
     'needsReview', v_review_note IS NOT NULL,
     'reviewNote', v_review_note,
-    'ambiguousCount', v_cand_count
+    'ambiguousCount', v_cand_count,
+    -- Cho tầng noti: tiền ra / tiền vào không khớp đơn cũng phải báo được, và tin
+    -- thanh toán cần biết đã trả bao nhiêu trên tổng bao nhiêu.
+    'transferType', v_transfer_type,
+    'paidAmount', v_paid,
+    'orderTotal', v_total,
+    'payStatus', v_pay_status
   );
 END;
 $$;

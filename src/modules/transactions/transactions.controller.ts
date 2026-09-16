@@ -7,6 +7,7 @@ import { MarkSettledDto } from './dto/mark-settled.dto';
 import { LinkOrderDto } from './dto/link-order.dto';
 import { ReconcileApplyDto } from './dto/reconcile-apply.dto';
 import { ExpenseReconcileApplyDto } from './dto/expense-reconcile-apply.dto';
+import { AutoReconcileApplyDto, AutoReconcilePreviewDto } from './dto/auto-reconcile.dto';
 import { ExpenseLinkDto } from './dto/expense-link.dto';
 import { SetExpenseDto } from './dto/set-expense.dto';
 import { SaveExpenseRulesDto } from './dto/expense-rules.dto';
@@ -137,6 +138,21 @@ export class TransactionsController {
   @Post('reconcile/apply')
   reconcileApply(@Body() dto: ReconcileApplyDto) {
     return this.service.reconcileApply(dto.pairs);
+  }
+
+  /**
+   * Đối soát TỰ ĐỘNG — preview (dry-run) cho kỳ đang xem trên màn Sổ: gợi ý cặp
+   * vào↔đơn, ra↔phiếu nhập, ra↔chi phí tay. KHÔNG ghi gì.
+   */
+  @Post('auto-reconcile/preview')
+  autoReconcilePreview(@Body() dto: AutoReconcilePreviewDto) {
+    return this.service.autoReconcilePreview(dto?.from, dto?.to);
+  }
+
+  /** Đối soát TỰ ĐỘNG — apply: ghi các cặp user còn tick (atomic, idempotent). */
+  @Post('auto-reconcile/apply')
+  autoReconcileApply(@Body() dto: AutoReconcileApplyDto) {
+    return this.service.autoReconcileApply(dto ?? {});
   }
 
   /** Đối soát CHI PHÍ — preview (dry-run): cặp tiền-ra ↔ chi phí tay sẽ khớp, KHÔNG ghi. */

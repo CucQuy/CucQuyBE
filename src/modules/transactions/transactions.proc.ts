@@ -260,6 +260,24 @@ export class TransactionProc {
       SELECT tx_receipt_alloc_remove(${allocId}) AS result`;
   }
 
+  /**
+   * Đối soát TỰ ĐỘNG gộp: quét kỳ đang xem, gợi ý cặp chắc chắn cho cả 3 loại
+   * (vào↔đơn, ra↔phiếu nhập, ra↔chi phí tay). Dry-run, không ghi.
+   */
+  autoReconcilePreview(
+    from: string,
+    to: string,
+  ): Promise<{ result: AutoReconcilePreviewResult }[]> {
+    return this.db.sql<{ result: AutoReconcilePreviewResult }[]>`
+      SELECT ledger_auto_reconcile_preview(${from}, ${to}) AS result`;
+  }
+
+  /** Ghi các cặp người dùng đã duyệt. Atomic + idempotent (cặp hỏng chỉ bị skip). */
+  autoReconcileApply(payload: unknown): Promise<{ result: AutoReconcileApplyResult }[]> {
+    return this.db.sql<{ result: AutoReconcileApplyResult }[]>`
+      SELECT ledger_auto_reconcile_apply(${this.db.json(payload ?? {})}::jsonb) AS result`;
+  }
+
   /** Ứng viên ĐƠN cho 1 GD tiền VÀO (đối soát tay chặt: số tiền = tổng/còn thiếu/cọc, ~10 ngày). */
   inCandidateOrders(txId: string): Promise<{ result: InCandidateOrder[] }[]> {
     return this.db.sql<{ result: InCandidateOrder[] }[]>`
@@ -388,4 +406,68 @@ export type ExpenseReconcilePreviewResult = {
   skippedNoMatch: number;
   totalUnlinkedTx: number;
   totalUnlinkedExpense: number;
+};
+
+/** 1 cặp gợi ý: GD tiền VÀO ↔ đơn hàng. */
+export type AutoReconcileInOrderPair = {
+  transactionId: string;
+  sepayId: number | string;
+  orderId: string;
+  orderNumber: string;
+  customer: string;
+  orderTotal: number;
+  amount: number;
+  transactionDate: string | null;
+  orderCreatedAt: string | null;
+  description: string;
+};
+
+/** 1 cặp gợi ý: GD tiền RA ↔ phiếu nhập kho. */
+export type AutoReconcileOutReceiptPair = {
+  transactionId: string;
+  receiptId: string;
+  amount: number;
+  transactionDate: string | null;
+  receiptDate: string | null;
+  receiptTotal: number;
+  receiptRemaining: number;
+  supplier: string;
+  invoice: string;
+  description: string;
+};
+
+/** 1 cặp gợi ý: GD tiền RA ↔ khoản chi nhập tay. */
+export type AutoReconcileOutExpensePair = {
+  transactionId: string;
+  expenseId: string;
+  amount: number;
+  transactionDate: string | null;
+  expenseDate: string | null;
+  category: string | null;
+  note: string;
+  description: string;
+};
+
+export type AutoReconcilePreviewResult = {
+  inOrders: AutoReconcileInOrderPair[];
+  outReceipts: AutoReconcileOutReceiptPair[];
+  outExpenses: AutoReconcileOutExpensePair[];
+  counts: {
+    /** GD chưa khớp trong kỳ (vào / ra). */
+    unmatchedIn: number;
+    unmatchedOut: number;
+    /** Có ứng viên nhưng không 1–1 → phải đối soát tay. */
+    ambiguousIn: number;
+    ambiguousOut: number;
+    /** GD ra khớp CẢ phiếu nhập lẫn chi phí tay → bỏ qua để khỏi đếm trùng chi phí. */
+    conflictOut: number;
+  };
+};
+
+export type AutoReconcileApplyResult = {
+  inOrders: { applied: number; skipped: number };
+  outReceipts: { applied: number; skipped: number };
+  outExpenses: { applied: number; skipped: number };
+  applied: number;
+  skipped: number;
 };

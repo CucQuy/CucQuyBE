@@ -11,6 +11,8 @@ import {
   TxReceiptAllocSummary,
   InCandidateOrder,
   ShippingPaymentSummary,
+  AutoReconcilePreviewResult,
+  AutoReconcileApplyResult,
 } from './transactions.proc';
 import { TxReceiptAllocItem } from './dto/receipt-alloc.dto';
 
@@ -206,6 +208,51 @@ export class TransactionsService {
     pairs: ReconcilePair[],
   ): Promise<{ applied: number; skipped: number }> {
     const rows = await this.proc.reconcileApply(pairs ?? []);
+    return rows[0].result;
+  }
+
+  /**
+   * Đối soát TỰ ĐỘNG cho màn Sổ: quét đúng kỳ đang xem, gợi ý cặp chắc chắn cho cả
+   * 3 loại. Dry-run — không ghi gì, người dùng duyệt ở modal rồi mới gọi apply.
+   */
+  async autoReconcilePreview(
+    from?: string,
+    to?: string,
+  ): Promise<AutoReconcilePreviewResult> {
+    const rows = await this.proc.autoReconcilePreview(from ?? '', to ?? '');
+    const r = rows[0].result;
+    // jsonb trả numeric dạng string ở vài driver → ép số để FE cộng/format không lệch.
+    return {
+      ...r,
+      inOrders: (r.inOrders ?? []).map((m) => ({
+        ...m,
+        amount: Number(m.amount) || 0,
+        orderTotal: Number(m.orderTotal) || 0,
+      })),
+      outReceipts: (r.outReceipts ?? []).map((m) => ({
+        ...m,
+        amount: Number(m.amount) || 0,
+        receiptTotal: Number(m.receiptTotal) || 0,
+        receiptRemaining: Number(m.receiptRemaining) || 0,
+      })),
+      outExpenses: (r.outExpenses ?? []).map((m) => ({
+        ...m,
+        amount: Number(m.amount) || 0,
+      })),
+    };
+  }
+
+  /** Ghi các cặp người dùng còn tick ở modal preview. */
+  async autoReconcileApply(payload: {
+    inOrders?: unknown[];
+    outReceipts?: unknown[];
+    outExpenses?: unknown[];
+  }): Promise<AutoReconcileApplyResult> {
+    const rows = await this.proc.autoReconcileApply({
+      inOrders: payload?.inOrders ?? [],
+      outReceipts: payload?.outReceipts ?? [],
+      outExpenses: payload?.outExpenses ?? [],
+    });
     return rows[0].result;
   }
 
