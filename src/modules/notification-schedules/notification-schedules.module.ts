@@ -7,19 +7,13 @@ import { NotificationScheduleProc } from './notification-schedules.proc';
 import { SchedulesProcessor } from './schedules.processor';
 import { ZaloModule } from '../zalo/zalo.module';
 import { FacebookModule } from '../facebook/facebook.module';
-import { TiktokModule } from '../tiktok/tiktok.module';
 
 /**
  * Lịch tự động gửi thông báo. Import ZaloModule để gửi (không chiều ngược lại
  * → tránh vòng lặp). Queue riêng QUEUE_SCHEDULES cho cron tick.
  */
 @Module({
-  imports: [
-    BullModule.registerQueue({ name: QUEUE_SCHEDULES }),
-    ZaloModule,
-    FacebookModule,
-    TiktokModule,
-  ],
+  imports: [BullModule.registerQueue({ name: QUEUE_SCHEDULES }), ZaloModule, FacebookModule],
   controllers: [NotificationSchedulesController],
   providers: [NotificationSchedulesService, NotificationScheduleProc, SchedulesProcessor],
 })

@@ -32,7 +32,6 @@ import { WagesModule } from './modules/wages/wages.module';
 import { ImagesModule } from './modules/images/images.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { FacebookModule } from './modules/facebook/facebook.module';
-import { TiktokModule } from './modules/tiktok/tiktok.module';
 import { SerpapiModule } from './modules/serpapi/serpapi.module';
 import { OcrModule } from './modules/ocr/ocr.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -96,7 +95,6 @@ import { ZaloBillsModule } from './modules/zalo-bills/zalo-bills.module';
     ImagesModule,
     WebhooksModule,
     FacebookModule,
-    TiktokModule,
     SerpapiModule,
     OcrModule,
     AiModule,
