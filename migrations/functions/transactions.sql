@@ -75,6 +75,20 @@ LANGUAGE sql AS $$
   RETURNING *;
 $$;
 
+-- Tài khoản có được đưa vào Sổ giao dịch/đối soát hay không (migration 076).
+-- Khớp theo account_number HOẶC sub_account: TK ảo (BIDV) bắn account_number là số
+-- tài khoản ảo của bank, số của tiệm nằm ở sub_account.
+-- TK không khai trong payment_accounts → KHÔNG tracked (mặc định an toàn: coi là test).
+CREATE OR REPLACE FUNCTION payment_account_is_tracked(p_account text, p_sub text)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM payment_accounts pa
+    WHERE pa.is_tracked
+      AND pa.account_number IN (NULLIF(TRIM(COALESCE(p_account, '')), ''),
+                                NULLIF(TRIM(COALESCE(p_sub, '')), ''))
+  );
+$$;
+
 -- Tạo giao dịch từ webhook SePay, IDEMPOTENT theo sepay_id.
 -- p_body: jsonb client gửi (camelCase) — đọc các field như SePay payload.
 -- Logic chống trùng: nếu đã tồn tại transaction cùng sepay_id -> KHÔNG insert,
@@ -145,8 +159,10 @@ BEGIN
     false,
     v_now,
     v_now,
-    -- TEST: tiền vào tài khoản test (MBBank 0776750418) → đánh dấu để loại khỏi doanh thu/đối soát.
-    (COALESCE(p_body->>'accountNumber', '') = '0776750418')
+    -- Tài khoản KHÔNG tracked (TK cá nhân / TK lạ chưa khai) → gắn is_test:
+    -- giao dịch vẫn ghi để giữ audit nhưng status 'test', ra khỏi summary + đối soát.
+    -- Bật/tắt bằng payment_accounts.is_tracked, KHÔNG hardcode số TK ở đây nữa.
+    NOT payment_account_is_tracked(p_body->>'accountNumber', p_body->>'subAccount')
   )
   RETURNING * INTO v_new;
 

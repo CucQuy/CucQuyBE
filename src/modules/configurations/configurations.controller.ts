@@ -17,6 +17,7 @@ import { AuthUser, UserRole } from '../../auth/user.types';
 import { ResponseMessage } from '../../common/response-message.decorator';
 import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
+import { SetPaymentAccountTrackedDto } from './dto/set-payment-account-tracked.dto';
 import {
   PaymentAccount,
   Role,
@@ -194,6 +195,19 @@ export class ConfigurationsController {
     @Param('id') id: string,
   ): Promise<PaymentAccount[]> {
     return this.service.setActivePaymentAccount(id);
+  }
+
+  /**
+   * Bật/tắt tracking tài khoản: tắt → giao dịch SePay của TK này vẫn ghi nhưng gắn
+   * is_test → ra khỏi Sổ giao dịch/đối soát. Không tắt được TK đang nhận tiền.
+   */
+  @Put('payment-accounts/:id/tracked')
+  @ResponseMessage('Đã cập nhật theo dõi tài khoản')
+  setTrackedPaymentAccount(
+    @Param('id') id: string,
+    @Body() body: SetPaymentAccountTrackedDto,
+  ): Promise<PaymentAccount[]> {
+    return this.service.setTrackedPaymentAccount(id, body.tracked);
   }
 
   /** Xoá tài khoản; nếu xoá cái active thì cái mới nhất còn lại thành active. Trả danh sách mới. */

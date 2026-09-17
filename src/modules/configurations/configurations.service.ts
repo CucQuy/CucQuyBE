@@ -140,6 +140,15 @@ export class ConfigurationsService {
     return row.data ?? [];
   }
 
+  /** Bật/tắt đưa giao dịch của tài khoản vào Sổ giao dịch/đối soát. */
+  async setTrackedPaymentAccount(
+    id: string,
+    tracked: boolean,
+  ): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountSetTracked(id, tracked);
+    return row.data ?? [];
+  }
+
   async deletePaymentAccount(id: string): Promise<PaymentAccount[]> {
     const [row] = await this.proc.paymentAccountDelete(id);
     return row.data ?? [];

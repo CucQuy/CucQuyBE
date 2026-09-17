@@ -177,7 +177,7 @@ $$;
 -- Bỏ payment_config_get/save cũ (single-row).
 
 -- Liệt kê tất cả tài khoản → jsonb array. Sắp active trước rồi created_at desc.
--- Mỗi item {id, bankCode, accountNumber, accountHolder, qrTemplate, isActive, createdAt}.
+-- Mỗi item {id, bankCode, accountNumber, accountHolder, qrTemplate, isActive, isTracked, createdAt}.
 CREATE OR REPLACE FUNCTION payment_accounts_list()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -189,6 +189,7 @@ LANGUAGE sql STABLE AS $$
               'accountHolder', a.account_holder,
               'qrTemplate', a.qr_template,
               'isActive', a.is_active,
+              'isTracked', a.is_tracked,
               'createdAt', a.created_at
             ) ORDER BY a.is_active DESC, a.created_at DESC)
      FROM payment_accounts a),
@@ -237,7 +238,30 @@ BEGIN
 
   -- tắt active trước (tránh đụng partial unique index), rồi bật cái cần.
   UPDATE payment_accounts SET is_active = false WHERE is_active AND id <> p_id;
-  UPDATE payment_accounts SET is_active = true WHERE id = p_id;
+  -- TK nhận tiền đơn thì buộc phải vào sổ để đối soát → bật luôn tracking (migration 076).
+  UPDATE payment_accounts SET is_active = true, is_tracked = true WHERE id = p_id;
+
+  RETURN payment_accounts_list();
+END;
+$$;
+
+-- Bật/tắt tracking tài khoản p_id (migration 076): tắt → giao dịch SePay của TK này vẫn
+-- được ghi nhưng gắn is_test=true → ra khỏi Sổ giao dịch/đối soát. TK đang active KHÔNG
+-- được tắt tracking (đang nhận tiền đơn → phải đối soát). Trả payment_accounts_list().
+CREATE OR REPLACE FUNCTION payment_account_set_tracked(p_id text, p_tracked boolean)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM payment_accounts WHERE id = p_id) THEN
+    RAISE EXCEPTION 'payment account % not found', p_id;
+  END IF;
+
+  IF NOT COALESCE(p_tracked, false)
+     AND EXISTS (SELECT 1 FROM payment_accounts WHERE id = p_id AND is_active) THEN
+    RAISE EXCEPTION 'không thể tắt tracking tài khoản đang nhận tiền';
+  END IF;
+
+  UPDATE payment_accounts SET is_tracked = COALESCE(p_tracked, false) WHERE id = p_id;
 
   RETURN payment_accounts_list();
 END;

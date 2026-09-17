@@ -96,6 +96,8 @@ export interface PaymentAccount {
   accountHolder: string;
   qrTemplate: string;
   isActive: boolean;
+  /** Đưa giao dịch của TK này vào Sổ giao dịch/đối soát (false → tx gắn is_test). */
+  isTracked: boolean;
   createdAt: string; // ISO
 }
 
