@@ -18,6 +18,7 @@ import { ResponseMessage } from '../../common/response-message.decorator';
 import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { SetPaymentAccountTrackedDto } from './dto/set-payment-account-tracked.dto';
+import { SetPaymentAccountPurposeDto } from './dto/set-payment-account-purpose.dto';
 import {
   PaymentAccount,
   Role,
@@ -208,6 +209,19 @@ export class ConfigurationsController {
     @Body() body: SetPaymentAccountTrackedDto,
   ): Promise<PaymentAccount[]> {
     return this.service.setTrackedPaymentAccount(id, body.tracked);
+  }
+
+  /**
+   * Đổi mục đích tài khoản (099): 'receive' nhận tiền khách ↔ 'spend' chi hoá đơn.
+   * TK nhận đang active không đổi được khi còn TK nhận khác (chọn TK chính khác trước).
+   */
+  @Put('payment-accounts/:id/purpose')
+  @ResponseMessage('Đã cập nhật mục đích tài khoản')
+  setPurposePaymentAccount(
+    @Param('id') id: string,
+    @Body() body: SetPaymentAccountPurposeDto,
+  ): Promise<PaymentAccount[]> {
+    return this.service.setPurposePaymentAccount(id, body.purpose);
   }
 
   /** Xoá tài khoản; nếu xoá cái active thì cái mới nhất còn lại thành active. Trả danh sách mới. */

@@ -8,6 +8,7 @@ import {
   LedgerFilters,
   LedgerResult,
   LedgerItem,
+  LedgerAccountFlow,
   TxReceiptAllocSummary,
   InCandidateOrder,
   ShippingPaymentSummary,
@@ -75,10 +76,12 @@ export class TransactionsService {
     const rows = await this.proc.ledger(filters);
     const r = rows[0]?.result;
     const emptySummary = {
-      totalIn: 0, totalOut: 0, net: 0, count: 0, inCount: 0, outCount: 0,
+      totalIn: 0, totalOut: 0, net: 0, sweepIn: 0, sweepOut: 0,
+      externalIn: 0, externalOut: 0, netExternal: 0,
+      count: 0, inCount: 0, outCount: 0,
       reconciledCount: 0, unreconciledCount: 0, reconciledPct: 100,
     };
-    if (!r) return { items: [], total: 0, summary: emptySummary };
+    if (!r) return { items: [], total: 0, summary: emptySummary, byAccount: [] };
     const s = r.summary ?? emptySummary;
     return {
       items: (r.items ?? []).map(
@@ -94,6 +97,11 @@ export class TransactionsService {
         totalIn: Number(s.totalIn) || 0,
         totalOut: Number(s.totalOut) || 0,
         net: Number(s.net) || 0,
+        sweepIn: Number(s.sweepIn) || 0,
+        sweepOut: Number(s.sweepOut) || 0,
+        externalIn: Number(s.externalIn) || 0,
+        externalOut: Number(s.externalOut) || 0,
+        netExternal: Number(s.netExternal) || 0,
         count: Number(s.count) || 0,
         inCount: Number(s.inCount) || 0,
         outCount: Number(s.outCount) || 0,
@@ -101,6 +109,18 @@ export class TransactionsService {
         unreconciledCount: Number(s.unreconciledCount) || 0,
         reconciledPct: Number(s.reconciledPct) || 0,
       },
+      // 099: dòng tiền tách theo từng tài khoản (TK nhận / TK chi / TK chưa khai).
+      byAccount: (r.byAccount ?? []).map(
+        (a): LedgerAccountFlow => ({
+          ...a,
+          in: Number(a.in) || 0,
+          out: Number(a.out) || 0,
+          net: Number(a.net) || 0,
+          sweepIn: Number(a.sweepIn) || 0,
+          sweepOut: Number(a.sweepOut) || 0,
+          count: Number(a.count) || 0,
+        }),
+      ),
     };
   }
 

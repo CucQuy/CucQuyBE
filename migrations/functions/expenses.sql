@@ -3,12 +3,13 @@
 
 -- ── Category tiền-ra CÓ tính vào chi phí quán (OPEX/P&L) không ──
 -- KHÔNG tính khi: chưa phân loại (NULL/''), hoặc thuộc nhóm PHI-CHI-PHÍ
--- (cá nhân / rút vốn / nội bộ-nạp ví). Mặc định "chưa phân loại" = KHÔNG tính
--- (đảo mặc định cũ) → tiền ra chỉ tính chi phí khi được gán 1 category chi phí rõ ràng.
+-- (cá nhân / rút vốn / nội bộ-nạp ví / dồn tiền sang TK chi). Mặc định "chưa phân loại"
+-- = KHÔNG tính (đảo mặc định cũ) → tiền ra chỉ tính chi phí khi được gán category rõ ràng.
+-- 'sweep' (099) = cuối ngày dồn tiền TK nhận → TK chi: luân chuyển nội bộ, tiền chưa rời tiệm.
 CREATE OR REPLACE FUNCTION expense_category_is_cost(p_cat text)
 RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
   SELECT p_cat IS NOT NULL AND p_cat <> ''
-     AND p_cat NOT IN ('personal', 'owner', 'internal');
+     AND p_cat NOT IN ('personal', 'owner', 'internal', 'sweep');
 $$;
 
 -- ── Rule từ khoá (nội dung CK → category) ──

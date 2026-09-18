@@ -38,6 +38,7 @@ export class TransactionsController {
     @Query('search') search?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('account') account?: string,
   ) {
     return this.service.fetchLedger({
       from: from || null,
@@ -49,6 +50,7 @@ export class TransactionsController {
       search: search || null,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
+      account: account || null,
     });
   }
 

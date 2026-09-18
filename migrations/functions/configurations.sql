@@ -190,18 +190,23 @@ LANGUAGE sql STABLE AS $$
               'qrTemplate', a.qr_template,
               'isActive', a.is_active,
               'isTracked', a.is_tracked,
+              -- 099: 'receive' = TK nhận tiền khách · 'spend' = TK chi hoá đơn.
+              'purpose', a.purpose,
               'createdAt', a.created_at
-            ) ORDER BY a.is_active DESC, a.created_at DESC)
+            ) ORDER BY a.purpose, a.is_active DESC, a.created_at DESC)
      FROM payment_accounts a),
     '[]'::jsonb
   );
 $$;
--- Tạo tài khoản mới từ jsonb {bankCode, accountNumber, accountHolder, qrTemplate}.
--- Nếu là tài khoản ĐẦU TIÊN (bảng đang rỗng) → set is_active=true. Trả payment_accounts_list().
+-- Tạo tài khoản mới từ jsonb {bankCode, accountNumber, accountHolder, qrTemplate, purpose}.
+-- purpose: 'receive' (mặc định, TK nhận tiền khách) | 'spend' (TK chi hoá đơn) — 099.
+-- TK ĐẦU TIÊN của purpose đó → set is_active=true (mỗi purpose có 1 TK chính riêng).
+-- Trả payment_accounts_list().
 CREATE OR REPLACE FUNCTION payment_account_create(p_data jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
 DECLARE
+  v_purpose text;
   v_first boolean;
 BEGIN
   p_data := COALESCE(p_data, '{}'::jsonb);
@@ -212,33 +217,48 @@ BEGIN
     RAISE EXCEPTION 'bankCode, accountNumber, accountHolder are required';
   END IF;
 
-  v_first := NOT EXISTS (SELECT 1 FROM payment_accounts);
+  v_purpose := COALESCE(NULLIF(p_data->>'purpose',''), 'receive');
+  IF v_purpose NOT IN ('receive', 'spend') THEN
+    RAISE EXCEPTION 'purpose phải là receive hoặc spend';
+  END IF;
 
-  INSERT INTO payment_accounts (bank_code, account_number, account_holder, qr_template, is_active)
+  v_first := NOT EXISTS (SELECT 1 FROM payment_accounts WHERE purpose = v_purpose);
+
+  INSERT INTO payment_accounts (
+    bank_code, account_number, account_holder, qr_template, is_active, purpose
+  )
   VALUES (
     p_data->>'bankCode',
     p_data->>'accountNumber',
     p_data->>'accountHolder',
     COALESCE(NULLIF(p_data->>'qrTemplate',''), 'compact'),
-    v_first
+    v_first,
+    v_purpose
   );
 
   RETURN payment_accounts_list();
 END;
 $$;
 
--- Set tài khoản p_id làm active, các tài khoản khác false (atomic). Trả payment_accounts_list().
+-- Set tài khoản p_id làm active TRONG PURPOSE của nó (atomic) — 099: mỗi purpose có
+-- 1 TK chính riêng (1 TK nhận tiền cho QR đơn + 1 TK chi cho hoá đơn), nên chỉ tắt
+-- active của các TK CÙNG purpose. Trả payment_accounts_list().
 CREATE OR REPLACE FUNCTION payment_account_set_active(p_id text)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
+DECLARE
+  v_purpose text;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM payment_accounts WHERE id = p_id) THEN
+  SELECT purpose INTO v_purpose FROM payment_accounts WHERE id = p_id;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'payment account % not found', p_id;
   END IF;
 
   -- tắt active trước (tránh đụng partial unique index), rồi bật cái cần.
-  UPDATE payment_accounts SET is_active = false WHERE is_active AND id <> p_id;
-  -- TK nhận tiền đơn thì buộc phải vào sổ để đối soát → bật luôn tracking (migration 076).
+  UPDATE payment_accounts
+    SET is_active = false
+    WHERE is_active AND purpose = v_purpose AND id <> p_id;
+  -- TK chính (nhận hoặc chi) buộc phải vào sổ để đối soát → bật luôn tracking (076).
   UPDATE payment_accounts SET is_active = true, is_tracked = true WHERE id = p_id;
 
   RETURN payment_accounts_list();
@@ -247,7 +267,8 @@ $$;
 
 -- Bật/tắt tracking tài khoản p_id (migration 076): tắt → giao dịch SePay của TK này vẫn
 -- được ghi nhưng gắn is_test=true → ra khỏi Sổ giao dịch/đối soát. TK đang active KHÔNG
--- được tắt tracking (đang nhận tiền đơn → phải đối soát). Trả payment_accounts_list().
+-- được tắt tracking — TK nhận chính đang nhận tiền đơn, TK chi chính đang chi hoá đơn,
+-- cả hai đều phải vào sổ để đối soát (099). Trả payment_accounts_list().
 CREATE OR REPLACE FUNCTION payment_account_set_tracked(p_id text, p_tracked boolean)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
@@ -258,7 +279,7 @@ BEGIN
 
   IF NOT COALESCE(p_tracked, false)
      AND EXISTS (SELECT 1 FROM payment_accounts WHERE id = p_id AND is_active) THEN
-    RAISE EXCEPTION 'không thể tắt tracking tài khoản đang nhận tiền';
+    RAISE EXCEPTION 'không thể tắt tracking tài khoản đang dùng (nhận tiền / chi hoá đơn)';
   END IF;
 
   UPDATE payment_accounts SET is_tracked = COALESCE(p_tracked, false) WHERE id = p_id;
@@ -267,16 +288,69 @@ BEGIN
 END;
 $$;
 
--- Xoá tài khoản p_id. Nếu nó đang active và còn tài khoản khác → set cái mới nhất làm active.
+-- Đổi MỤC ĐÍCH tài khoản p_id (099): 'receive' (nhận tiền khách, QR đơn trỏ vào TK nhận
+-- đang active) ↔ 'spend' (chi hoá đơn, nhận tiền dồn cuối ngày từ TK nhận).
+-- Đổi purpose có thể đụng partial unique index (mỗi purpose 1 TK active) → nếu purpose đích
+-- đã có TK active thì TK này chuyển sang KHÔNG active; nếu purpose đích chưa có TK nào
+-- active thì nó thành TK chính luôn (+ bật tracking để vào sổ đối soát).
+-- Chặn đổi purpose của TK NHẬN đang active khi vẫn còn TK nhận khác → tránh tiệm bị mất
+-- TK nhận tiền đơn giữa giờ (muốn đổi thì chọn TK nhận khác làm chính trước).
 -- Trả payment_accounts_list().
+CREATE OR REPLACE FUNCTION payment_account_set_purpose(p_id text, p_purpose text)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_cur_purpose text;
+  v_was_active boolean;
+  v_target_has_active boolean;
+BEGIN
+  IF COALESCE(p_purpose, '') NOT IN ('receive', 'spend') THEN
+    RAISE EXCEPTION 'purpose phải là receive hoặc spend';
+  END IF;
+
+  SELECT purpose, is_active INTO v_cur_purpose, v_was_active
+    FROM payment_accounts WHERE id = p_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'payment account % not found', p_id;
+  END IF;
+
+  IF v_cur_purpose = p_purpose THEN
+    RETURN payment_accounts_list();
+  END IF;
+
+  IF v_cur_purpose = 'receive' AND v_was_active
+     AND EXISTS (SELECT 1 FROM payment_accounts
+                 WHERE purpose = 'receive' AND id <> p_id) THEN
+    RAISE EXCEPTION 'chọn tài khoản nhận tiền khác làm chính trước khi đổi mục đích TK này';
+  END IF;
+
+  v_target_has_active := EXISTS (
+    SELECT 1 FROM payment_accounts WHERE purpose = p_purpose AND is_active AND id <> p_id
+  );
+
+  UPDATE payment_accounts
+    SET purpose   = p_purpose,
+        is_active = NOT v_target_has_active,
+        -- TK chính (nhận hoặc chi) buộc phải vào sổ để đối soát (076).
+        is_tracked = CASE WHEN v_target_has_active THEN is_tracked ELSE true END
+    WHERE id = p_id;
+
+  RETURN payment_accounts_list();
+END;
+$$;
+
+-- Xoá tài khoản p_id. Nếu nó đang active và còn TK khác CÙNG purpose → set cái mới nhất
+-- của purpose đó làm active. Trả payment_accounts_list().
 CREATE OR REPLACE FUNCTION payment_account_delete(p_id text)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
 DECLARE
   v_was_active boolean;
+  v_purpose text;
   v_next_id text;
 BEGIN
-  SELECT is_active INTO v_was_active FROM payment_accounts WHERE id = p_id;
+  SELECT is_active, purpose INTO v_was_active, v_purpose
+    FROM payment_accounts WHERE id = p_id;
   IF NOT FOUND THEN
     RETURN payment_accounts_list();
   END IF;
@@ -284,7 +358,10 @@ BEGIN
   DELETE FROM payment_accounts WHERE id = p_id;
 
   IF v_was_active THEN
-    SELECT id INTO v_next_id FROM payment_accounts ORDER BY created_at DESC LIMIT 1;
+    -- Chỉ đề cử TK CÙNG purpose (099) — xoá TK nhận không được biến TK chi thành TK nhận.
+    SELECT id INTO v_next_id
+      FROM payment_accounts WHERE purpose = v_purpose
+      ORDER BY created_at DESC LIMIT 1;
     IF v_next_id IS NOT NULL THEN
       UPDATE payment_accounts SET is_active = true WHERE id = v_next_id;
     END IF;

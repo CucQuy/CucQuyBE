@@ -88,7 +88,13 @@ export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
   overLabel: '> 6 km',
 };
 
-/** 1 tài khoản nhận tiền (multi-account; tối đa 1 isActive=true). */
+/**
+ * Mục đích tài khoản (099): 'receive' nhận tiền khách (QR đơn trỏ vào TK receive đang
+ * active) · 'spend' chi hoá đơn (cuối ngày nhận tiền dồn từ TK nhận rồi chi ra).
+ */
+export type PaymentAccountPurpose = 'receive' | 'spend';
+
+/** 1 tài khoản ngân hàng của tiệm (tối đa 1 isActive=true MỖI purpose). */
 export interface PaymentAccount {
   id: string;
   bankCode: string;
@@ -98,15 +104,18 @@ export interface PaymentAccount {
   isActive: boolean;
   /** Đưa giao dịch của TK này vào Sổ giao dịch/đối soát (false → tx gắn is_test). */
   isTracked: boolean;
+  /** Nhận tiền khách hay chi hoá đơn (099). */
+  purpose: PaymentAccountPurpose;
   createdAt: string; // ISO
 }
 
-/** Payload tạo tài khoản (qrTemplate optional, mặc định 'compact'). */
+/** Payload tạo tài khoản (qrTemplate optional 'compact', purpose optional 'receive'). */
 export interface CreatePaymentAccountPayload {
   bankCode: string;
   accountNumber: string;
   accountHolder: string;
   qrTemplate?: string;
+  purpose?: PaymentAccountPurpose;
 }
 
 /** 1 chức năng thông báo Zalo + cờ bật/tắt + nhóm đang nhận (màn "Chức năng"). */

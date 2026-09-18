@@ -129,6 +129,15 @@ export class ConfigurationProc {
       SELECT payment_account_set_tracked(${id ?? ''}, ${tracked}) AS data`;
   }
 
+  /** Đổi mục đích TK: nhận tiền khách ↔ chi hoá đơn (099). */
+  paymentAccountSetPurpose(
+    id: string,
+    purpose: string,
+  ): Promise<{ data: PaymentAccount[] }[]> {
+    return this.db.sql<{ data: PaymentAccount[] }[]>`
+      SELECT payment_account_set_purpose(${id ?? ''}, ${purpose ?? 'receive'}) AS data`;
+  }
+
   paymentAccountDelete(id: string): Promise<{ data: PaymentAccount[] }[]> {
     return this.db.sql<{ data: PaymentAccount[] }[]>`
       SELECT payment_account_delete(${id ?? ''}) AS data`;

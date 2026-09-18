@@ -55,7 +55,9 @@ LANGUAGE sql AS $$
   UPDATE transactions SET is_external = p_is_external WHERE id = p_id RETURNING *;
 $$;
 
--- Đánh dấu / bỏ đánh dấu giao dịch tiền RA đã "kết toán" (chuyển về TK chính) — 010.
+-- Đánh dấu / bỏ đánh dấu giao dịch tiền RA đã "kết toán" — 010; từ 099 cờ này nghĩa là
+-- CÚ DỒN TIỀN cuối ngày từ TK NHẬN sang TK CHI (ledger cho status 'sweep_out', và tiền
+-- vào TK chi khớp cú dồn này thành 'sweep_in'). Không tính vào chi phí quán.
 CREATE OR REPLACE FUNCTION transaction_mark_settled(p_id text, p_settled boolean)
 RETURNS SETOF transactions
 LANGUAGE sql AS $$
@@ -87,6 +89,20 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
       AND pa.account_number IN (NULLIF(TRIM(COALESCE(p_account, '')), ''),
                                 NULLIF(TRIM(COALESCE(p_sub, '')), ''))
   );
+$$;
+
+-- Mục đích tài khoản của 1 giao dịch (migration 099): 'receive' (TK nhận tiền khách)
+-- hoặc 'spend' (TK chi hoá đơn). NULL = TK chưa khai trong payment_accounts.
+-- Khớp account_number HOẶC sub_account (lý do: xem payment_account_is_tracked).
+-- Trùng nhiều TK cùng số → ưu tiên TK đang active, rồi TK mới nhất.
+CREATE OR REPLACE FUNCTION payment_account_purpose(p_account text, p_sub text)
+RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT pa.purpose
+  FROM payment_accounts pa
+  WHERE pa.account_number IN (NULLIF(TRIM(COALESCE(p_account, '')), ''),
+                              NULLIF(TRIM(COALESCE(p_sub, '')), ''))
+  ORDER BY pa.is_active DESC, pa.created_at DESC
+  LIMIT 1;
 $$;
 
 -- Tạo giao dịch từ webhook SePay, IDEMPOTENT theo sepay_id.
