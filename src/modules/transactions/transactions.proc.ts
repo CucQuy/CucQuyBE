@@ -32,8 +32,8 @@ export type LedgerStatus =
   | 'matched' | 'external' | 'sweep_in' | 'unmatched' // tiền vào
   | 'refund' | 'shipping' | 'sweep_out' | 'settled' | 'excluded' | 'expense'; // tiền ra
 
-/** Mục đích tài khoản của dòng tiền (099): nhận tiền khách vs chi hoá đơn. */
-export type PaymentAccountPurpose = 'receive' | 'spend';
+/** Loại tài khoản của dòng tiền (100): hộ kinh doanh vs cá nhân. */
+export type PaymentAccountKind = 'hkd' | 'personal';
 
 /** 1 dòng sổ giao dịch (đã camelCase từ SQL, kèm status). */
 export type LedgerItem = {
@@ -60,21 +60,21 @@ export type LedgerItem = {
   receivedAt: string | null;
   createdAt: string | null;
   status: LedgerStatus;
-  /** TK khai trong payment_accounts khớp GD này (null = TK chưa khai) — 099. */
+  /** TK khai trong payment_accounts khớp GD này (null = TK chưa khai) — 100. */
   accountId: string | null;
   /** Nhãn ngắn TK, vd "BIDV ·1308". */
   accountLabel: string | null;
-  accountPurpose: PaymentAccountPurpose | null;
+  accountKind: PaymentAccountKind | null;
 };
 
-/** Dòng tiền của 1 tài khoản trong kỳ (099) — sổ nói rõ tiền nào của TK nào. */
+/** Dòng tiền của 1 tài khoản trong kỳ (100) — sổ nói rõ tiền nào của TK nào. */
 export type LedgerAccountFlow = {
   accountId: string | null;
   label: string;
   bankCode: string | null;
   accountNumber: string | null;
   accountHolder: string | null;
-  purpose: PaymentAccountPurpose | null;
+  kind: PaymentAccountKind | null;
   in: number;
   out: number;
   net: number;
@@ -88,7 +88,7 @@ export type LedgerSummary = {
   totalIn: number;
   totalOut: number;
   net: number;
-  /** 099 — phần luân chuyển nội bộ (TK nhận → TK chi) nằm trong totalIn/totalOut. */
+  /** 100 — phần luân chuyển nội bộ (TK HKD → TK cá nhân) nằm trong totalIn/totalOut. */
   sweepIn: number;
   sweepOut: number;
   /** Thu/chi THỰC với bên ngoài = tổng trừ phần luân chuyển nội bộ. */
@@ -107,7 +107,7 @@ export type LedgerResult = {
   items: LedgerItem[];
   total: number;
   summary: LedgerSummary;
-  /** Dòng tiền tách theo từng tài khoản trong kỳ (099). */
+  /** Dòng tiền tách theo từng tài khoản trong kỳ (100). */
   byAccount: LedgerAccountFlow[];
 };
 
@@ -129,7 +129,7 @@ export type LedgerFilters = {
   search?: string | null;
   limit?: number;
   offset?: number;
-  /** payment_accounts.id — lọc sổ theo 1 tài khoản (099). */
+  /** payment_accounts.id — lọc sổ theo 1 tài khoản (100). */
   account?: string | null;
 };
 

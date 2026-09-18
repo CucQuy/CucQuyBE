@@ -3,6 +3,9 @@ import { DbService } from '../../db/db.service';
 
 export type SepayResult = {
   duplicate: boolean;
+  /** TK tắt "ghi nhận giao dịch" (hoặc TK lạ chưa khai) → DB không lưu dòng nào (100). */
+  skipped?: boolean;
+  reason?: string;
   orderNumber?: string | null;
   orderMatched?: boolean;
   /** Cách khớp đơn: 'content' (mã đơn), 'amount' (số tiền), null (không khớp). */

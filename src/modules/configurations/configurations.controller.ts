@@ -18,7 +18,7 @@ import { ResponseMessage } from '../../common/response-message.decorator';
 import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { SetPaymentAccountTrackedDto } from './dto/set-payment-account-tracked.dto';
-import { SetPaymentAccountPurposeDto } from './dto/set-payment-account-purpose.dto';
+import { SetPaymentAccountKindDto } from './dto/set-payment-account-kind.dto';
 import {
   PaymentAccount,
   Role,
@@ -199,11 +199,11 @@ export class ConfigurationsController {
   }
 
   /**
-   * Bật/tắt tracking tài khoản: tắt → giao dịch SePay của TK này vẫn ghi nhưng gắn
-   * is_test → ra khỏi Sổ giao dịch/đối soát. Không tắt được TK đang nhận tiền.
+   * Bật/tắt GHI NHẬN giao dịch: tắt → webhook SePay của TK này bị bỏ qua, không lưu
+   * giao dịch nào. Không tắt được TK đang dùng (HKD / cá nhân).
    */
   @Put('payment-accounts/:id/tracked')
-  @ResponseMessage('Đã cập nhật theo dõi tài khoản')
+  @ResponseMessage('Đã cập nhật ghi nhận giao dịch')
   setTrackedPaymentAccount(
     @Param('id') id: string,
     @Body() body: SetPaymentAccountTrackedDto,
@@ -212,16 +212,16 @@ export class ConfigurationsController {
   }
 
   /**
-   * Đổi mục đích tài khoản (099): 'receive' nhận tiền khách ↔ 'spend' chi hoá đơn.
-   * TK nhận đang active không đổi được khi còn TK nhận khác (chọn TK chính khác trước).
+   * Đổi loại tài khoản (100): 'hkd' TK hộ kinh doanh ↔ 'personal' TK cá nhân.
+   * TK HKD đang dùng không đổi được khi còn TK HKD khác (chọn TK đang dùng khác trước).
    */
-  @Put('payment-accounts/:id/purpose')
-  @ResponseMessage('Đã cập nhật mục đích tài khoản')
-  setPurposePaymentAccount(
+  @Put('payment-accounts/:id/kind')
+  @ResponseMessage('Đã cập nhật loại tài khoản')
+  setKindPaymentAccount(
     @Param('id') id: string,
-    @Body() body: SetPaymentAccountPurposeDto,
+    @Body() body: SetPaymentAccountKindDto,
   ): Promise<PaymentAccount[]> {
-    return this.service.setPurposePaymentAccount(id, body.purpose);
+    return this.service.setKindPaymentAccount(id, body.kind);
   }
 
   /** Xoá tài khoản; nếu xoá cái active thì cái mới nhất còn lại thành active. Trả danh sách mới. */

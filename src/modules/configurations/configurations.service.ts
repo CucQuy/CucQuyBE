@@ -4,7 +4,7 @@ import {
   CreatePaymentAccountPayload,
   DEFAULT_SHIPPING_CONFIG,
   PaymentAccount,
-  PaymentAccountPurpose,
+  PaymentAccountKind,
   Role,
   SaveZaloFeaturesPayload,
   SaveZaloGroupsPayload,
@@ -151,14 +151,14 @@ export class ConfigurationsService {
   }
 
   /**
-   * Đổi mục đích tài khoản: nhận tiền khách ↔ chi hoá đơn (099).
-   * SQL chặn đổi TK nhận đang active khi còn TK nhận khác → lỗi bubble lên FE.
+   * Đổi loại tài khoản: hộ kinh doanh ↔ cá nhân (100).
+   * SQL chặn đổi TK HKD đang dùng khi còn TK HKD khác → lỗi bubble lên FE.
    */
-  async setPurposePaymentAccount(
+  async setKindPaymentAccount(
     id: string,
-    purpose: PaymentAccountPurpose,
+    kind: PaymentAccountKind,
   ): Promise<PaymentAccount[]> {
-    const [row] = await this.proc.paymentAccountSetPurpose(id, purpose);
+    const [row] = await this.proc.paymentAccountSetKind(id, kind);
     return row.data ?? [];
   }
 

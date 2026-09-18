@@ -37,6 +37,15 @@ export class WebhooksService {
       };
     }
 
+    // 100 — TK tắt "ghi nhận giao dịch": SePay bắn webhook cho mọi TK đã đăng ký bên đó,
+    // TK nào tắt thì bỏ qua hẳn (không lưu, không noti). Vẫn trả 200 để SePay khỏi retry.
+    if (res.skipped) {
+      return {
+        status: 200,
+        payload: { success: true, skipped: true, transactionId: body.id },
+      };
+    }
+
     const tx = (res.transaction ?? {}) as Record<string, any>;
     const amount = Number(tx.transfer_amount) || 0;
 

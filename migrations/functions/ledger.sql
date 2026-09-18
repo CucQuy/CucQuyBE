@@ -11,38 +11,38 @@
 --   Tiền VÀO (in):   matched | shopee | capital | sweep_in  | external | unmatched
 --   Tiền RA  (out):  refund | shipping | sweep_out | settled | excluded | expense | stock | unmatched
 --
--- 099 — DÒNG TIỀN 2 TÀI KHOẢN (payment_accounts.purpose):
---   TK NHẬN ('receive') nhận tiền khách → CUỐI NGÀY dồn sang TK CHI ('spend') → TK chi
---   thanh toán hoá đơn. Cú dồn tiền tạo 2 GD của CÙNG 1 dòng tiền: ra ở TK nhận
---   (`sweep_out`) + vào ở TK chi (`sweep_in`) → luân chuyển NỘI BỘ, tiền chưa vào/ra tiệm
---   nên KHÔNG tính doanh thu/chi phí. Summary tách riêng (sweepIn/sweepOut/netExternal)
+-- 100 — DÒNG TIỀN 2 TÀI KHOẢN (payment_accounts.kind):
+--   TK HKD ('hkd') nhận tiền khách → CUỐI NGÀY dồn sang TK CÁ NHÂN ('personal') → TK cá
+--   nhân thanh toán hoá đơn. Cú dồn tiền tạo 2 GD của CÙNG 1 dòng tiền: ra ở TK HKD
+--   (`sweep_out`) + vào ở TK cá nhân (`sweep_in`) → luân chuyển NỘI BỘ, tiền chưa vào/ra
+--   tiệm nên KHÔNG tính doanh thu/chi phí. Summary tách riêng (sweepIn/sweepOut/netExternal)
 --   và `byAccount` cho biết dòng tiền nào thuộc tài khoản nào.
 --
--- PHỤ THUỘC (apply trước file này): migrations/099_payment_account_purpose.sql,
--- functions/transactions.sql (payment_account_purpose), functions/expenses.sql.
+-- PHỤ THUỘC (apply trước file này): migrations/100_payment_account_kind.sql,
+-- functions/transactions.sql (payment_account_kind), functions/expenses.sql.
 --
 -- Ngày lọc dùng revenue_try_ts() (parse text an toàn, né bug iOS Invalid Date) —
 -- KHÔNG cần migrate transaction_date sang timestamptz.
 -- Đọc-thuần (STABLE), không ghi. Idempotent (CREATE OR REPLACE).
 -- ============================================================
 
--- Tiền VÀO này có phải tiền dồn cuối ngày từ TK NHẬN sang TK CHI? (099)
--- Điều kiện (chặt, để không ăn nhầm tiền khách CK trực tiếp vào TK chi):
---   1. GD vào 1 TK có purpose='spend' (TK chi), và
---   2. có 1 GD tiền RA từ 1 TK purpose='receive' ĐÃ ĐƯỢC ĐÁNH DẤU là cú dồn tiền
+-- Tiền VÀO này có phải tiền dồn cuối ngày từ TK HKD sang TK CÁ NHÂN? (100)
+-- Điều kiện (chặt, để không ăn nhầm tiền khách CK thẳng vào TK cá nhân):
+--   1. GD vào 1 TK có kind='personal' (TK cá nhân), và
+--   2. có 1 GD tiền RA từ 1 TK kind='hkd' ĐÃ ĐƯỢC ĐÁNH DẤU là cú dồn tiền
 --      (settled_out = true, hoặc expense_category='sweep'), CÙNG số tiền,
 --      lệch không quá 2 ngày (dồn cuối ngày có thể về TK chi sang hôm sau).
 -- Neo vào GD ra đã đánh dấu TAY → không tự ý loại doanh thu khi chưa ai xác nhận.
 CREATE OR REPLACE FUNCTION transaction_is_sweep_in(t transactions)
 RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT payment_account_purpose(t.account_number, t.sub_account) = 'spend'
+  SELECT payment_account_kind(t.account_number, t.sub_account) = 'personal'
      AND EXISTS (
        SELECT 1 FROM transactions o
        WHERE o.id <> t.id
          AND o.transfer_type = 'out'
          AND o.transfer_amount = t.transfer_amount
          AND (COALESCE(o.settled_out, false) OR o.expense_category = 'sweep')
-         AND payment_account_purpose(o.account_number, o.sub_account) = 'receive'
+         AND payment_account_kind(o.account_number, o.sub_account) = 'hkd'
          AND revenue_try_ts(o.transaction_date) IS NOT NULL
          AND revenue_try_ts(t.transaction_date) IS NOT NULL
          AND revenue_try_ts(o.transaction_date)
@@ -61,7 +61,7 @@ RETURNS text LANGUAGE sql STABLE AS $$
       CASE
         -- Khớp 1 đơn cụ thể = mạnh nhất (đối soát chính xác).
         WHEN t.order_number IS NOT NULL AND t.order_number <> '' THEN 'matched'
-        -- Đánh dấu tay "Dồn từ TK nhận" (099) — tiền nội bộ, không phải doanh thu.
+        -- Đánh dấu tay "Dồn từ TK HKD" (100) — tiền nội bộ, không phải doanh thu.
         WHEN t.expense_category = 'sweep' THEN 'sweep_in'
         -- Đánh dấu tay "Cấp vốn" (tiền chủ bơm vào — set expense_category='capital', KHÔNG phải doanh thu).
         WHEN t.expense_category = 'capital' THEN 'capital'
@@ -69,7 +69,7 @@ RETURNS text LANGUAGE sql STABLE AS $$
         WHEN t.expense_category = 'shopee' THEN 'shopee'
         -- User chủ động đánh dấu ngoài hệ thống → override auto-detect bên dưới.
         WHEN COALESCE(t.is_external, false) THEN 'external'
-        -- Auto-detect: tiền vào TK CHI khớp 1 cú dồn tiền đã đánh dấu ở TK nhận (099).
+        -- Auto-detect: tiền vào TK cá nhân khớp 1 cú dồn đã đánh dấu ở TK HKD (100).
         WHEN transaction_is_sweep_in(t) THEN 'sweep_in'
         -- Auto-detect: nội dung CK chứa "shopee" → tiền Shopee đổ về (settlement).
         WHEN t.content ILIKE '%shopee%' THEN 'shopee'
@@ -81,11 +81,11 @@ RETURNS text LANGUAGE sql STABLE AS $$
         -- Đã gắn thanh toán vận chuyển (ship cho đơn / nhà xe) — đặt TRƯỚC 'expense' để không
         -- hiện 'expense' dù category='shipping' (shipping vẫn là chi phí, P&L đếm 1 lần).
         WHEN EXISTS (SELECT 1 FROM shipping_payments sp WHERE sp.transaction_id = t.id) THEN 'shipping'
-        -- Dồn tiền cuối ngày TK NHẬN → TK CHI (099): đánh dấu tay category='sweep', hoặc
-        -- cờ settled_out cũ trên 1 TK nhận (nghĩa cũ "kết toán về TK chính" = đúng cú dồn này).
+        -- Dồn tiền cuối ngày TK HKD → TK CÁ NHÂN (100): đánh dấu tay category='sweep',
+        -- hoặc cờ settled_out cũ trên 1 TK HKD (nghĩa cũ "kết toán về TK chính" = cú dồn này).
         WHEN t.expense_category = 'sweep'
           OR (COALESCE(t.settled_out, false)
-              AND payment_account_purpose(t.account_number, t.sub_account) = 'receive')
+              AND payment_account_kind(t.account_number, t.sub_account) = 'hkd')
           THEN 'sweep_out'
         WHEN COALESCE(t.settled_out, false) THEN 'settled'
         WHEN COALESCE(t.cost_excluded, false)
@@ -109,10 +109,10 @@ $$;
 --   p_search      : từ khoá (content/description/order_number/account_number) | NULL.
 --   p_limit       : số dòng/trang (mặc định 50, tối đa 200).
 --   p_offset      : bỏ qua bao nhiêu dòng.
---   p_account     : payment_accounts.id | NULL (099)   — lọc cả list + summary.
+--   p_account     : payment_accounts.id | NULL (100)   — lọc cả list + summary.
 -- Summary phản ánh kỳ (date+search+category+gateway+account) — KHÔNG phụ thuộc type/status
 -- để Tổng thu / Tổng chi / Số dư ổn định khi user đổi tab loại/trạng thái.
--- Mỗi dòng kèm TÀI KHOẢN của nó (accountId/accountLabel/accountPurpose) → sổ nói rõ
+-- Mỗi dòng kèm TÀI KHOẢN của nó (accountId/accountLabel/accountKind) → sổ nói rõ
 -- dòng tiền nào chạy qua tài khoản nào.
 -- Thêm tham số p_account (099) → ĐỔI signature. CREATE OR REPLACE khác số tham số sẽ
 -- tạo OVERLOAD mới, bản 9 tham số cũ còn đó → gọi 9 args bị "function is not unique".
@@ -148,7 +148,7 @@ BEGIN
       -- Base: date + search + category + gateway + account (KHÔNG type/status) + status derive.
       SELECT t.*, transaction_ledger_status(t) AS status,
              revenue_try_ts(t.transaction_date) AS tx_ts,
-             acc.id AS acct_id, acc.purpose AS acct_purpose,
+             acc.id AS acct_id, acc.kind AS acct_kind,
              acc.bank_code AS acct_bank, acc.account_number AS acct_number,
              acc.account_holder AS acct_holder,
              -- Nhãn ngắn hiển thị ở sổ: "BIDV ·1308" (4 số cuối, khỏi phơi cả số TK).
@@ -157,7 +157,7 @@ BEGIN
       FROM transactions t
       -- LATERAL + LIMIT 1: nhiều TK khai cùng số → lấy 1 dòng, không nhân bản giao dịch.
       LEFT JOIN LATERAL (
-        SELECT pa.id, pa.purpose, pa.bank_code, pa.account_number, pa.account_holder
+        SELECT pa.id, pa.kind, pa.bank_code, pa.account_number, pa.account_holder
         FROM payment_accounts pa
         WHERE pa.account_number IN (NULLIF(TRIM(COALESCE(t.account_number, '')), ''),
                                     NULLIF(TRIM(COALESCE(t.sub_account, '')), ''))
@@ -211,10 +211,10 @@ BEGIN
           'receivedAt', received_at,
           'createdAt', created_at,
           'status', status,
-          -- 099: tài khoản của dòng tiền này (NULL = TK chưa khai trong payment_accounts).
+          -- 100: tài khoản của dòng tiền này (NULL = TK chưa khai trong payment_accounts).
           'accountId', acct_id,
           'accountLabel', acct_label,
-          'accountPurpose', acct_purpose
+          'accountKind', acct_kind
         ) ORDER BY tx_ts DESC NULLS LAST, created_at DESC NULLS LAST)
         FROM (
           SELECT * FROM listed
@@ -229,7 +229,7 @@ BEGIN
           'totalOut', COALESCE(SUM(transfer_amount) FILTER (WHERE transfer_type = 'out'), 0),
           'net',      COALESCE(SUM(transfer_amount) FILTER (WHERE transfer_type = 'in'), 0)
                     - COALESCE(SUM(transfer_amount) FILTER (WHERE transfer_type = 'out'), 0),
-          -- 099: luân chuyển NỘI BỘ (TK nhận → TK chi). Nằm trong totalIn/totalOut (đó là
+          -- 100: luân chuyển NỘI BỘ (TK HKD → TK cá nhân). Nằm trong totalIn/totalOut (đó là
           -- dòng tiền thật trên bank), tách ra để biết phần nào không phải thu/chi của tiệm.
           'sweepIn',  COALESCE(SUM(transfer_amount) FILTER (WHERE status = 'sweep_in'), 0),
           'sweepOut', COALESCE(SUM(transfer_amount) FILTER (WHERE status = 'sweep_out'), 0),
@@ -252,7 +252,7 @@ BEGIN
         )
         FROM real_tx
       ),
-      -- 099: dòng tiền tách theo TỪNG tài khoản (TK nhận / TK chi / TK chưa khai).
+      -- 100: dòng tiền tách theo TỪNG tài khoản (TK HKD / TK cá nhân / TK chưa khai).
       'byAccount', COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
                  'accountId',     a.acct_id,
@@ -260,23 +260,23 @@ BEGIN
                  'bankCode',      a.acct_bank,
                  'accountNumber', a.acct_number,
                  'accountHolder', a.acct_holder,
-                 'purpose',       a.acct_purpose,
+                 'kind',          a.acct_kind,
                  'in',            a.t_in,
                  'out',           a.t_out,
                  'net',           a.t_in - a.t_out,
                  'sweepIn',       a.s_in,
                  'sweepOut',      a.s_out,
                  'count',         a.cnt
-               ) ORDER BY a.acct_purpose NULLS LAST, (a.t_in + a.t_out) DESC)
+               ) ORDER BY a.acct_kind NULLS LAST, (a.t_in + a.t_out) DESC)
         FROM (
-          SELECT acct_id, acct_label, acct_bank, acct_number, acct_holder, acct_purpose,
+          SELECT acct_id, acct_label, acct_bank, acct_number, acct_holder, acct_kind,
                  COALESCE(SUM(transfer_amount) FILTER (WHERE transfer_type = 'in'), 0)  AS t_in,
                  COALESCE(SUM(transfer_amount) FILTER (WHERE transfer_type = 'out'), 0) AS t_out,
                  COALESCE(SUM(transfer_amount) FILTER (WHERE status = 'sweep_in'), 0)   AS s_in,
                  COALESCE(SUM(transfer_amount) FILTER (WHERE status = 'sweep_out'), 0)  AS s_out,
                  count(*)::int AS cnt
           FROM real_tx
-          GROUP BY acct_id, acct_label, acct_bank, acct_number, acct_holder, acct_purpose
+          GROUP BY acct_id, acct_label, acct_bank, acct_number, acct_holder, acct_kind
         ) a
       ), '[]'::jsonb)
     ) INTO v_result;

@@ -37,6 +37,11 @@ BEGIN
   IF COALESCE((v_res->>'duplicate')::boolean, false) THEN
     RETURN v_res;  -- đã có giao dịch này rồi
   END IF;
+  -- 100 — TK tắt "ghi nhận giao dịch" (hoặc TK lạ chưa khai): không có dòng nào được lưu
+  -- → dừng luôn, KHÔNG khớp đơn, KHÔNG bắn Zalo.
+  IF COALESCE((v_res->>'skipped')::boolean, false) THEN
+    RETURN v_res;
+  END IF;
 
   v_tx := v_res->'transaction';
   v_tx_id := v_tx->>'id';

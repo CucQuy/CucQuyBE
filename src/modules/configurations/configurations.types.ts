@@ -89,12 +89,12 @@ export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
 };
 
 /**
- * Mục đích tài khoản (099): 'receive' nhận tiền khách (QR đơn trỏ vào TK receive đang
- * active) · 'spend' chi hoá đơn (cuối ngày nhận tiền dồn từ TK nhận rồi chi ra).
+ * Loại tài khoản (100): 'hkd' TK hộ kinh doanh — khách CK vào, QR đơn trỏ vào TK hkd
+ * đang dùng · 'personal' TK cá nhân — cuối ngày nhận tiền dồn từ TK HKD rồi chi hoá đơn.
  */
-export type PaymentAccountPurpose = 'receive' | 'spend';
+export type PaymentAccountKind = 'hkd' | 'personal';
 
-/** 1 tài khoản ngân hàng của tiệm (tối đa 1 isActive=true MỖI purpose). */
+/** 1 tài khoản ngân hàng của tiệm (tối đa 1 isActive=true MỖI kind). */
 export interface PaymentAccount {
   id: string;
   bankCode: string;
@@ -102,20 +102,21 @@ export interface PaymentAccount {
   accountHolder: string;
   qrTemplate: string;
   isActive: boolean;
-  /** Đưa giao dịch của TK này vào Sổ giao dịch/đối soát (false → tx gắn is_test). */
+  /** Ghi nhận giao dịch của TK này (false → webhook bỏ qua, không lưu) — 100. */
   isTracked: boolean;
-  /** Nhận tiền khách hay chi hoá đơn (099). */
-  purpose: PaymentAccountPurpose;
+  /** TK hộ kinh doanh hay TK cá nhân (100). */
+  kind: PaymentAccountKind;
   createdAt: string; // ISO
 }
 
-/** Payload tạo tài khoản (qrTemplate optional 'compact', purpose optional 'receive'). */
+/** Payload tạo tài khoản (qrTemplate optional 'compact', kind optional 'hkd'). */
 export interface CreatePaymentAccountPayload {
   bankCode: string;
   accountNumber: string;
   accountHolder: string;
   qrTemplate?: string;
-  purpose?: PaymentAccountPurpose;
+  /** Mặc định BE dùng 'hkd' nếu không gửi. */
+  kind?: PaymentAccountKind;
 }
 
 /** 1 chức năng thông báo Zalo + cờ bật/tắt + nhóm đang nhận (màn "Chức năng"). */

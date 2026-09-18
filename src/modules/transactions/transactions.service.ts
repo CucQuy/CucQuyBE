@@ -109,7 +109,7 @@ export class TransactionsService {
         unreconciledCount: Number(s.unreconciledCount) || 0,
         reconciledPct: Number(s.reconciledPct) || 0,
       },
-      // 099: dòng tiền tách theo từng tài khoản (TK nhận / TK chi / TK chưa khai).
+      // 100: dòng tiền tách theo từng tài khoản (TK HKD / TK cá nhân / TK chưa khai).
       byAccount: (r.byAccount ?? []).map(
         (a): LedgerAccountFlow => ({
           ...a,

@@ -77,10 +77,11 @@ LANGUAGE sql AS $$
   RETURNING *;
 $$;
 
--- Tài khoản có được đưa vào Sổ giao dịch/đối soát hay không (migration 076).
+-- Giao dịch của tài khoản này có được GHI NHẬN hay không (076, đổi nghĩa ở 100).
 -- Khớp theo account_number HOẶC sub_account: TK ảo (BIDV) bắn account_number là số
 -- tài khoản ảo của bank, số của tiệm nằm ở sub_account.
--- TK không khai trong payment_accounts → KHÔNG tracked (mặc định an toàn: coi là test).
+-- TK không khai trong payment_accounts → KHÔNG ghi nhận (mặc định an toàn).
+-- false → transaction_create_from_sepay BỎ QUA, không lưu giao dịch (100).
 CREATE OR REPLACE FUNCTION payment_account_is_tracked(p_account text, p_sub text)
 RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT EXISTS (
@@ -91,13 +92,13 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
   );
 $$;
 
--- Mục đích tài khoản của 1 giao dịch (migration 099): 'receive' (TK nhận tiền khách)
--- hoặc 'spend' (TK chi hoá đơn). NULL = TK chưa khai trong payment_accounts.
+-- Loại tài khoản của 1 giao dịch (migration 100): 'hkd' (TK hộ kinh doanh, nhận tiền
+-- khách) hoặc 'personal' (TK cá nhân, chi hoá đơn). NULL = TK chưa khai trong payment_accounts.
 -- Khớp account_number HOẶC sub_account (lý do: xem payment_account_is_tracked).
 -- Trùng nhiều TK cùng số → ưu tiên TK đang active, rồi TK mới nhất.
-CREATE OR REPLACE FUNCTION payment_account_purpose(p_account text, p_sub text)
+CREATE OR REPLACE FUNCTION payment_account_kind(p_account text, p_sub text)
 RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT pa.purpose
+  SELECT pa.kind
   FROM payment_accounts pa
   WHERE pa.account_number IN (NULLIF(TRIM(COALESCE(p_account, '')), ''),
                               NULLIF(TRIM(COALESCE(p_sub, '')), ''))
@@ -134,6 +135,14 @@ BEGIN
       'duplicate', true,
       'transaction', to_jsonb(v_existing)
     );
+  END IF;
+
+  -- 100 — Công tắc "ghi nhận giao dịch" (payment_accounts.is_tracked): TẮT (hoặc TK lạ
+  -- chưa khai) thì BỎ QUA hẳn, không lưu dòng nào. SePay bắn webhook cho mọi TK đã đăng
+  -- ký bên đó (kể cả TK cá nhân/TK cũ) — không lọc thì sổ lẫn tiền không phải của tiệm.
+  -- (Trước 100 vẫn ghi kèm is_test=true; các dòng cũ đó giữ nguyên, nhãn 'test' ở sổ.)
+  IF NOT payment_account_is_tracked(p_body->>'accountNumber', p_body->>'subAccount') THEN
+    RETURN jsonb_build_object('skipped', true, 'reason', 'account_not_tracked');
   END IF;
 
   -- Trích mã đơn ORD<digits> -> ORD-<digits> từ description + content.
@@ -175,10 +184,9 @@ BEGIN
     false,
     v_now,
     v_now,
-    -- Tài khoản KHÔNG tracked (TK cá nhân / TK lạ chưa khai) → gắn is_test:
-    -- giao dịch vẫn ghi để giữ audit nhưng status 'test', ra khỏi summary + đối soát.
-    -- Bật/tắt bằng payment_accounts.is_tracked, KHÔNG hardcode số TK ở đây nữa.
-    NOT payment_account_is_tracked(p_body->>'accountNumber', p_body->>'subAccount')
+    -- Tới đây TK chắc chắn đang bật ghi nhận (đã gate ở trên) → không còn giao dịch
+    -- is_test sinh mới; cột giữ lại cho dữ liệu cũ + đơn test.
+    false
   )
   RETURNING * INTO v_new;
 
