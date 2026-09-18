@@ -25,13 +25,20 @@ function getSql(): Promise<any> {
   return sqlPromise!;
 }
 
-/** Giải XOR cột `message` (lưu dạng JSON-string-literal) bằng cipherKey (ASCII). */
+/**
+ * Giải XOR cột `message` (lưu dạng JSON-string-literal) bằng cipherKey (ASCII).
+ * XOR theo CODE POINT của chuỗi, không ép sang latin1: Zalo XOR từng ký tự (không phải
+ * từng byte UTF-8), nên ép latin1 sẽ cắt mất byte cao của ký tự tiếng Việt → hỏng dấu và
+ * đôi khi sinh ký tự điều khiển làm JSON.parse ở bước sau ném lỗi (mất luôn tin nhắn).
+ */
 function xorDecodeMessageHex(hexOfMessageCol: string, keyAscii: Buffer): string {
   const escaped = Buffer.from(hexOfMessageCol, 'hex').toString('utf8'); // JSON string literal
-  const cipher = Buffer.from(JSON.parse(escaped) as string, 'latin1');
-  const out = Buffer.alloc(cipher.length);
-  for (let i = 0; i < cipher.length; i++) out[i] = cipher[i] ^ keyAscii[i % keyAscii.length];
-  return out.toString('utf8');
+  const cipher = JSON.parse(escaped) as string;
+  let out = '';
+  for (let i = 0; i < cipher.length; i++) {
+    out += String.fromCharCode(cipher.charCodeAt(i) ^ keyAscii[i % keyAscii.length]);
+  }
+  return out;
 }
 
 /** Đổi URL .jxl?jxlstatus=… sang .jpg (bytes vẫn là JXL, convert ở bước sau). */
