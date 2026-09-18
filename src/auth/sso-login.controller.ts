@@ -1,26 +1,26 @@
-import { Controller, Get, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { IpThrottlerGuard } from '../common/ip-throttler.guard';
+import { RiceSsoService } from './rice-sso.service';
+import { setRefreshCookie } from './cookie.util';
 
 /**
  * Broker đăng nhập Google (luồng redirect server-side).
  *
- * FE chỉ mở `GET /api/auth/google/start` → BE (giữ RICE_API_KEY) gọi RiceService
- * `/api/auth/google/authorize` để lấy Google authorize URL rồi 302 trình duyệt sang.
- * Nhờ vậy FE KHÔNG cần bake Google client_id — cấu hình client_id/secret chỉ đặt
- * 1 lần ở RiceService, app khác chỉ cần API key.
- *
- * Sau khi user đăng nhập Google, RiceService callback → 302 về
- * `<WEB_APP_URL>/auth/callback?token=<SSO JWT>` (JWT ký bằng SSO_JWT_SECRET chung,
- * FE lưu lại + BE verify qua verifySsoToken).
+ * 1. FE mở `GET /api/auth/google/start` → BE (giữ RICE_API_KEY) hỏi RiceService lấy
+ *    Google authorize URL rồi 302 sang. FE KHÔNG cần bake Google client_id.
+ * 2. User đăng nhập Google → RiceService 302 về `GET /api/auth/google/callback?code=`
+ *    (mã dùng 1 lần, KHÔNG phải token).
+ * 3. BE đổi code lấy access + refresh token (server-to-server), cất refresh token vào
+ *    cookie httpOnly rồi 302 về FE. Refresh token không hề lộ ra URL hay JS.
+ * 4. FE gọi `POST /api/auth/refresh` để lấy access token đầu tiên.
  */
 @Controller('auth/google')
 export class SsoLoginController {
-  private readonly rice = (process.env.RICE_ENDPOINT || '').replace(/\/+$/, '');
-  private readonly apiKey = process.env.RICE_API_KEY || '';
+  constructor(private readonly rice: RiceSsoService) {}
 
-  /** Origin của web app (nơi RiceService redirect kèm token). */
+  /** Origin của web app (nơi kết thúc luồng đăng nhập). */
   private webOrigin(): string {
     const explicit = (process.env.WEB_APP_URL || '').trim();
     if (explicit) return explicit.replace(/\/+$/, '');
@@ -31,37 +31,50 @@ export class SsoLoginController {
     return (first || '').replace(/\/+$/, '');
   }
 
+  /**
+   * Origin công khai của chính BE — RiceService redirect về đây, nên phải nằm trong
+   * allowedOrigins của tenant ở RiceService. Suy từ request (đã bật trust proxy),
+   * cho phép ghi đè bằng API_PUBLIC_URL nếu sau proxy host bị viết lại.
+   */
+  private apiOrigin(req: Request): string {
+    const explicit = (process.env.API_PUBLIC_URL || '').trim();
+    if (explicit) return explicit.replace(/\/+$/, '');
+    return `${req.protocol}://${req.get('host')}`;
+  }
+
   // Chống spam khởi tạo đăng nhập: 10 lần/phút/IP.
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @UseGuards(IpThrottlerGuard)
   @Get('start')
-  async start(@Res() res: Response): Promise<void> {
-    const web = this.webOrigin();
-    if (!this.rice || !this.apiKey || !web) {
+  async start(@Req() req: Request, @Res() res: Response): Promise<void> {
+    if (!this.rice.configured || !this.webOrigin()) {
       res.status(500).send('SSO chưa cấu hình (RICE_ENDPOINT / RICE_API_KEY / WEB_APP_URL|ALLOWED_ORIGINS)');
       return;
     }
-    const returnUrl = `${web}/auth/callback`;
-    let r: globalThis.Response;
     try {
-      r = await fetch(`${this.rice}/api/auth/google/authorize`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey },
-        body: JSON.stringify({ returnUrl }),
-      });
+      res.redirect(302, await this.rice.authorizeUrl(`${this.apiOrigin(req)}/api/auth/google/callback`));
     } catch {
-      res.status(502).send('Không kết nối được RiceService');
-      return;
-    }
-    if (!r.ok) {
       res.status(502).send('Không khởi tạo được đăng nhập Google');
+    }
+  }
+
+  /**
+   * RiceService redirect về đây kèm `?code=`. Đổi code → phiên, cất refresh token vào
+   * cookie httpOnly, rồi 302 về FE (URL sạch, không mang token).
+   */
+  @Get('callback')
+  async callback(@Query('code') code: string, @Req() req: Request, @Res() res: Response): Promise<void> {
+    const web = this.webOrigin();
+    if (!code) {
+      res.redirect(302, `${web}/login?error=sso`);
       return;
     }
-    const data = (await r.json()) as { url?: string };
-    if (!data.url) {
-      res.status(502).send('RiceService không trả về authorize URL');
-      return;
+    try {
+      const session = await this.rice.exchange(code);
+      setRefreshCookie(req, res, session.refreshToken, this.rice.refreshIdleDays);
+      res.redirect(302, `${web}/auth/callback`);
+    } catch {
+      res.redirect(302, `${web}/login?error=sso`);
     }
-    res.redirect(302, data.url);
   }
 }

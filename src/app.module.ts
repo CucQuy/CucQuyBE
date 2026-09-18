@@ -8,6 +8,8 @@ import { RedisModule } from './redis/redis.module';
 import { MqttModule } from './mqtt/mqtt.module';
 import { HealthController } from './health/health.controller';
 import { SsoLoginController } from './auth/sso-login.controller';
+import { SsoSessionController } from './auth/sso-session.controller';
+import { RiceSsoService } from './auth/rice-sso.service';
 import { CommissionModule } from './modules/commission/commission.module';
 import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -112,7 +114,8 @@ import { ZaloBillsModule } from './modules/zalo-bills/zalo-bills.module';
     PrintModule,
     ZaloBillsModule,
   ],
-  controllers: [HealthController, SsoLoginController],
+  controllers: [HealthController, SsoLoginController, SsoSessionController],
+  providers: [RiceSsoService],
 })
 export class AppModule implements NestModule {
   // Áp LoggingMiddleware cho mọi route → ghi nhật ký request.
