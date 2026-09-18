@@ -19,7 +19,6 @@ import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { SetPaymentAccountTrackedDto } from './dto/set-payment-account-tracked.dto';
 import { SetPaymentAccountKindDto } from './dto/set-payment-account-kind.dto';
-import { SetPaymentAccountActiveDto } from './dto/set-payment-account-active.dto';
 import {
   PaymentAccount,
   Role,
@@ -190,16 +189,6 @@ export class ConfigurationsController {
     return this.service.createPaymentAccount(body);
   }
 
-  /** Bật/tắt TK đang dùng (bật → TK CÙNG LOẠI tự tắt). Trả danh sách mới. */
-  @Put('payment-accounts/:id/active')
-  @ResponseMessage('Đã cập nhật tài khoản đang dùng')
-  setActivePaymentAccount(
-    @Param('id') id: string,
-    @Body() body: SetPaymentAccountActiveDto,
-  ): Promise<PaymentAccount[]> {
-    return this.service.setActivePaymentAccount(id, body.active ?? true);
-  }
-
   /**
    * Bật/tắt GHI NHẬN giao dịch: tắt → webhook SePay của TK này bị bỏ qua, không lưu
    * giao dịch nào. Không tắt được TK đang dùng (HKD / cá nhân).
@@ -214,8 +203,8 @@ export class ConfigurationsController {
   }
 
   /**
-   * Đổi loại tài khoản (100): 'hkd' TK hộ kinh doanh ↔ 'personal' TK cá nhân.
-   * TK HKD đang dùng không đổi được khi còn TK HKD khác (chọn TK đang dùng khác trước).
+   * Gán loại tài khoản (101): 'hkd' | 'personal' | 'none'. Mỗi loại thật chỉ 1 TK —
+   * gán cho TK này thì TK cũ cùng loại tự rớt về 'none'.
    */
   @Put('payment-accounts/:id/kind')
   @ResponseMessage('Đã cập nhật loại tài khoản')

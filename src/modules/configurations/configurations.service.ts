@@ -136,12 +136,6 @@ export class ConfigurationsService {
     return row.data ?? [];
   }
 
-  /** Bật/tắt TK đang dùng của 1 loại (bật → TK cùng loại tự tắt). */
-  async setActivePaymentAccount(id: string, active = true): Promise<PaymentAccount[]> {
-    const [row] = await this.proc.paymentAccountSetActive(id, active);
-    return row.data ?? [];
-  }
-
   /** Bật/tắt đưa giao dịch của tài khoản vào Sổ giao dịch/đối soát. */
   async setTrackedPaymentAccount(
     id: string,
@@ -152,8 +146,8 @@ export class ConfigurationsService {
   }
 
   /**
-   * Đổi loại tài khoản: hộ kinh doanh ↔ cá nhân (100).
-   * SQL chặn đổi TK HKD đang dùng khi còn TK HKD khác → lỗi bubble lên FE.
+   * Gán loại tài khoản (101): hkd / personal / none. Mỗi loại thật chỉ 1 TK —
+   * gán loại này cho TK mới thì TK cũ cùng loại tự rớt về 'none'.
    */
   async setKindPaymentAccount(
     id: string,

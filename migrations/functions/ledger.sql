@@ -148,7 +148,7 @@ BEGIN
       -- Base: date + search + category + gateway + account (KHÔNG type/status) + status derive.
       SELECT t.*, transaction_ledger_status(t) AS status,
              revenue_try_ts(t.transaction_date) AS tx_ts,
-             acc.id AS acct_id, acc.kind AS acct_kind,
+             acc.id AS acct_id, NULLIF(acc.kind, 'none') AS acct_kind,
              acc.bank_code AS acct_bank, acc.account_number AS acct_number,
              acc.account_holder AS acct_holder,
              -- Nhãn ngắn hiển thị ở sổ: "BIDV ·1308" (4 số cuối, khỏi phơi cả số TK).
@@ -161,7 +161,7 @@ BEGIN
         FROM payment_accounts pa
         WHERE pa.account_number IN (NULLIF(TRIM(COALESCE(t.account_number, '')), ''),
                                     NULLIF(TRIM(COALESCE(t.sub_account, '')), ''))
-        ORDER BY pa.is_active DESC, pa.created_at DESC
+        ORDER BY (pa.kind = 'none'), pa.created_at DESC
         LIMIT 1
       ) acc ON true
       WHERE (v_from IS NULL OR revenue_try_ts(t.transaction_date) >= v_from)

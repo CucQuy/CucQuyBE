@@ -32,7 +32,7 @@ export type LedgerStatus =
   | 'matched' | 'external' | 'sweep_in' | 'unmatched' // tiền vào
   | 'refund' | 'shipping' | 'sweep_out' | 'settled' | 'excluded' | 'expense'; // tiền ra
 
-/** Loại tài khoản của dòng tiền (100): hộ kinh doanh vs cá nhân. */
+/** Loại tài khoản của dòng tiền (101): hộ kinh doanh vs cá nhân (null = chưa gán). */
 export type PaymentAccountKind = 'hkd' | 'personal';
 
 /** 1 dòng sổ giao dịch (đã camelCase từ SQL, kèm status). */

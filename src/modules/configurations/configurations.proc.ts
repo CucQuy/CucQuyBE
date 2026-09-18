@@ -116,14 +116,6 @@ export class ConfigurationProc {
       SELECT payment_account_create(${this.db.json(payload ?? {})}::jsonb) AS data`;
   }
 
-  paymentAccountSetActive(
-    id: string,
-    active = true,
-  ): Promise<{ data: PaymentAccount[] }[]> {
-    return this.db.sql<{ data: PaymentAccount[] }[]>`
-      SELECT payment_account_set_active(${id ?? ''}, ${active}) AS data`;
-  }
-
   paymentAccountSetTracked(
     id: string,
     tracked: boolean,
@@ -132,13 +124,13 @@ export class ConfigurationProc {
       SELECT payment_account_set_tracked(${id ?? ''}, ${tracked}) AS data`;
   }
 
-  /** Đổi loại TK: hộ kinh doanh ↔ cá nhân (100). */
+  /** Gán loại TK (101): hkd / personal / none — TK cũ cùng loại tự rớt về none. */
   paymentAccountSetKind(
     id: string,
     kind: string,
   ): Promise<{ data: PaymentAccount[] }[]> {
     return this.db.sql<{ data: PaymentAccount[] }[]>`
-      SELECT payment_account_set_kind(${id ?? ''}, ${kind ?? 'hkd'}) AS data`;
+      SELECT payment_account_set_kind(${id ?? ''}, ${kind ?? 'none'}) AS data`;
   }
 
   paymentAccountDelete(id: string): Promise<{ data: PaymentAccount[] }[]> {

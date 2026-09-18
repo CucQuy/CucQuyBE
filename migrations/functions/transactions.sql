@@ -92,17 +92,17 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
   );
 $$;
 
--- Loại tài khoản của 1 giao dịch (migration 100): 'hkd' (TK hộ kinh doanh, nhận tiền
--- khách) hoặc 'personal' (TK cá nhân, chi hoá đơn). NULL = TK chưa khai trong payment_accounts.
+-- Loại tài khoản của 1 giao dịch (100/101): 'hkd' (TK hộ kinh doanh, nhận tiền khách)
+-- hoặc 'personal' (TK cá nhân, chi hoá đơn). NULL = TK chưa khai HOẶC đang để 'none'.
 -- Khớp account_number HOẶC sub_account (lý do: xem payment_account_is_tracked).
--- Trùng nhiều TK cùng số → ưu tiên TK đang active, rồi TK mới nhất.
+-- Trùng nhiều TK cùng số → ưu tiên TK đã gán loại, rồi TK mới nhất.
 CREATE OR REPLACE FUNCTION payment_account_kind(p_account text, p_sub text)
 RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT pa.kind
+  SELECT NULLIF(pa.kind, 'none')
   FROM payment_accounts pa
   WHERE pa.account_number IN (NULLIF(TRIM(COALESCE(p_account, '')), ''),
                               NULLIF(TRIM(COALESCE(p_sub, '')), ''))
-  ORDER BY pa.is_active DESC, pa.created_at DESC
+  ORDER BY (pa.kind = 'none'), pa.created_at DESC
   LIMIT 1;
 $$;
 

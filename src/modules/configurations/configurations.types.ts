@@ -89,22 +89,25 @@ export const DEFAULT_SHIPPING_CONFIG: ShippingConfiguration = {
 };
 
 /**
- * Loại tài khoản (100): 'hkd' TK hộ kinh doanh — khách CK vào, QR đơn trỏ vào TK hkd
- * đang dùng · 'personal' TK cá nhân — cuối ngày nhận tiền dồn từ TK HKD rồi chi hoá đơn.
+ * Loại tài khoản (101) — mỗi loại thật CHỈ 1 tài khoản:
+ *   'hkd'      TK hộ kinh doanh: khách CK vào, QR đơn trỏ vào TK này.
+ *   'personal' TK cá nhân: cuối ngày nhận tiền dồn từ TK HKD rồi chi hoá đơn.
+ *   'none'     không dùng — chỉ nằm trong danh sách để tra cứu.
  */
-export type PaymentAccountKind = 'hkd' | 'personal';
+export type PaymentAccountKind = 'hkd' | 'personal' | 'none';
 
-/** 1 tài khoản ngân hàng của tiệm (tối đa 1 isActive=true MỖI kind). */
+/** 1 tài khoản ngân hàng của tiệm. */
 export interface PaymentAccount {
   id: string;
   bankCode: string;
   accountNumber: string;
   accountHolder: string;
   qrTemplate: string;
+  /** Suy ra từ kind (kind <> 'none') — giữ cho tương thích, không set tay nữa (101). */
   isActive: boolean;
   /** Ghi nhận giao dịch của TK này (false → webhook bỏ qua, không lưu) — 100. */
   isTracked: boolean;
-  /** TK hộ kinh doanh hay TK cá nhân (100). */
+  /** TK hộ kinh doanh / TK cá nhân / không dùng (101). */
   kind: PaymentAccountKind;
   createdAt: string; // ISO
 }
@@ -115,7 +118,7 @@ export interface CreatePaymentAccountPayload {
   accountNumber: string;
   accountHolder: string;
   qrTemplate?: string;
-  /** Mặc định BE dùng 'hkd' nếu không gửi. */
+  /** Mặc định BE dùng 'none' nếu không gửi. */
   kind?: PaymentAccountKind;
 }
 
