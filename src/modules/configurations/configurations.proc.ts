@@ -116,9 +116,12 @@ export class ConfigurationProc {
       SELECT payment_account_create(${this.db.json(payload ?? {})}::jsonb) AS data`;
   }
 
-  paymentAccountSetActive(id: string): Promise<{ data: PaymentAccount[] }[]> {
+  paymentAccountSetActive(
+    id: string,
+    active = true,
+  ): Promise<{ data: PaymentAccount[] }[]> {
     return this.db.sql<{ data: PaymentAccount[] }[]>`
-      SELECT payment_account_set_active(${id ?? ''}) AS data`;
+      SELECT payment_account_set_active(${id ?? ''}, ${active}) AS data`;
   }
 
   paymentAccountSetTracked(

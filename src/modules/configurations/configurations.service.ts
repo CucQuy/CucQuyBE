@@ -136,8 +136,9 @@ export class ConfigurationsService {
     return row.data ?? [];
   }
 
-  async setActivePaymentAccount(id: string): Promise<PaymentAccount[]> {
-    const [row] = await this.proc.paymentAccountSetActive(id);
+  /** Bật/tắt TK đang dùng của 1 loại (bật → TK cùng loại tự tắt). */
+  async setActivePaymentAccount(id: string, active = true): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountSetActive(id, active);
     return row.data ?? [];
   }
 

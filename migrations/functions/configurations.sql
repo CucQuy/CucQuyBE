@@ -240,10 +240,16 @@ BEGIN
 END;
 $$;
 
--- Set tài khoản p_id làm TK đang dùng TRONG LOẠI của nó (atomic) — 100: mỗi loại có
--- 1 TK đang dùng riêng (1 TK HKD nhận tiền cho QR đơn + 1 TK cá nhân để chi), nên chỉ
--- tắt active của các TK CÙNG kind. Trả payment_accounts_list().
-CREATE OR REPLACE FUNCTION payment_account_set_active(p_id text)
+-- Bật/tắt "đang dùng" cho tài khoản p_id TRONG LOẠI của nó (atomic) — 100: mỗi loại có
+-- 1 TK đang dùng riêng (1 TK HKD nhận tiền cho QR đơn + 1 TK cá nhân để chi).
+--   p_active = true  → bật TK này, TỰ TẮT các TK CÙNG kind (toggle kiểu radio).
+--   p_active = false → chỉ tắt TK này, loại đó tạm thời không có TK đang dùng.
+-- Trả payment_accounts_list().
+-- Thêm tham số p_active → ĐỔI signature, phải DROP bản 1 tham số cũ (nếu không, gọi
+-- 1 arg sẽ "function is not unique").
+DROP FUNCTION IF EXISTS payment_account_set_active(text);
+
+CREATE OR REPLACE FUNCTION payment_account_set_active(p_id text, p_active boolean DEFAULT true)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -252,6 +258,11 @@ BEGIN
   SELECT kind INTO v_kind FROM payment_accounts WHERE id = p_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'payment account % not found', p_id;
+  END IF;
+
+  IF NOT COALESCE(p_active, true) THEN
+    UPDATE payment_accounts SET is_active = false WHERE id = p_id;
+    RETURN payment_accounts_list();
   END IF;
 
   -- tắt active trước (tránh đụng partial unique index), rồi bật cái cần.

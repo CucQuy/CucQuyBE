@@ -19,6 +19,7 @@ import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { SetPaymentAccountTrackedDto } from './dto/set-payment-account-tracked.dto';
 import { SetPaymentAccountKindDto } from './dto/set-payment-account-kind.dto';
+import { SetPaymentAccountActiveDto } from './dto/set-payment-account-active.dto';
 import {
   PaymentAccount,
   Role,
@@ -189,13 +190,14 @@ export class ConfigurationsController {
     return this.service.createPaymentAccount(body);
   }
 
-  /** Chọn tài khoản active (các tài khoản khác tự bỏ active). Trả danh sách mới. */
+  /** Bật/tắt TK đang dùng (bật → TK CÙNG LOẠI tự tắt). Trả danh sách mới. */
   @Put('payment-accounts/:id/active')
-  @ResponseMessage('Đã chọn tài khoản nhận tiền')
+  @ResponseMessage('Đã cập nhật tài khoản đang dùng')
   setActivePaymentAccount(
     @Param('id') id: string,
+    @Body() body: SetPaymentAccountActiveDto,
   ): Promise<PaymentAccount[]> {
-    return this.service.setActivePaymentAccount(id);
+    return this.service.setActivePaymentAccount(id, body.active ?? true);
   }
 
   /**
