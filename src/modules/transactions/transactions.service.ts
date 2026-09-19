@@ -113,6 +113,7 @@ export class TransactionsService {
       byAccount: (r.byAccount ?? []).map(
         (a): LedgerAccountFlow => ({
           ...a,
+          balance: a.balance === null || a.balance === undefined ? null : Number(a.balance) || 0,
           in: Number(a.in) || 0,
           out: Number(a.out) || 0,
           net: Number(a.net) || 0,

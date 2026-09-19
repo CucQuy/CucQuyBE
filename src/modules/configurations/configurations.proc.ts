@@ -133,6 +133,15 @@ export class ConfigurationProc {
       SELECT payment_account_set_kind(${id ?? ''}, ${kind ?? 'none'}) AS data`;
   }
 
+  /** Chốt lại số dư TK theo số trên app ngân hàng (102) — BE đóng mốc = now(). */
+  paymentAccountSetOpening(
+    id: string,
+    amount: number,
+  ): Promise<{ data: PaymentAccount[] }[]> {
+    return this.db.sql<{ data: PaymentAccount[] }[]>`
+      SELECT payment_account_set_opening(${id ?? ''}, ${amount ?? 0}) AS data`;
+  }
+
   paymentAccountDelete(id: string): Promise<{ data: PaymentAccount[] }[]> {
     return this.db.sql<{ data: PaymentAccount[] }[]>`
       SELECT payment_account_delete(${id ?? ''}) AS data`;

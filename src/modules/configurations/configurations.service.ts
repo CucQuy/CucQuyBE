@@ -157,6 +157,12 @@ export class ConfigurationsService {
     return row.data ?? [];
   }
 
+  /** Chốt lại số dư tài khoản (102): ghi số dư mới + mốc thời gian = now(). */
+  async setOpeningPaymentAccount(id: string, amount: number): Promise<PaymentAccount[]> {
+    const [row] = await this.proc.paymentAccountSetOpening(id, amount);
+    return row.data ?? [];
+  }
+
   async deletePaymentAccount(id: string): Promise<PaymentAccount[]> {
     const [row] = await this.proc.paymentAccountDelete(id);
     return row.data ?? [];

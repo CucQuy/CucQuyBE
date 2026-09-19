@@ -92,6 +92,17 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
   );
 $$;
 
+-- Thời điểm THẬT của 1 giao dịch (102).
+-- SePay gửi `transaction_date` là GIỜ VIỆT NAM dạng text không kèm timezone; DB chạy ở
+-- UTC nên revenue_try_ts() đọc chuỗi đó thành UTC → sớm hơn thực tế 7 tiếng. Hầu hết chỗ
+-- khác lọc theo NGÀY nên không lộ, nhưng so với 1 mốc giờ (chốt số dư) thì lệch hẳn:
+-- GD lúc 08:49 sáng bị coi là 08:49 UTC = 15:49 giờ VN.
+-- Hàm này trả về instant đúng để so với now().
+CREATE OR REPLACE FUNCTION transaction_real_ts(p_text text)
+RETURNS timestamptz LANGUAGE sql STABLE AS $$
+  SELECT (revenue_try_ts(p_text) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Ho_Chi_Minh';
+$$;
+
 -- Loại tài khoản của 1 giao dịch (100/101): 'hkd' (TK hộ kinh doanh, nhận tiền khách)
 -- hoặc 'personal' (TK cá nhân, chi hoá đơn). NULL = TK chưa khai HOẶC đang để 'none'.
 -- Khớp account_number HOẶC sub_account (lý do: xem payment_account_is_tracked).

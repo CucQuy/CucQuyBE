@@ -19,6 +19,7 @@ import { ConfigurationsService } from './configurations.service';
 import { CreatePaymentAccountDto } from './dto/create-payment-account.dto';
 import { SetPaymentAccountTrackedDto } from './dto/set-payment-account-tracked.dto';
 import { SetPaymentAccountKindDto } from './dto/set-payment-account-kind.dto';
+import { SetPaymentAccountOpeningDto } from './dto/set-payment-account-opening.dto';
 import {
   PaymentAccount,
   Role,
@@ -213,6 +214,19 @@ export class ConfigurationsController {
     @Body() body: SetPaymentAccountKindDto,
   ): Promise<PaymentAccount[]> {
     return this.service.setKindPaymentAccount(id, body.kind);
+  }
+
+  /**
+   * Chốt lại số dư tài khoản (102) theo số đang thấy trên app ngân hàng — mốc thời gian
+   * đóng tại now(), từ đó chỉ cộng/trừ giao dịch mới.
+   */
+  @Put('payment-accounts/:id/opening')
+  @ResponseMessage('Đã chốt số dư tài khoản')
+  setOpeningPaymentAccount(
+    @Param('id') id: string,
+    @Body() body: SetPaymentAccountOpeningDto,
+  ): Promise<PaymentAccount[]> {
+    return this.service.setOpeningPaymentAccount(id, body.amount);
   }
 
   /** Xoá tài khoản; nếu xoá cái active thì cái mới nhất còn lại thành active. Trả danh sách mới. */

@@ -178,6 +178,46 @@ $$;
 
 -- Liệt kê tất cả tài khoản → jsonb array. Sắp active trước rồi created_at desc.
 -- Mỗi item {id, bankCode, accountNumber, accountHolder, qrTemplate, isActive, isTracked, createdAt}.
+-- Số dư hiện tại của 1 tài khoản (102) = số dư đã chốt + tiền vào − tiền ra của các
+-- giao dịch SAU mốc chốt. Bỏ giao dịch test. Khớp TK theo account_number HOẶC sub_account
+-- (TK ảo BIDV bắn số ảo ở account_number, số của tiệm nằm ở sub_account).
+CREATE OR REPLACE FUNCTION payment_account_balance(p_id text)
+RETURNS numeric LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(pa.opening_balance, 0) + COALESCE((
+    SELECT SUM(CASE WHEN t.transfer_type = 'out' THEN -t.transfer_amount ELSE t.transfer_amount END)
+    FROM transactions t
+    WHERE COALESCE(t.is_test, false) = false
+      AND pa.account_number IN (NULLIF(TRIM(COALESCE(t.account_number, '')), ''),
+                                NULLIF(TRIM(COALESCE(t.sub_account, '')), ''))
+      -- transaction_real_ts: transaction_date là giờ VN text, DB chạy UTC → phải quy về
+      -- instant thật mới so được với mốc chốt (xem functions/transactions.sql).
+      AND (pa.opening_balance_at IS NULL
+           OR transaction_real_ts(t.transaction_date) > pa.opening_balance_at)
+  ), 0)
+  FROM payment_accounts pa
+  WHERE pa.id = p_id;
+$$;
+
+-- Chốt lại số dư tài khoản p_id theo số đang thấy trên app ngân hàng (102):
+-- ghi số dư mới + đóng mốc thời gian = now() → mọi sai lệch tích luỹ trước đó bị bỏ qua,
+-- từ giờ chỉ cộng/trừ giao dịch mới. Trả payment_accounts_list().
+CREATE OR REPLACE FUNCTION payment_account_set_opening(p_id text, p_amount numeric)
+RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM payment_accounts WHERE id = p_id) THEN
+    RAISE EXCEPTION 'payment account % not found', p_id;
+  END IF;
+
+  UPDATE payment_accounts
+     SET opening_balance    = COALESCE(p_amount, 0),
+         opening_balance_at = now()
+   WHERE id = p_id;
+
+  RETURN payment_accounts_list();
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION payment_accounts_list()
 RETURNS jsonb
 LANGUAGE sql STABLE AS $$
@@ -192,6 +232,10 @@ LANGUAGE sql STABLE AS $$
               'isTracked', a.is_tracked,
               -- 100: 'hkd' = TK hộ kinh doanh (nhận tiền khách) · 'personal' = TK cá nhân (chi).
               'kind', a.kind,
+              -- 102: số dư đã chốt + số dư hiện tại (chốt + giao dịch sau mốc).
+              'openingBalance', a.opening_balance,
+              'openingBalanceAt', a.opening_balance_at,
+              'balance', payment_account_balance(a.id),
               'createdAt', a.created_at
             ) ORDER BY (a.kind = 'none'), a.kind, a.created_at DESC)
      FROM payment_accounts a),

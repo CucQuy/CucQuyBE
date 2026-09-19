@@ -75,6 +75,8 @@ export type LedgerAccountFlow = {
   accountNumber: string | null;
   accountHolder: string | null;
   kind: PaymentAccountKind | null;
+  /** Số dư hiện tại của TK (toàn thời gian, không theo kỳ lọc) — null nếu TK chưa khai. */
+  balance: number | null;
   in: number;
   out: number;
   net: number;

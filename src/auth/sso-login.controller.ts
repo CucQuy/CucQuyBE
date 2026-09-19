@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Logger, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { IpThrottlerGuard } from '../common/ip-throttler.guard';
@@ -18,6 +18,8 @@ import { setRefreshCookie } from './cookie.util';
  */
 @Controller('auth/google')
 export class SsoLoginController {
+  private readonly logger = new Logger(SsoLoginController.name);
+
   constructor(private readonly rice: RiceSsoService) {}
 
   /** Origin của web app (nơi kết thúc luồng đăng nhập). */
@@ -63,9 +65,17 @@ export class SsoLoginController {
    * cookie httpOnly, rồi 302 về FE (URL sạch, không mang token).
    */
   @Get('callback')
-  async callback(@Query('code') code: string, @Req() req: Request, @Res() res: Response): Promise<void> {
+  async callback(
+    @Query('code') code: string,
+    @Query('error') ssoError: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
     const web = this.webOrigin();
     if (!code) {
+      // RiceService đưa user về đây kèm ?error= khi state hỏng/hết hạn hoặc user bấm huỷ.
+      // Ghi lại lý do — không có dòng này thì lỗi đăng nhập là hộp đen.
+      this.logger.warn(`callback không có code (error=${ssoError || 'không rõ'})`);
       res.redirect(302, `${web}/login?error=sso`);
       return;
     }
@@ -73,7 +83,8 @@ export class SsoLoginController {
       const session = await this.rice.exchange(code);
       setRefreshCookie(req, res, session.refreshToken, this.rice.refreshIdleDays);
       res.redirect(302, `${web}/auth/callback`);
-    } catch {
+    } catch (e) {
+      this.logger.error(`đổi code lấy phiên thất bại: ${e instanceof Error ? e.message : String(e)}`);
       res.redirect(302, `${web}/login?error=sso`);
     }
   }

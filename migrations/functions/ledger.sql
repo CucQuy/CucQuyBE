@@ -261,6 +261,9 @@ BEGIN
                  'accountNumber', a.acct_number,
                  'accountHolder', a.acct_holder,
                  'kind',          a.acct_kind,
+                 -- Số dư hiện tại của TK — tính toàn thời gian, KHÔNG theo kỳ đang lọc.
+                 'balance',       CASE WHEN a.acct_id IS NULL THEN NULL
+                                       ELSE payment_account_balance(a.acct_id) END,
                  'in',            a.t_in,
                  'out',           a.t_out,
                  'net',           a.t_in - a.t_out,

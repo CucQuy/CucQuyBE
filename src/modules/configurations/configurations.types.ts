@@ -109,6 +109,12 @@ export interface PaymentAccount {
   isTracked: boolean;
   /** TK hộ kinh doanh / TK cá nhân / không dùng (101). */
   kind: PaymentAccountKind;
+  /** Số dư đã chốt tại `openingBalanceAt` (VND) — 102. */
+  openingBalance: number;
+  /** Thời điểm chốt số dư (ISO); null = cộng dồn từ giao dịch đầu tiên. */
+  openingBalanceAt: string | null;
+  /** Số dư hiện tại = openingBalance + giao dịch sau mốc (BE tính). */
+  balance: number;
   createdAt: string; // ISO
 }
 
