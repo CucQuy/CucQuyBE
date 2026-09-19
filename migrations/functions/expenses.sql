@@ -15,6 +15,19 @@ RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
      AND p_cat NOT IN ('personal', 'owner', 'internal', 'sweep', 'capital', 'shopee', 'other_in');
 $$;
 
+-- ── Category thuộc DANH SÁCH CHUẨN của dropdown chi phí ──
+-- Khác expense_category_is_cost: hàm kia nhận MỌI chuỗi lạ là chi phí (tiền ra gõ tay
+-- "Tiền lãi ngân hàng", "Chủ nạp vốn"… vẫn tính OPEX như xưa). Hàm này CHẶT: chỉ đúng 11
+-- hạng mục trong dropdown. Dùng cho TIỀN VÀO "thu bù chi phí" — nếu nới lỏng thì mọi ghi
+-- chú free-text cũ trên tiền vào sẽ bị trừ khỏi chi phí (sai sổ).
+CREATE OR REPLACE FUNCTION expense_category_is_known_cost(p_cat text)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT p_cat IN (
+    'rent', 'utilities', 'internet', 'marketing', 'maintenance', 'salary',
+    'facility', 'supplier', 'shipping', 'packaging', 'other'
+  );
+$$;
+
 -- ── Rule từ khoá (nội dung CK → category) ──
 CREATE OR REPLACE FUNCTION expense_rules_list()
 RETURNS SETOF expense_rules LANGUAGE sql STABLE AS $$
@@ -119,7 +132,7 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
       FROM transactions t
       WHERE t.transfer_type = 'in'
         AND coalesce(t.is_test, false) = false
-        AND expense_category_is_cost(t.expense_category)
+        AND expense_category_is_known_cost(t.expense_category)
         AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
       GROUP BY t.expense_category
     ) u

@@ -266,7 +266,7 @@ BEGIN
     FROM transactions t
     WHERE t.transfer_type = 'in'
       AND coalesce(t.is_test, false) = false
-      AND expense_category_is_cost(t.expense_category)
+      AND expense_category_is_known_cost(t.expense_category)
       AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
   ), 0);
 
@@ -377,7 +377,7 @@ BEGIN
     FROM transactions t
     WHERE t.transfer_type = 'in'
       AND coalesce(t.is_test, false) = false
-      AND expense_category_is_cost(t.expense_category)
+      AND expense_category_is_known_cost(t.expense_category)
       AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
   ),
   cost_depreciation AS (

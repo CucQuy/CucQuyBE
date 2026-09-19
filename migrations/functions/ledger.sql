@@ -69,7 +69,7 @@ RETURNS text LANGUAGE sql STABLE AS $$
         WHEN t.expense_category = 'shopee' THEN 'shopee'
         -- Đánh dấu tay "Thu bù chi phí": tiền vào gán ĐÚNG 1 hạng mục chi phí (NCC/nhà xe
         -- hoàn lại, hoàn phí dịch vụ…) → không phải doanh thu, mà TRỪ chi phí hạng mục đó.
-        WHEN expense_category_is_cost(t.expense_category) THEN 'expense_credit'
+        WHEN expense_category_is_known_cost(t.expense_category) THEN 'expense_credit'
         -- Đánh dấu tay "Thu khác" (set expense_category='other_in' + ghi chú ở review_note):
         -- đã đối soát nhưng không thuộc nhóm nào, KHÔNG tính doanh thu/chi phí.
         WHEN t.expense_category = 'other_in' THEN 'other_in'
