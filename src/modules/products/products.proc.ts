@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
-import { ProductVersion } from './products.types';
+import { ProductCombo, ProductVersion } from './products.types';
 
 /** Hàng (snake_case) trả ra từ stored function. */
 export type ProductRow = {
@@ -64,5 +64,22 @@ export class ProductProc {
   versions(productId: string): Promise<{ versions: ProductVersion[] }[]> {
     return this.db.sql<{ versions: ProductVersion[] }[]>`
       SELECT product_versions(${productId}) AS versions`;
+  }
+
+  // ── Combo: thành phần trỏ sản phẩm có sẵn (102 + functions/product_combos.sql) ──
+
+  comboGet(comboId: string): Promise<{ combo: ProductCombo | null }[]> {
+    return this.db.sql<{ combo: ProductCombo | null }[]>`
+      SELECT product_combo_get(${comboId}) AS combo`;
+  }
+
+  comboList(): Promise<{ combos: ProductCombo[] }[]> {
+    return this.db.sql<{ combos: ProductCombo[] }[]>`
+      SELECT product_combo_list() AS combos`;
+  }
+
+  comboSave(comboId: string, items: unknown): Promise<{ combo: ProductCombo }[]> {
+    return this.db.sql<{ combo: ProductCombo }[]>`
+      SELECT product_combo_save(${comboId}, ${this.db.json(items ?? [])}::jsonb) AS combo`;
   }
 }

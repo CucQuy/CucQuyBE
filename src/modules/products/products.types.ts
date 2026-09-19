@@ -82,3 +82,38 @@ export interface ProductVersion {
   /** { field: after_value } */
   after?: Record<string, unknown>;
 }
+
+/** 1 món trong combo — trỏ sản phẩm có sẵn (bảng product_combo_items). */
+export interface ComboItem {
+  id?: number;
+  productId: string;
+  name?: string;
+  /** Số phần trong box (2 viên phô mai dẻo → 2). */
+  qty: number;
+  /** 1 phần = bao nhiêu đơn vị bán lẻ của SP đó (hộp 10 cái → 0.1). */
+  portion: number;
+  unitLabel?: string | null;
+  note?: string | null;
+  sortOrder?: number;
+  /** Giá lẻ / giá vốn quy đổi (DB tính, chỉ đọc). */
+  unitRetail?: number;
+  lineRetail?: number;
+  unitCost?: number;
+  lineCost?: number;
+}
+
+/** Combo + đối chiếu giá lẻ (product_combo_get). */
+export interface ProductCombo {
+  comboId: string;
+  name: string;
+  price?: number;
+  costPrice?: number;
+  status?: string;
+  /** Tổng số phần trong box. */
+  itemCount: number;
+  /** Tổng giá lẻ các món cộng lại. */
+  retailSum: number;
+  saving: number;
+  savingPct: number;
+  items: ComboItem[];
+}

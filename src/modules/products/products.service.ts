@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ProductProc, ProductRow } from './products.proc';
-import { Product, ProductVersion, ProductSize, ProductFlavorVariant, PriceTier, PackagingOption } from './products.types';
+import { ComboItem, Product, ProductCombo, ProductVersion, ProductSize, ProductFlavorVariant, PriceTier, PackagingOption } from './products.types';
 
 const num = (v: string | number | null): number | undefined =>
   v === null || v === undefined ? undefined : Number(v);
@@ -70,5 +70,23 @@ export class ProductsService {
   async fetchProductVersions(productId: string): Promise<ProductVersion[]> {
     const [row] = await this.proc.versions(productId);
     return row?.versions ?? [];
+  }
+
+  /** Thành phần 1 combo + đối chiếu giá lẻ. null nếu SP không tồn tại. */
+  async fetchCombo(comboId: string): Promise<ProductCombo | null> {
+    const [row] = await this.proc.comboGet(comboId);
+    return row?.combo ?? null;
+  }
+
+  /** Mọi SP có thành phần combo. */
+  async fetchCombos(): Promise<ProductCombo[]> {
+    const [row] = await this.proc.comboList();
+    return row?.combos ?? [];
+  }
+
+  /** Ghi đè thành phần combo (mảng rỗng = gỡ combo). */
+  async saveCombo(comboId: string, items: ComboItem[]): Promise<ProductCombo> {
+    const [row] = await this.proc.comboSave(comboId, items);
+    return row.combo;
   }
 }

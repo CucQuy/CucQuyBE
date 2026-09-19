@@ -6,11 +6,13 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { ProductsService } from './products.service';
+import { ComboItem } from './products.types';
 
 @ApiTags('Sản phẩm')
 @Controller('products')
@@ -58,5 +60,23 @@ export class ProductsController {
   @Get(':id/versions')
   fetchProductVersions(@Param('id') id: string) {
     return this.service.fetchProductVersions(id);
+  }
+
+  /** Mọi combo (SP có thành phần). */
+  @Get('combos/all')
+  fetchCombos() {
+    return this.service.fetchCombos();
+  }
+
+  /** Thành phần 1 combo + đối chiếu giá lẻ. */
+  @Get(':id/combo')
+  fetchCombo(@Param('id') id: string) {
+    return this.service.fetchCombo(id);
+  }
+
+  /** Ghi đè thành phần combo — body: { items: [{productId, qty, portion, unitLabel, note}] }. */
+  @Put(':id/combo')
+  saveCombo(@Param('id') id: string, @Body() body: { items?: ComboItem[] }) {
+    return this.service.saveCombo(id, body?.items ?? []);
   }
 }
