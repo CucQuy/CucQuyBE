@@ -166,35 +166,6 @@ export interface MaterialCreateInput {
   lastReceiptDate?: string | null; // ISO yyyy-mm-dd
 }
 
-/** 1 nguyên liệu trong cặp gợi ý gộp (camelCase từ jsonb fn). */
-export interface MaterialMergeCandidate {
-  id: string;
-  name: string;
-  importCount: number;
-  totalQty: number;
-  canonicalUnit: string | null;
-}
-
-/** 1 cặp nguyên liệu nghi trùng + độ tương đồng (0..1). */
-export interface MaterialMergeSuggestion {
-  similarity: number;
-  a: MaterialMergeCandidate;
-  b: MaterialMergeCandidate;
-}
-
-/** 1 nhóm NVL do Claude gợi ý gộp (cùng sản phẩm) — đã map id → dữ liệu thật. */
-export interface MaterialMergeAiGroup {
-  members: MaterialMergeCandidate[];
-  /** Tên chuẩn Claude đề xuất. */
-  suggestedName: string;
-  /** Đơn vị chuẩn Claude đề xuất (null nếu không chắc). */
-  suggestedUnit: string | null;
-  /** Độ tin cậy 0–1. */
-  confidence: number;
-  /** Lý do ngắn (tiếng Việt). */
-  reason: string;
-}
-
 /** Nguồn tạo phiếu nhập: OCR ảnh bill hoặc nhập thủ công qua form. */
 export type StockReceiptSource = 'ocr' | 'manual';
 

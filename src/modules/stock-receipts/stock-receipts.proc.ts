@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DbService } from '../../db/db.service';
 import {
-  MaterialMergeSuggestion,
   MaterialUpdatePatch,
   MaterialCreateInput,
   SupplierCreateInput,
@@ -311,27 +310,6 @@ export class StockReceiptProc {
   ): Promise<{ result: { id: string } }[]> {
     return this.db.sql<{ result: { id: string } }[]>`
       SELECT stock_receipt_create(${this.db.json(input)}::jsonb) AS result`;
-  }
-
-  mergeSuppliers(rootId: string, duplicateIds: string[]): Promise<unknown> {
-    return this.db.sql`
-      SELECT stock_receipt_merge_suppliers(
-        ${rootId}, ${this.db.json(duplicateIds ?? [])}::jsonb)`;
-  }
-
-  mergeMaterials(rootId: string, duplicateIds: string[]): Promise<unknown> {
-    return this.db.sql`
-      SELECT stock_receipt_merge_materials(
-        ${rootId}, ${this.db.json(duplicateIds ?? [])}::jsonb)`;
-  }
-
-  /** Gợi ý các cặp nguyên liệu nghi trùng (jsonb array passthrough). */
-  async materialMergeSuggestions(
-    threshold: number,
-  ): Promise<MaterialMergeSuggestion[]> {
-    const [row] = await this.db.sql<{ result: MaterialMergeSuggestion[] }[]>`
-      SELECT stock_receipt_material_merge_suggestions(${threshold}::real) AS result`;
-    return row?.result ?? [];
   }
 
   /** Sửa nguyên liệu (NVL) — partial update qua jsonb patch. */

@@ -105,20 +105,6 @@ export class StockReceiptsController {
     return { ok: true };
   }
 
-  /** Gợi ý các cặp nguyên liệu nghi trùng (Phase 1). threshold optional (mặc định 0.4). */
-  @Get('materials/merge-suggestions')
-  getMaterialMergeSuggestions(@Query('threshold') threshold?: string) {
-    const t = threshold !== undefined ? Number(threshold) : undefined;
-    return this.service.getMaterialMergeSuggestions(t);
-  }
-
-  /** Gợi ý gộp NVL bằng AI (Claude) — gom nhóm cùng sản phẩm, chịu OCR sai/thiếu dấu. */
-  @Get('materials/merge-suggestions/ai')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  getMaterialMergeSuggestionsAi() {
-    return this.service.getMaterialMergeSuggestionsAi();
-  }
-
   /** Nguyên liệu kèm đơn giá nhập TB (dropdown OrderForm). */
   @Get('material-options')
   fetchMaterialPriceOptions() {
@@ -209,26 +195,6 @@ export class StockReceiptsController {
       ...body,
       createdByUid: user?.uid ?? null,
     });
-  }
-
-  /** Gộp nhiều NCC trùng vào 1 root. */
-  @Post('suppliers/merge')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  async mergeSuppliers(
-    @Body() body: { rootId: string; duplicateIds: string[] },
-  ) {
-    await this.service.mergeSuppliers(body.rootId, body.duplicateIds ?? []);
-    return { ok: true };
-  }
-
-  /** Gộp nhiều nguyên liệu trùng vào 1 root. */
-  @Post('materials/merge')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  async mergeMaterials(
-    @Body() body: { rootId: string; duplicateIds: string[] },
-  ) {
-    await this.service.mergeMaterials(body.rootId, body.duplicateIds ?? []);
-    return { ok: true };
   }
 
   /** Gợi ý cặp khớp tự động tiền ra ↔ phiếu nhập (dry-run, không ghi). */

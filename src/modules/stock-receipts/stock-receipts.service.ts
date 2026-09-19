@@ -8,14 +8,11 @@ import {
   SupplierRow,
 } from './stock-receipts.proc';
 import { AuthUser } from '../../auth/user.types';
-import { MaterialMergeService } from '../ai/tasks/material-merge/material-merge.service';
 import {
   BillLineItem,
   ImportedMaterialSummary,
   MaterialStock,
   ImportedSupplierSummary,
-  MaterialMergeAiGroup,
-  MaterialMergeSuggestion,
   MaterialPriceOption,
   MaterialUpdatePatch,
   MaterialCreateInput,
@@ -26,9 +23,6 @@ import {
   StockReceiptValidationSnapshot,
   SupplierContactInfo,
 } from './stock-receipts.types';
-
-/** Ngưỡng similarity mặc định cho gợi ý gộp nguyên liệu. */
-const DEFAULT_MERGE_THRESHOLD = 0.4;
 
 // ── Helpers map ─────────────────────────────────────────────────────────────
 
@@ -105,7 +99,6 @@ const mapLine = (l: LineRow): BillLineItem => ({
 export class StockReceiptsService {
   constructor(
     private readonly proc: StockReceiptProc,
-    private readonly materialMerge: MaterialMergeService,
   ) {}
 
   // ── ĐỌC ────────────────────────────────────────────────────────────────────
@@ -234,71 +227,6 @@ export class StockReceiptsService {
       if (m) throw new Error(`DUPLICATE_BILL:${m[1]}`);
       throw err;
     }
-  }
-
-  async mergeSuppliers(rootId: string, duplicateIds: string[]): Promise<void> {
-    await this.proc.mergeSuppliers(rootId, duplicateIds);
-  }
-
-  async mergeMaterials(rootId: string, duplicateIds: string[]): Promise<void> {
-    await this.proc.mergeMaterials(rootId, duplicateIds);
-  }
-
-  /**
-   * Gợi ý các cặp nguyên liệu nghi trùng (Phase 1). Passthrough jsonb từ DB.
-   * threshold không hợp lệ -> dùng mặc định 0.4.
-   */
-  async getMaterialMergeSuggestions(
-    threshold?: number,
-  ): Promise<MaterialMergeSuggestion[]> {
-    const t =
-      typeof threshold === 'number' && Number.isFinite(threshold)
-        ? threshold
-        : DEFAULT_MERGE_THRESHOLD;
-    return this.proc.materialMergeSuggestions(t);
-  }
-
-  /**
-   * Gợi ý gộp NVL bằng Claude (AI): đưa toàn bộ danh sách NVL cho Claude gom
-   * nhóm CÙNG sản phẩm (chịu được OCR sai / thiếu dấu), rồi map id → dữ liệu
-   * thật (importCount/totalQty/unit) + sort thành viên theo số lần nhập giảm dần
-   * (thành viên đầu = ứng viên root mặc định ở FE). Chỉ trả nhóm ≥2 thành viên.
-   */
-  async getMaterialMergeSuggestionsAi(): Promise<MaterialMergeAiGroup[]> {
-    const materials = await this.fetchImportedMaterials();
-    const byId = new Map(materials.map((m) => [m.id, m]));
-
-    const groups = await this.materialMerge.run(
-      materials.map((m) => ({
-        id: m.id,
-        name: m.name,
-        canonicalUnit: m.canonicalUnit ?? null,
-        importCount: m.importCount,
-      })),
-    );
-
-    return groups
-      .map((g) => {
-        const members = g.memberIds
-          .map((id) => byId.get(id))
-          .filter((m): m is ImportedMaterialSummary => !!m)
-          .map((m) => ({
-            id: m.id,
-            name: m.name,
-            importCount: m.importCount,
-            totalQty: m.totalQty,
-            canonicalUnit: m.canonicalUnit ?? null,
-          }))
-          .sort((a, b) => b.importCount - a.importCount);
-        return {
-          members,
-          suggestedName: g.suggestedName,
-          suggestedUnit: g.suggestedUnit,
-          confidence: g.confidence,
-          reason: g.reason,
-        };
-      })
-      .filter((g) => g.members.length >= 2);
   }
 
   /** Sửa nguyên liệu (NVL): name / canonicalUnit. */
