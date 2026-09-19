@@ -3,12 +3,7 @@ import { RedisService } from '../../redis/redis.service';
 import { userCacheKey } from '../../auth/sso-auth.guard';
 import { UserProc, UserRow } from './users.proc';
 import { NotificationsService } from '../notifications/notifications.service';
-import {
-  UserData,
-  UserRole,
-  UserStatus,
-  ZaloGroupConfigInput,
-} from './users.types';
+import { UserData, UserRole, UserStatus } from './users.types';
 
 /** Chuẩn hoá status thô về UserStatus. */
 function asStatus(raw: unknown): UserStatus {
@@ -35,8 +30,6 @@ const mapRow = (r: UserRow): UserData => ({
   createdAt: r.created_at ?? '',
   lastLoginAt: r.last_login_at ?? '',
   role: asRole(r.role),
-  zaloCtvGroupChatId:
-    r.zalo_ctv_group_chat_id === null ? null : r.zalo_ctv_group_chat_id,
 });
 
 /**
@@ -113,21 +106,4 @@ export class UsersService {
     await this.redis.del(userCacheKey(uid)); // role đổi → bỏ cache để có hiệu lực ngay
   }
 
-  /**
-   * Ghi zaloCtvGroupChatId lên từng user theo membership group Zalo
-   * (clear về null khi user không thuộc group nào). Port từ FE.
-   */
-  async syncZaloCtvGroupFieldsFromGroups(
-    groups: ZaloGroupConfigInput[],
-  ): Promise<void> {
-    const uidToChat: Record<string, string> = {};
-    for (const g of groups || []) {
-      const chat = (g?.zaloGroupId ?? '').trim();
-      if (!chat) continue;
-      for (const uid of g.memberUids || []) {
-        uidToChat[uid] = chat;
-      }
-    }
-    await this.proc.syncZaloGroups(uidToChat);
-  }
 }

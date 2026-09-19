@@ -10,7 +10,6 @@ export type UserRow = {
   photo_url: string | null;
   role: string | null;
   status: string | null;
-  zalo_ctv_group_chat_id: string | null;
   last_login_at: string | null;
   created_at: string | null;
 };
@@ -53,10 +52,5 @@ export class UserProc {
 
   updateRole(uid: string, role: string): Promise<unknown> {
     return this.db.sql`SELECT user_update_role(${uid}, ${role})`;
-  }
-
-  syncZaloGroups(uidToChat: Record<string, string>): Promise<unknown> {
-    return this.db
-      .sql`SELECT user_sync_zalo_groups(${this.db.json(uidToChat)}::jsonb)`;
   }
 }

@@ -4,7 +4,7 @@
 -- Bảng đã tách:
 --   screen_visibility(route, visible)
 --   shipping_config(id, over_fee, over_label, shop_origin jsonb) + shipping_tiers(max_km, fee, label, sort_order)
---   zalo_config(id, main_*) + zalo_groups + zalo_group_members (FK users)
+--   zalo_config(id, main_*) + zalo_groups
 -- (Các bảng không có cột updatedAt/updatedBy → field đó bỏ qua trong output.)
 -- ============================================================
 
@@ -369,7 +369,7 @@ DROP FUNCTION IF EXISTS payment_config_save(jsonb);
 
 -- ==================== ZALO GROUPS ====================
 
--- Trả {groups[{id,name,zaloGroupId,memberUids[],features[],updateFieldWhitelist[]}], customerNotify*}.
+-- Trả {groups[{id,name,zaloGroupId,features[],updateFieldWhitelist[]}], customerNotify*}.
 -- 095: mỗi nhóm tự khai TÍNH NĂNG thông báo nó nhận (features) — không còn khái niệm
 -- "nhóm chính"/"nhóm thanh toán" (main_group_id/payment_group_id đã ngừng dùng).
 CREATE OR REPLACE FUNCTION zalo_config_get()
@@ -381,11 +381,6 @@ LANGUAGE sql STABLE AS $$
                 'id', g.id,
                 'name', COALESCE(g.name, ''),
                 'zaloGroupId', COALESCE(g.zalo_group_id, ''),
-                'memberUids', COALESCE(
-                  (SELECT jsonb_agg(m.user_uid ORDER BY m.user_uid)
-                   FROM zalo_group_members m WHERE m.group_id = g.id),
-                  '[]'::jsonb
-                ),
                 -- Tính năng thông báo gán cho nhóm (095) — thay 4 cờ notify_on_* cũ.
                 'features', COALESCE(to_jsonb(g.notify_features), '[]'::jsonb),
                 'updateFieldWhitelist', COALESCE(to_jsonb(g.update_field_whitelist), '[]'::jsonb)
@@ -476,14 +471,11 @@ $$;
 
 -- Lưu cấu hình zalo groups từ jsonb payload (groups + main settings tuỳ chọn).
 -- - groups: ghi đè toàn bộ; mỗi group có id (gen nếu thiếu), features[] = tính năng thông
---   báo nhóm nhận, member_uids → bảng nối (chỉ uid có trong users).
+--   báo nhóm nhận.
 -- - customerNotify*: chỉ cập nhật field nào CÓ trong payload (key tồn tại).
--- - đồng bộ users.zalo_ctv_group_chat_id theo membership (clear nếu không thuộc group nào có zaloGroupId).
 CREATE OR REPLACE FUNCTION zalo_config_save(p_data jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql AS $$
-DECLARE
-  v_uid_chat jsonb;
 BEGIN
   p_data := COALESCE(p_data, '{}'::jsonb);
 
@@ -514,14 +506,13 @@ BEGIN
     (SELECT COALESCE(array_agg(s), '{}'::text[])
        FROM jsonb_array_elements_text(
          CASE WHEN jsonb_typeof(x->'updateFieldWhitelist') = 'array' THEN x->'updateFieldWhitelist' ELSE '[]'::jsonb END
-       ) AS s WHERE COALESCE(s,'') <> '') AS update_field_whitelist,
-    CASE WHEN jsonb_typeof(x->'memberUids') = 'array' THEN x->'memberUids' ELSE '[]'::jsonb END AS member_uids
+       ) AS s WHERE COALESCE(s,'') <> '') AS update_field_whitelist
   FROM jsonb_array_elements(
     CASE WHEN jsonb_typeof(p_data->'groups') = 'array' THEN p_data->'groups' ELSE '[]'::jsonb END
   ) AS x
   WHERE jsonb_typeof(x) = 'object';
 
-  -- xoá group không còn (members cascade)
+  -- xoá group không còn
   DELETE FROM zalo_groups WHERE id NOT IN (SELECT id FROM _grp);
 
   -- upsert groups
@@ -533,62 +524,7 @@ BEGIN
     notify_features = EXCLUDED.notify_features,
     update_field_whitelist = EXCLUDED.update_field_whitelist;
 
-  -- replace members (chỉ uid có trong users → FK an toàn, tự bỏ uid lạ)
-  DELETE FROM zalo_group_members;
-  INSERT INTO zalo_group_members (group_id, user_uid)
-  SELECT DISTINCT g.id, u.uid
-  FROM _grp g
-  CROSS JOIN LATERAL jsonb_array_elements_text(g.member_uids) AS uid(uid)
-  JOIN users u ON u.uid = uid.uid
-  WHERE COALESCE(uid.uid, '') <> ''
-  ON CONFLICT (group_id, user_uid) DO NOTHING;
-
-  -- ----- sync users.zalo_ctv_group_chat_id theo membership -----
-  -- map uid → zaloGroupId (group có zalo_group_id khác rỗng); uid không thuộc → null
-  SELECT COALESCE(jsonb_object_agg(uid, chat), '{}'::jsonb) INTO v_uid_chat
-  FROM (
-    SELECT DISTINCT ON (m.user_uid) m.user_uid AS uid, btrim(g.zalo_group_id) AS chat
-    FROM zalo_group_members m
-    JOIN zalo_groups g ON g.id = m.group_id
-    WHERE COALESCE(btrim(g.zalo_group_id), '') <> ''
-    ORDER BY m.user_uid, g.id
-  ) s;
-
-  UPDATE users u SET zalo_ctv_group_chat_id = NULLIF(v_uid_chat->>u.uid, '');
-
   RETURN zalo_config_get();
-END;
-$$;
-
--- CTV uid có thuộc nhóm zalo nào (có zaloGroupId) không → trả bool.
--- Non-CTV / user không tồn tại / đã có zalo_ctv_group_chat_id → true.
-CREATE OR REPLACE FUNCTION zalo_collaborator_has_group(p_uid text)
-RETURNS boolean
-LANGUAGE plpgsql STABLE AS $$
-DECLARE
-  v_user users%ROWTYPE;
-BEGIN
-  IF COALESCE(p_uid, '') = '' THEN
-    RETURN true;
-  END IF;
-
-  SELECT * INTO v_user FROM users WHERE uid = p_uid;
-  IF NOT FOUND THEN
-    RETURN true;
-  END IF;
-  IF v_user.role IS DISTINCT FROM 'colaborator' THEN
-    RETURN true;
-  END IF;
-  IF COALESCE(btrim(v_user.zalo_ctv_group_chat_id), '') <> '' THEN
-    RETURN true;
-  END IF;
-
-  RETURN EXISTS (
-    SELECT 1
-    FROM zalo_group_members m
-    JOIN zalo_groups g ON g.id = m.group_id
-    WHERE m.user_uid = p_uid AND COALESCE(btrim(g.zalo_group_id), '') <> ''
-  );
 END;
 $$;
 

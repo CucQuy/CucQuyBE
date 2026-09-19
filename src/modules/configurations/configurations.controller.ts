@@ -133,12 +133,6 @@ export class ConfigurationsController {
     );
   }
 
-  /** CTV có thuộc nhóm Zalo nào không (boolean). */
-  @Get('collaborator-has-zalo/:uid')
-  collaboratorHasZalo(@Param('uid') uid: string): Promise<boolean> {
-    return this.service.collaboratorHasZaloGroup(uid);
-  }
-
   // ==================== SHIPPING ====================
 
   /** Mục tiêu doanh thu dùng chung (tháng + tối thiểu/kỳ vọng mỗi ngày). */

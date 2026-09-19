@@ -61,7 +61,7 @@ BEGIN
     RETURN QUERY
     INSERT INTO users (
       uid, email, display_name, photo_url, custom_name,
-      status, role, zalo_ctv_group_chat_id, created_at, last_login_at
+      status, role, created_at, last_login_at
     ) VALUES (
       v_uid,
       v_email,
@@ -70,7 +70,6 @@ BEGIN
       NULL,
       'pending',
       'colaborator',
-      NULL,
       v_now::timestamptz,
       v_now::timestamptz
     )
@@ -98,16 +97,4 @@ CREATE OR REPLACE FUNCTION user_update_role(p_uid text, p_role text)
 RETURNS void
 LANGUAGE sql AS $$
   UPDATE users SET role = p_role WHERE uid = p_uid;
-$$;
-
--- Đồng bộ zalo_ctv_group_chat_id cho mọi user theo membership group Zalo.
--- p_map: jsonb object { "<uid>": "<zaloGroupId>", ... } (chỉ chứa uid thuộc group).
--- User không có trong map → set NULL (clear).
-CREATE OR REPLACE FUNCTION user_sync_zalo_groups(p_map jsonb)
-RETURNS void
-LANGUAGE plpgsql AS $$
-BEGIN
-  UPDATE users u
-  SET zalo_ctv_group_chat_id = NULLIF(p_map->>u.uid, '');
-END;
 $$;

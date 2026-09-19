@@ -17,14 +17,4 @@ export interface UserData {
   createdAt: string; // ISO
   lastLoginAt: string; // ISO
   role: UserRole;
-  /** Zalo group chat id khi user là CTV gán vào group Zalo; sync từ Settings → Zalo */
-  zaloCtvGroupChatId?: string | null;
-}
-
-/** Group Zalo dùng cho syncZaloCtvGroupFieldsFromGroups (port từ FE ZaloGroupConfig). */
-export interface ZaloGroupConfigInput {
-  id: string;
-  name: string;
-  zaloGroupId: string;
-  memberUids: string[];
 }

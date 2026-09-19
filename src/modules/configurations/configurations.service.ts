@@ -98,15 +98,6 @@ export class ConfigurationsService {
     return row.data ?? [];
   }
 
-  /**
-   * CTV có thuộc 1 nhóm Zalo nào không (để chặn tạo đơn khi chưa gán nhóm).
-   * Non-CTV / không tìm thấy user → coi như hợp lệ (true).
-   */
-  async collaboratorHasZaloGroup(uid: string): Promise<boolean> {
-    const [row] = await this.proc.zaloCollaboratorHasGroup(uid);
-    return row.ok;
-  }
-
   // ==================== SHIPPING ====================
 
   async fetchShippingConfiguration(): Promise<ShippingConfiguration> {

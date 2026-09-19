@@ -16,7 +16,7 @@ import { verifySsoToken } from '../../auth/sso.util';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/user.types';
 import { UsersService } from './users.service';
-import { UserRole, UserStatus, ZaloGroupConfigInput } from './users.types';
+import { UserRole, UserStatus } from './users.types';
 
 @ApiTags('Người dùng')
 @Controller('users')
@@ -107,10 +107,4 @@ export class UsersController {
     return { uid };
   }
 
-  /** Đồng bộ zaloCtvGroupChatId theo membership group Zalo. */
-  @Post('sync-zalo-groups')
-  async syncZaloGroups(@Body('groups') groups: ZaloGroupConfigInput[]) {
-    await this.service.syncZaloCtvGroupFieldsFromGroups(groups || []);
-    return { synced: true };
-  }
 }

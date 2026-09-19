@@ -14,7 +14,7 @@ import {
  * Chỉ ở đây mới gọi * — service import class này để dùng.
  * Các function trả jsonb đúng shape FE cũ:
  *   screen_visibility_get/_save, shipping_config_get/_save,
- *   zalo_config_get/_save, zalo_collaborator_has_group.
+ *   zalo_config_get/_save.
  */
 @Injectable()
 export class ConfigurationProc {
@@ -83,11 +83,6 @@ export class ConfigurationProc {
   ): Promise<{ data: ZaloGroupsConfiguration }[]> {
     return this.db.sql<{ data: ZaloGroupsConfiguration }[]>`
       SELECT zalo_config_save(${this.db.json(payload ?? {})}::jsonb) AS data`;
-  }
-
-  zaloCollaboratorHasGroup(uid: string): Promise<{ ok: boolean }[]> {
-    return this.db.sql<{ ok: boolean }[]>`
-      SELECT zalo_collaborator_has_group(${uid ?? ''}) AS ok`;
   }
 
   // ==================== SHIPPING ====================
