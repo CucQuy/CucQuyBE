@@ -6,7 +6,8 @@
 --   opening_balance    — số dư tại thời điểm chốt (VND).
 --   opening_balance_at — thời điểm chốt; NULL = tính từ giao dịch đầu tiên.
 --
--- Số dư hiện tại = opening_balance + Σ(tiền vào − tiền ra) của các giao dịch SAU mốc.
+-- Số dư hiện tại = opening_balance + Σ(tiền vào − tiền ra) của các giao dịch hệ thống
+-- GHI NHẬN sau mốc (so theo transactions.created_at — xem payment_account_balance).
 -- Chốt lại mốc (nhập số dư đang thấy trên app ngân hàng) thì sai lệch tích luỹ được
 -- reset, không phải dò lại từng giao dịch cũ.
 --

@@ -179,8 +179,16 @@ $$;
 -- Liệt kê tất cả tài khoản → jsonb array. Sắp active trước rồi created_at desc.
 -- Mỗi item {id, bankCode, accountNumber, accountHolder, qrTemplate, isActive, isTracked, createdAt}.
 -- Số dư hiện tại của 1 tài khoản (102) = số dư đã chốt + tiền vào − tiền ra của các
--- giao dịch SAU mốc chốt. Bỏ giao dịch test. Khớp TK theo account_number HOẶC sub_account
--- (TK ảo BIDV bắn số ảo ở account_number, số của tiệm nằm ở sub_account).
+-- giao dịch GHI NHẬN SAU mốc chốt. Bỏ giao dịch test. Khớp TK theo account_number HOẶC
+-- sub_account (TK ảo BIDV bắn số ảo ở account_number, số của tiệm nằm ở sub_account).
+--
+-- Mốc so theo `created_at` (lúc hệ thống NHẬN webhook), KHÔNG theo `transaction_date`
+-- (giờ ngân hàng ghi) — 3 lý do:
+--   1. Chốt số dư = gõ con số đang thấy trên app ngân hàng, tức là đã bao gồm mọi giao
+--      dịch hệ thống biết tới thời điểm đó → chỉ được cộng thêm cái ĐẾN SAU.
+--   2. Webhook về trễ / ngân hàng ghi lùi giờ vẫn được tính, không bị rơi mất.
+--   3. created_at là timestamptz thật, không dính chuyện transaction_date là text giờ VN
+--      trong khi DB chạy UTC.
 CREATE OR REPLACE FUNCTION payment_account_balance(p_id text)
 RETURNS numeric LANGUAGE sql STABLE AS $$
   SELECT COALESCE(pa.opening_balance, 0) + COALESCE((
@@ -189,10 +197,7 @@ RETURNS numeric LANGUAGE sql STABLE AS $$
     WHERE COALESCE(t.is_test, false) = false
       AND pa.account_number IN (NULLIF(TRIM(COALESCE(t.account_number, '')), ''),
                                 NULLIF(TRIM(COALESCE(t.sub_account, '')), ''))
-      -- transaction_real_ts: transaction_date là giờ VN text, DB chạy UTC → phải quy về
-      -- instant thật mới so được với mốc chốt (xem functions/transactions.sql).
-      AND (pa.opening_balance_at IS NULL
-           OR transaction_real_ts(t.transaction_date) > pa.opening_balance_at)
+      AND (pa.opening_balance_at IS NULL OR t.created_at > pa.opening_balance_at)
   ), 0)
   FROM payment_accounts pa
   WHERE pa.id = p_id;
