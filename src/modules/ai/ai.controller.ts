@@ -10,6 +10,8 @@ import {
   OrderExtractCatalogItem,
   OrderExtractImage,
 } from './tasks/order-extract/order-extract.types';
+import { ProductDescriptionService } from './tasks/product-description/product-description.service';
+import { ProductForDescription } from './tasks/product-description/product-description.types';
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
 import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
 import { SpxWardInput } from './tasks/spx-ward/spx-ward.types';
@@ -26,6 +28,7 @@ export class AiController {
     private readonly receiptValidate: ReceiptValidateService,
     private readonly receiptStructure: ReceiptStructureService,
     private readonly orderExtract: OrderExtractService,
+    private readonly productDescription: ProductDescriptionService,
     private readonly spxAddress: SpxAddressService,
     private readonly spxWard: SpxWardService,
     private readonly spxAddressOld: SpxAddressOldService,
@@ -53,6 +56,13 @@ export class AiController {
       Array.isArray(body?.images) ? body.images : [],
       Array.isArray(body?.catalog) ? body.catalog : [],
     );
+  }
+
+  /** Gợi ý mô tả bán hàng cho 1 sản phẩm (nút "Gợi ý bằng AI" ở form sản phẩm). */
+  @Post('product-description')
+  async suggestProductDescription(@Body() body: ProductForDescription) {
+    const description = await this.productDescription.run(body ?? ({} as ProductForDescription));
+    return { description };
   }
 
   /** Tách danh sách địa chỉ VN → Tỉnh/Xã chuẩn 2025 (dùng khi xuất file tạo đơn SPX). */

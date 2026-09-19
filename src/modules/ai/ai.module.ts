@@ -4,6 +4,7 @@ import { AiClientService } from './core/ai-client.service';
 import { ReceiptValidateService } from './tasks/receipt-validate/receipt-validate.service';
 import { ReceiptStructureService } from './tasks/receipt-structure/receipt-structure.service';
 import { OrderExtractService } from './tasks/order-extract/order-extract.service';
+import { ProductDescriptionService } from './tasks/product-description/product-description.service';
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
 import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
 import { SpxAddressOldService } from './tasks/spx-address-old/spx-address-old.service';
@@ -22,6 +23,7 @@ import { SpxAdminNewProc } from './tasks/spx-address/spx-admin-new.proc';
     ReceiptValidateService,
     ReceiptStructureService,
     OrderExtractService,
+    ProductDescriptionService,
     SpxAddressService,
     SpxWardService,
     SpxAddressOldService,
@@ -32,6 +34,7 @@ import { SpxAdminNewProc } from './tasks/spx-address/spx-admin-new.proc';
     ReceiptValidateService,
     ReceiptStructureService,
     OrderExtractService,
+    ProductDescriptionService,
     SpxAddressService,
     SpxWardService,
     SpxAddressOldService,
