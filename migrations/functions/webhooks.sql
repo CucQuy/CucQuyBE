@@ -1,5 +1,5 @@
 -- ============================================================
--- Domain: webhooks — SePay + Facebook inbox (idempotent).
+-- Domain: webhooks — SePay (idempotent).
 -- ============================================================
 
 -- SePay: tạo transaction (idempotent qua transaction_create_from_sepay) + khớp đơn:

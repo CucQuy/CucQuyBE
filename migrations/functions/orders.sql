@@ -2047,8 +2047,8 @@ $$;
 -- Loại tin phân biệt bằng notifications.category (payload->>'orderId' để nối về đơn):
 --   'customer_order' → tin đơn hàng (cảm ơn + COD + vận đơn)
 --   'customer_promo' → tin khuyến mãi (chưa có tính năng gửi, cột đã sẵn)
--- Kênh (channel) nằm trong payload->>'channel', mặc định 'zalo' — mai này thêm
--- 'facebook' chỉ cần gửi kèm channel, KHÔNG phải sửa hàm này.
+-- Kênh (channel) nằm trong payload->>'channel', mặc định 'zalo' — thêm kênh khác chỉ cần
+-- gửi kèm channel, KHÔNG phải sửa hàm này.
 -- p_filter: 'sent' (đã gửi tin đơn) | 'failed' | 'none' (chưa gửi) | '' (tất cả).
 CREATE OR REPLACE FUNCTION order_notify_matrix(p_filter text, p_limit int, p_offset int)
 RETURNS jsonb
@@ -2079,9 +2079,7 @@ LANGUAGE sql STABLE AS $$
            (SELECT l.notif_id FROM latest l WHERE l.order_id = o.id AND l.category='customer_order' AND l.channel='zalo') AS zo_id,
            (SELECT l.status   FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_status,
            (SELECT l.created_at FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_at,
-           (SELECT l.notif_id FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_id,
-           (SELECT l.status   FROM latest l WHERE l.order_id = o.id AND l.channel='facebook' AND l.category='customer_order') AS fb_status,
-           (SELECT l.created_at FROM latest l WHERE l.order_id = o.id AND l.channel='facebook' AND l.category='customer_order') AS fb_at
+           (SELECT l.notif_id FROM latest l WHERE l.order_id = o.id AND l.category='customer_promo' AND l.channel='zalo') AS zp_id
       FROM orders o
   ),
   filtered AS (
@@ -2110,8 +2108,7 @@ LANGUAGE sql STABLE AS $$
         'createdAt',     f.created_at,
         'notifiedAt',    f.customer_notified_at,
         'zaloOrder',     jsonb_build_object('status', f.zo_status, 'at', f.zo_at, 'error', COALESCE(f.zo_error,''), 'notifId', f.zo_id),
-        'zaloPromo',     jsonb_build_object('status', f.zp_status, 'at', f.zp_at, 'notifId', f.zp_id),
-        'facebook',      jsonb_build_object('status', f.fb_status, 'at', f.fb_at)
+        'zaloPromo',     jsonb_build_object('status', f.zp_status, 'at', f.zp_at, 'notifId', f.zp_id)
       ) ORDER BY f.created_at DESC)
       FROM filtered f), '[]'::jsonb),
     'counts', (
@@ -2121,141 +2118,6 @@ LANGUAGE sql STABLE AS $$
         'failed', COUNT(*) FILTER (WHERE zo_status = 'failed'),
         'none',   COUNT(*) FILTER (WHERE zo_status IS NULL)
       ) FROM base
-    )
-  );
-$$;
-
--- ═══════════ Facebook Messenger (085) ═══════════
--- Upsert 1 người đã inbox page. p_direction='in' → cập nhật last_inbound_at (mốc 24h).
-CREATE OR REPLACE FUNCTION facebook_contact_upsert(p_data jsonb)
-RETURNS jsonb
-LANGUAGE plpgsql AS $$
-DECLARE
-  v_psid text := btrim(COALESCE(p_data->>'psid', ''));
-BEGIN
-  IF v_psid = '' THEN RETURN NULL; END IF;
-
-  INSERT INTO facebook_contacts (psid, name, profile_pic, last_inbound_at, message_count, updated_at, platform)
-  VALUES (
-    v_psid,
-    NULLIF(p_data->>'name', ''),
-    NULLIF(p_data->>'profilePic', ''),
-    CASE WHEN p_data->>'lastInboundAt' IS NOT NULL THEN (p_data->>'lastInboundAt')::timestamptz END,
-    COALESCE((p_data->>'messageCount')::int, 0),
-    now(),
-    CASE WHEN p_data->>'platform' = 'instagram' THEN 'instagram' ELSE 'facebook' END
-  )
-  ON CONFLICT (psid) DO UPDATE SET
-    name            = COALESCE(NULLIF(EXCLUDED.name, ''), facebook_contacts.name),
-    profile_pic     = COALESCE(NULLIF(EXCLUDED.profile_pic, ''), facebook_contacts.profile_pic),
-    -- giữ mốc MỚI hơn (sync danh sách và webhook có thể tới lệch thứ tự)
-    last_inbound_at = GREATEST(
-                        COALESCE(EXCLUDED.last_inbound_at, facebook_contacts.last_inbound_at),
-                        COALESCE(facebook_contacts.last_inbound_at, EXCLUDED.last_inbound_at)
-                      ),
-    message_count   = GREATEST(EXCLUDED.message_count, facebook_contacts.message_count),
-    updated_at      = now();
-
-  RETURN to_jsonb(c) FROM facebook_contacts c WHERE c.psid = v_psid;
-END;
-$$;
-
--- Ghi 1 tin nhắn (in/out). Idempotent theo id (mid của Meta có thể gửi lại).
-CREATE OR REPLACE FUNCTION facebook_message_add(p_data jsonb)
-RETURNS void
-LANGUAGE plpgsql AS $$
-DECLARE
-  v_psid text := btrim(COALESCE(p_data->>'psid',''));
-  v_dir  text := CASE WHEN p_data->>'direction' = 'out' THEN 'out' ELSE 'in' END;
-BEGIN
-  IF v_psid = '' THEN RETURN; END IF;
-  -- Người nhắn Instagram phải được gắn nhãn kênh ngay từ đầu, kẻo lọt vào hộp thư Facebook.
-  INSERT INTO facebook_contacts (psid, platform)
-  VALUES (v_psid, CASE WHEN p_data->>'platform' = 'instagram' THEN 'instagram' ELSE 'facebook' END)
-  ON CONFLICT (psid) DO NOTHING;
-
-  INSERT INTO facebook_messages (id, psid, direction, text, attachments, error, created_at)
-  VALUES (
-    COALESCE(NULLIF(p_data->>'id',''), gen_random_uuid()::text),
-    v_psid, v_dir,
-    NULLIF(p_data->>'text',''),
-    CASE WHEN jsonb_typeof(p_data->'attachments') = 'array' THEN p_data->'attachments' END,
-    NULLIF(p_data->>'error',''),
-    COALESCE((p_data->>'createdAt')::timestamptz, now())
-  )
-  ON CONFLICT (id) DO NOTHING;
-
-  IF v_dir = 'in' THEN
-    UPDATE facebook_contacts
-       SET last_inbound_at = GREATEST(COALESCE(last_inbound_at, now()), now()),
-           message_count = message_count + 1, updated_at = now()
-     WHERE psid = v_psid;
-  ELSE
-    UPDATE facebook_contacts SET last_outbound_at = now(), updated_at = now() WHERE psid = v_psid;
-  END IF;
-END;
-$$;
-
--- Danh sách khách Facebook cho FE: kèm cờ CÒN nhắn tự do được không (trong 24h)
--- và số phút còn lại — để nhân viên biết ai gửi được ngay, ai phải chờ khách nhắn lại.
-CREATE OR REPLACE FUNCTION facebook_contact_list(
-  p_filter text, p_limit int, p_offset int, p_platform text DEFAULT ''
-)
-RETURNS jsonb
-LANGUAGE sql STABLE AS $$
-  WITH rows AS (
-    SELECT c.*,
-           (c.last_inbound_at IS NOT NULL AND c.last_inbound_at > now() - interval '24 hours') AS in_window,
-           CASE WHEN c.last_inbound_at IS NOT NULL
-                THEN GREATEST(0, EXTRACT(EPOCH FROM (c.last_inbound_at + interval '24 hours' - now()))/60)::int
-                ELSE 0 END AS minutes_left
-      FROM facebook_contacts c
-     WHERE c.blocked = false
-       AND (COALESCE(p_platform,'') = '' OR c.platform = p_platform)
-  )
-  SELECT jsonb_build_object(
-    'items', COALESCE((
-      SELECT jsonb_agg(jsonb_build_object(
-        'psid',          r.psid,
-        'name',          COALESCE(r.name, ''),
-        'profilePic',    COALESCE(r.profile_pic, ''),
-        'customerId',    r.customer_id,
-        'lastInboundAt', r.last_inbound_at,
-        'lastOutboundAt', r.last_outbound_at,
-        'messageCount',  r.message_count,
-        'optedInAt',     r.opted_in_at,
-        'inWindow',      r.in_window,
-        'minutesLeft',   r.minutes_left,
-        'platform',      r.platform,
-        -- Tin nhắn CUỐI để hộp thư hiện trích đoạn như Messenger.
-        'lastMessage',   (
-          SELECT jsonb_build_object(
-                   'text', COALESCE(m.text, ''),
-                   'direction', m.direction,
-                   'createdAt', m.created_at
-                 )
-            FROM facebook_messages m
-           WHERE m.psid = r.psid
-           ORDER BY m.created_at DESC
-           LIMIT 1
-        )
-      ) ORDER BY r.last_inbound_at DESC NULLS LAST)
-      FROM (
-        SELECT * FROM rows
-         WHERE CASE COALESCE(p_filter,'')
-                 WHEN 'window' THEN in_window
-                 WHEN 'optin'  THEN opted_in_at IS NOT NULL
-                 ELSE true
-               END
-         ORDER BY last_inbound_at DESC NULLS LAST
-         LIMIT GREATEST(1, COALESCE(p_limit, 100)) OFFSET GREATEST(0, COALESCE(p_offset, 0))
-      ) r), '[]'::jsonb),
-    'counts', (
-      SELECT jsonb_build_object(
-        'total',   COUNT(*),
-        'inWindow', COUNT(*) FILTER (WHERE in_window),
-        'optIn',   COUNT(*) FILTER (WHERE opted_in_at IS NOT NULL)
-      ) FROM rows
     )
   );
 $$;

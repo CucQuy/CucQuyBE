@@ -84,7 +84,7 @@ export interface ZaloSendPayload {
   category?: string;
   /** Đơn liên quan — lưu vào payload nhật ký để màn "Thông báo" join ra đơn. */
   orderId?: string;
-  /** Kênh gửi ('zalo' mặc định; sau này 'facebook'…) — cột trong ma trận thông báo. */
+  /** Kênh gửi ('zalo' mặc định) — cột trong ma trận thông báo. */
   channel?: string;
   groupIds?: string[];
   /**

@@ -77,7 +77,7 @@ export class OrdersController {
 
   /**
    * Ma trận ĐƠN × kênh thông báo cho màn "Thông báo": mỗi dòng 1 đơn, kèm trạng thái
-   * tin Zalo đơn hàng / tin khuyến mãi / Facebook (khi có). Khai báo TRƯỚC :id.
+   * tin Zalo đơn hàng / tin khuyến mãi. Khai báo TRƯỚC :id.
    * query: filter=sent|failed|none (trống = tất cả), limit, offset.
    */
   @Get('notify-matrix')

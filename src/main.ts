@@ -13,16 +13,7 @@ async function bootstrap() {
   const config = loadConfig();
   // Tự cấu hình body-parser (tắt mặc định 100kb) để nhận ảnh bill base64 (vài MB).
   const app = await NestFactory.create(AppModule, { bufferLogs: false, bodyParser: false });
-  // verify: giữ body THÔ để kiểm chữ ký webhook Facebook (X-Hub-Signature-256 ký trên
-  // đúng chuỗi byte gốc — JSON.stringify lại là sai chữ ký).
-  app.use(
-    json({
-      limit: '25mb',
-      verify: (req: any, _res, buf: Buffer) => {
-        if (buf?.length) req.rawBody = buf;
-      },
-    }),
-  );
+  app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
 
   // Sau nginx reverse proxy: tin X-Forwarded-For để req.ip ra IP thật của client
