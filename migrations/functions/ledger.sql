@@ -8,7 +8,7 @@
 -- server-side trong MỘT lần gọi.
 --
 -- status:
---   Tiền VÀO (in):   matched | shopee | capital | sweep_in  | external | unmatched
+--   Tiền VÀO (in):   matched | shopee | capital | sweep_in | expense_credit | other_in | external | unmatched
 --   Tiền RA  (out):  refund | shipping | sweep_out | settled | excluded | expense | stock | unmatched
 --
 -- 100 — DÒNG TIỀN 2 TÀI KHOẢN (payment_accounts.kind):
@@ -67,6 +67,12 @@ RETURNS text LANGUAGE sql STABLE AS $$
         WHEN t.expense_category = 'capital' THEN 'capital'
         -- Đánh dấu tay "Shopee thanh toán" (set expense_category='shopee').
         WHEN t.expense_category = 'shopee' THEN 'shopee'
+        -- Đánh dấu tay "Thu bù chi phí": tiền vào gán ĐÚNG 1 hạng mục chi phí (NCC/nhà xe
+        -- hoàn lại, hoàn phí dịch vụ…) → không phải doanh thu, mà TRỪ chi phí hạng mục đó.
+        WHEN expense_category_is_cost(t.expense_category) THEN 'expense_credit'
+        -- Đánh dấu tay "Thu khác" (set expense_category='other_in' + ghi chú ở review_note):
+        -- đã đối soát nhưng không thuộc nhóm nào, KHÔNG tính doanh thu/chi phí.
+        WHEN t.expense_category = 'other_in' THEN 'other_in'
         -- User chủ động đánh dấu ngoài hệ thống → override auto-detect bên dưới.
         WHEN COALESCE(t.is_external, false) THEN 'external'
         -- Auto-detect: tiền vào TK cá nhân khớp 1 cú dồn đã đánh dấu ở TK HKD (100).

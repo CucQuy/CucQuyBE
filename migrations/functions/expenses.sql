@@ -1,15 +1,18 @@
 -- Chi phí vận hành: phân loại bank "tiền ra" theo nội dung CK (auto) + set tay (backup).
 -- Xem migrations/011_expense_classification.sql cho schema. Idempotent (CREATE OR REPLACE).
 
--- ── Category tiền-ra CÓ tính vào chi phí quán (OPEX/P&L) không ──
+-- ── Category CÓ tính vào chi phí quán (OPEX/P&L) không ──
 -- KHÔNG tính khi: chưa phân loại (NULL/''), hoặc thuộc nhóm PHI-CHI-PHÍ
 -- (cá nhân / rút vốn / nội bộ-nạp ví / dồn tiền sang TK chi). Mặc định "chưa phân loại"
 -- = KHÔNG tính (đảo mặc định cũ) → tiền ra chỉ tính chi phí khi được gán category rõ ràng.
 -- 'sweep' (099) = cuối ngày dồn tiền TK nhận → TK chi: luân chuyển nội bộ, tiền chưa rời tiệm.
+-- 'capital' / 'shopee' / 'other_in' = nhãn của TIỀN VÀO (cấp vốn / sàn đổ về / thu khác) —
+-- dùng lại cột expense_category nhưng KHÔNG phải chi phí. Bắt buộc loại ở đây vì tiền VÀO
+-- gán đúng hạng mục chi phí giờ được hiểu là "thu bù chi phí" (giảm OPEX kỳ đó).
 CREATE OR REPLACE FUNCTION expense_category_is_cost(p_cat text)
 RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
   SELECT p_cat IS NOT NULL AND p_cat <> ''
-     AND p_cat NOT IN ('personal', 'owner', 'internal', 'sweep');
+     AND p_cat NOT IN ('personal', 'owner', 'internal', 'sweep', 'capital', 'shopee', 'other_in');
 $$;
 
 -- ── Rule từ khoá (nội dung CK → category) ──
@@ -108,6 +111,17 @@ RETURNS jsonb LANGUAGE sql STABLE AS $$
       CROSS JOIN LATERAL generate_series(0, m.spread_months - 1) AS i
       WHERE (m.date::timestamptz + (i || ' months')::interval) BETWEEN p_from AND p_to
       GROUP BY coalesce(NULLIF(m.category, ''), 'other')
+      UNION ALL
+      -- (3) Thu BÙ chi phí: tiền VÀO được gán đúng hạng mục chi phí (NCC/nhà xe hoàn lại,
+      --     hoàn tiền dịch vụ...) → trừ vào chính hạng mục đó, nên để số ÂM.
+      SELECT t.expense_category AS category,
+             -SUM(t.transfer_amount) AS amount
+      FROM transactions t
+      WHERE t.transfer_type = 'in'
+        AND coalesce(t.is_test, false) = false
+        AND expense_category_is_cost(t.expense_category)
+        AND revenue_try_ts(t.transaction_date) BETWEEN p_from AND p_to
+      GROUP BY t.expense_category
     ) u
     GROUP BY category
   ) s;

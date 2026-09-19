@@ -263,6 +263,9 @@ BEGIN
       AND order_number IS NULL
       AND COALESCE(is_external, false) = false
       AND COALESCE(is_test, false) = false
+      -- Đã phân loại tay (cấp vốn / Shopee / dồn tiền / thu bù chi phí / thu khác) → coi như
+      -- đã đối soát, không được auto ghép vào đơn nữa.
+      AND COALESCE(expense_category, '') = ''
       AND NULLIF(transaction_date, '') IS NOT NULL
   ),
   pairs AS (

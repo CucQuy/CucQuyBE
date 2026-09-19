@@ -126,6 +126,8 @@ BEGIN
       AND t.order_number IS NULL
       AND COALESCE(t.is_external, false) = false
       AND COALESCE(t.is_test, false) = false
+      -- Đã phân loại tay (cấp vốn / Shopee / dồn tiền / thu bù chi phí / thu khác) → đã đối soát.
+      AND COALESCE(t.expense_category, '') = ''
       AND ledger_tx_date(t.transaction_date) IS NOT NULL
       AND (NULLIF(p_from, '') IS NULL OR ledger_tx_date(t.transaction_date) >= p_from::timestamptz)
       AND (NULLIF(p_to, '')   IS NULL OR ledger_tx_date(t.transaction_date) <= p_to::timestamptz)

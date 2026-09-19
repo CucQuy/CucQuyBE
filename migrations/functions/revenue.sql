@@ -258,6 +258,18 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM receipt_tx_allocations ra WHERE ra.transaction_id = t.id)
     AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to;
 
+  -- ── − THU BÙ CHI PHÍ: tiền VÀO được gán đúng 1 hạng mục chi phí (NCC/nhà xe hoàn lại,
+  --     hoàn phí dịch vụ…) → không phải doanh thu, mà giảm OPEX đúng kỳ nhận tiền.
+  --     Không kẹp sàn 0: bù nhiều hơn chi trong kỳ ngắn thì OPEX âm mới đúng sổ. ──
+  v_total_expenses := v_total_expenses - coalesce((
+    SELECT SUM(t.transfer_amount)
+    FROM transactions t
+    WHERE t.transfer_type = 'in'
+      AND coalesce(t.is_test, false) = false
+      AND expense_category_is_cost(t.expense_category)
+      AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
+  ), 0);
+
   -- ── + Chi phí THỦ CÔNG (không qua bank: tiền mặt/đã trả trước), phân bổ rơi trong kỳ.
   --     Gộp vào OPEX (v_total_expenses) → cùng vào costBreakdown.expenses + lợi nhuận. ──
   v_total_expenses := v_total_expenses + manual_expense_allocated(v_from, v_to);
@@ -357,6 +369,17 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM receipt_tx_allocations ra WHERE ra.transaction_id = t.id)
       AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
   ),
+  -- Thu bù chi phí mỗi bucket (tiền VÀO gán hạng mục chi phí) → để ÂM, giảm OPEX bucket đó.
+  cost_expense_credit AS (
+    SELECT floor(EXTRACT(EPOCH FROM (revenue_try_ts(t.transaction_date) - v_from))
+                 / (v_bucket_days * 86400.0))::int AS idx,
+           -t.transfer_amount AS amount
+    FROM transactions t
+    WHERE t.transfer_type = 'in'
+      AND coalesce(t.is_test, false) = false
+      AND expense_category_is_cost(t.expense_category)
+      AND revenue_try_ts(t.transaction_date) BETWEEN v_from AND v_to
+  ),
   cost_depreciation AS (
     SELECT floor(EXTRACT(EPOCH FROM ((a.start_date::timestamptz + (i || ' months')::interval) - v_from))
                  / (v_bucket_days * 86400.0))::int AS idx,
@@ -388,6 +411,7 @@ BEGIN
     UNION ALL SELECT idx, amount FROM cost_stock
     UNION ALL SELECT idx, amount FROM stock_deduct
     UNION ALL SELECT idx, amount FROM cost_expenses
+    UNION ALL SELECT idx, amount FROM cost_expense_credit
     UNION ALL SELECT idx, amount FROM cost_depreciation
     UNION ALL SELECT idx, amount FROM cost_manual
   ),
@@ -407,7 +431,9 @@ BEGIN
   ),
   opex_bucket AS (
     SELECT idx, coalesce(SUM(amount),0) AS v FROM (
-      SELECT idx, amount FROM cost_expenses UNION ALL SELECT idx, amount FROM cost_manual
+      SELECT idx, amount FROM cost_expenses
+      UNION ALL SELECT idx, amount FROM cost_expense_credit
+      UNION ALL SELECT idx, amount FROM cost_manual
     ) x WHERE idx >= 0 AND idx < v_count GROUP BY idx
   )
   SELECT jsonb_agg(
