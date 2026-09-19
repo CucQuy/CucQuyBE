@@ -40,6 +40,51 @@ export class AiClientService {
     return this.firstText(resp);
   }
 
+  /**
+   * Gọi 1 lượt có KÈM ẢNH (vision): system prompt + các ảnh + text, trả text block đầu tiên.
+   * `images`: base64 THUẦN (không prefix data:image/...) + mimeType tương ứng.
+   */
+  async completeWithImages(
+    config: AiTaskConfig,
+    system: string,
+    images: { base64: string; mimeType: string }[],
+    user: string,
+  ): Promise<string> {
+    if (images.length === 0) throw new Error('Không có ảnh để gửi cho AI.');
+    const imageBlocks: Anthropic.ImageBlockParam[] = images.map((img) => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: this.toMediaType(img.mimeType),
+        data: img.base64,
+      },
+    }));
+    const resp = await this.getClient().messages.create({
+      model: config.model,
+      max_tokens: config.maxTokens,
+      system,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            ...imageBlocks,
+            { type: 'text', text: user.slice(0, config.inputCharLimit) },
+          ],
+        },
+      ],
+    });
+    return this.firstText(resp);
+  }
+
+  /** Map mimeType về đúng tập Anthropic hỗ trợ (ảnh lạ → coi như jpeg). */
+  private toMediaType(
+    mimeType: string,
+  ): Anthropic.Base64ImageSource['media_type'] {
+    const m = mimeType.trim().toLowerCase();
+    if (m === 'image/png' || m === 'image/gif' || m === 'image/webp') return m;
+    return 'image/jpeg';
+  }
+
   /** Lấy text từ block đầu tiên của response. */
   private firstText(resp: Anthropic.Message): string {
     const block = resp.content.find((b) => b.type === 'text');

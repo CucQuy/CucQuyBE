@@ -5,6 +5,11 @@ import { SsoAuthGuard } from '../../auth/sso-auth.guard';
 import { IpThrottlerGuard } from '../../common/ip-throttler.guard';
 import { ReceiptValidateService } from './tasks/receipt-validate/receipt-validate.service';
 import { ReceiptStructureService } from './tasks/receipt-structure/receipt-structure.service';
+import { OrderExtractService } from './tasks/order-extract/order-extract.service';
+import {
+  OrderExtractCatalogItem,
+  OrderExtractImage,
+} from './tasks/order-extract/order-extract.types';
 import { SpxAddressService } from './tasks/spx-address/spx-address.service';
 import { SpxWardService } from './tasks/spx-ward/spx-ward.service';
 import { SpxWardInput } from './tasks/spx-ward/spx-ward.types';
@@ -20,6 +25,7 @@ export class AiController {
   constructor(
     private readonly receiptValidate: ReceiptValidateService,
     private readonly receiptStructure: ReceiptStructureService,
+    private readonly orderExtract: OrderExtractService,
     private readonly spxAddress: SpxAddressService,
     private readonly spxWard: SpxWardService,
     private readonly spxAddressOld: SpxAddressOldService,
@@ -35,6 +41,18 @@ export class AiController {
   @Post('structure-receipt')
   structureReceipt(@Body('ocrText') ocrText: string) {
     return this.receiptStructure.run(ocrText ?? '');
+  }
+
+  /** Quét ảnh khách đặt hàng (chat/giấy ghi tay) → dữ liệu điền sẵn form tạo đơn. */
+  @Post('extract-order')
+  extractOrder(
+    @Body()
+    body: { images?: OrderExtractImage[]; catalog?: OrderExtractCatalogItem[] },
+  ) {
+    return this.orderExtract.run(
+      Array.isArray(body?.images) ? body.images : [],
+      Array.isArray(body?.catalog) ? body.catalog : [],
+    );
   }
 
   /** Tách danh sách địa chỉ VN → Tỉnh/Xã chuẩn 2025 (dùng khi xuất file tạo đơn SPX). */
