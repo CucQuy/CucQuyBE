@@ -148,7 +148,9 @@ export class ZaloService {
    * (POST /zalo/listAllGroupForPartner — theo apidocs.abit.vn). Dùng để chọn đúng ID
    * nhóm ở Cài đặt Zalo thay vì copy tay. Số mặc định = số gửi đang cấu hình.
    */
-  async listGroups(phone?: string): Promise<{ groupId: string; name: string; members: number }[]> {
+  async listGroups(
+    phone?: string,
+  ): Promise<{ groupId: string; name: string; members: number; avatar: string }[]> {
     const baseUrl = String(process.env.ZALO_URL ?? '').trim();
     const shopCode = String(process.env.ZALO_SHOP_CODE ?? '').trim();
     const token = String(process.env.ZALO_TOKEN ?? '').trim();
@@ -179,6 +181,8 @@ export class ZaloService {
         groupId: String(r.groupId ?? ''),
         name: String(r.groupname ?? ''),
         members: typeof r.number_member === 'number' ? r.number_member : 0,
+        // Ảnh đại diện nhóm (group_avt) — hiện ở bảng nhóm cho dễ nhận ra.
+        avatar: String(r.group_avt ?? ''),
       };
     }).filter((g) => g.groupId);
   }
