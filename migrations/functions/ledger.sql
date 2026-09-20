@@ -181,11 +181,16 @@ BEGIN
            OR t.order_number  ILIKE '%' || v_q || '%'
            OR t.account_number ILIKE '%' || v_q || '%'))
     ),
-    listed AS (
-      -- List thêm lọc type + status.
+    -- Chỉ lọc LOẠI (vào/ra) — nền để đếm số GD cho từng tab trạng thái: tab phải giữ
+    -- nguyên số khi bấm qua lại giữa các trạng thái, nên KHÔNG lọc status ở đây.
+    typed AS (
       SELECT * FROM filt
-      WHERE (v_type   IS NULL OR transfer_type = v_type)
-        AND (v_status IS NULL OR status = v_status)
+      WHERE (v_type IS NULL OR transfer_type = v_type)
+    ),
+    listed AS (
+      -- List thêm lọc status.
+      SELECT * FROM typed
+      WHERE (v_status IS NULL OR status = v_status)
     ),
     -- Kỳ "sạch" dùng cho mọi con số tổng: bỏ giao dịch test (vẫn hiện trong list, nhãn 'test').
     real_tx AS (
@@ -229,6 +234,13 @@ BEGIN
         ) page
       ), '[]'::jsonb),
       'total', (SELECT count(*)::int FROM listed),
+      -- Số GD theo từng trạng thái (+ 'all') cho dải tab trạng thái ở màn Số dư tài khoản.
+      -- Đếm trên `typed` → đổi tab không làm số nhảy; gồm cả GD test như list.
+      'statusCounts', (
+        SELECT COALESCE(jsonb_object_agg(x.status, x.c), '{}'::jsonb)
+             || jsonb_build_object('all', (SELECT count(*)::int FROM typed))
+        FROM (SELECT status, count(*)::int AS c FROM typed GROUP BY status) x
+      ),
       'summary', (
         SELECT jsonb_build_object(
           'totalIn',  COALESCE(SUM(transfer_amount) FILTER (WHERE transfer_type = 'in'), 0),
