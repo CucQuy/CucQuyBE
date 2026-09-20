@@ -81,7 +81,7 @@ export class TransactionsService {
       count: 0, inCount: 0, outCount: 0,
       reconciledCount: 0, unreconciledCount: 0, reconciledPct: 100,
     };
-    if (!r) return { items: [], total: 0, summary: emptySummary, byAccount: [] };
+    if (!r) return { items: [], total: 0, summary: emptySummary, statusCounts: {}, byAccount: [] };
     const s = r.summary ?? emptySummary;
     return {
       items: (r.items ?? []).map(
@@ -93,6 +93,10 @@ export class TransactionsService {
         }),
       ),
       total: Number(r.total) || 0,
+      // Đếm theo trạng thái cho dải tab — coerce số (jsonb có thể ra string).
+      statusCounts: Object.fromEntries(
+        Object.entries(r.statusCounts ?? {}).map(([k, v]) => [k, Number(v) || 0]),
+      ),
       summary: {
         totalIn: Number(s.totalIn) || 0,
         totalOut: Number(s.totalOut) || 0,

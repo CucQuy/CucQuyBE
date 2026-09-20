@@ -109,6 +109,8 @@ export type LedgerResult = {
   items: LedgerItem[];
   total: number;
   summary: LedgerSummary;
+  /** Số GD theo từng trạng thái trong kỳ (+ khoá 'all') — badge tab trạng thái. */
+  statusCounts: Record<string, number>;
   /** Dòng tiền tách theo từng tài khoản trong kỳ (100). */
   byAccount: LedgerAccountFlow[];
 };
