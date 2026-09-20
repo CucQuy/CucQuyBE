@@ -9,7 +9,7 @@
 --
 -- status:
 --   Tiền VÀO (in):   matched | shopee | capital | sweep_in | expense_credit | other_in | external | unmatched
---   Tiền RA  (out):  refund | shipping | sweep_out | settled | excluded | expense | stock | unmatched
+--   Tiền RA  (out):  refund | shipping | sweep_out | settled | excluded | supplier | expense | stock | unmatched
 --
 -- 100 — DÒNG TIỀN 2 TÀI KHOẢN (payment_accounts.kind):
 --   TK HKD ('hkd') nhận tiền khách → CUỐI NGÀY dồn sang TK CÁ NHÂN ('personal') → TK cá
@@ -96,6 +96,9 @@ RETURNS text LANGUAGE sql STABLE AS $$
         WHEN COALESCE(t.settled_out, false) THEN 'settled'
         WHEN COALESCE(t.cost_excluded, false)
           OR t.expense_category IN ('personal', 'owner', 'internal') THEN 'excluded'
+        -- Trả NCC / tiền hàng nhập tay (category='supplier') — tách khỏi 'expense' để màn sổ
+        -- gom chung nhóm "Nhập hàng" với GD đã gắn phiếu. P&L không đổi: vẫn là chi phí.
+        WHEN t.expense_category = 'supplier' THEN 'supplier'
         WHEN EXISTS (SELECT 1 FROM manual_expenses me WHERE me.transaction_id = t.id)
           OR expense_category_is_cost(t.expense_category) THEN 'expense'
         -- Đã gắn phiếu nhập (tiền phiếu tính riêng ở stock_in → KHÔNG cộng OPEX):
@@ -109,7 +112,7 @@ $$;
 -- Sổ giao dịch: list (phân trang) + total + summary trong 1 lần gọi.
 --   p_from / p_to : text ISO (yyyy-mm-dd hoặc full ts). NULL/'' = mở biên.
 --   p_type        : 'in' | 'out' | NULL (cả 2)         — CHỈ lọc list, KHÔNG lọc summary.
---   p_status      : 1 trong các status trên | NULL     — CHỈ lọc list, KHÔNG lọc summary.
+--   p_status      : 1 hoặc NHIỀU status ('a,b') | NULL  — CHỈ lọc list, KHÔNG lọc summary.
 --   p_category    : expense_category | NULL            — lọc cả list + summary.
 --   p_gateway     : ngân hàng | NULL                   — lọc cả list + summary.
 --   p_search      : từ khoá (content/description/order_number/account_number) | NULL.
@@ -188,9 +191,10 @@ BEGIN
       WHERE (v_type IS NULL OR transfer_type = v_type)
     ),
     listed AS (
-      -- List thêm lọc status.
+      -- List thêm lọc status. p_status nhận NHIỀU trạng thái phân tách bằng dấu phẩy
+      -- ('stock,supplier') vì 1 tab ở màn sổ là 1 NHÓM gộp vài trạng thái.
       SELECT * FROM typed
-      WHERE (v_status IS NULL OR status = v_status)
+      WHERE (v_status IS NULL OR status = ANY(string_to_array(v_status, ',')))
     ),
     -- Kỳ "sạch" dùng cho mọi con số tổng: bỏ giao dịch test (vẫn hiện trong list, nhãn 'test').
     real_tx AS (

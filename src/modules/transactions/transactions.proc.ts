@@ -29,8 +29,11 @@ export type TransactionRow = {
 
 /** Trạng thái thống nhất 1 giao dịch (BE derive). */
 export type LedgerStatus =
-  | 'matched' | 'external' | 'sweep_in' | 'unmatched' // tiền vào
-  | 'refund' | 'shipping' | 'sweep_out' | 'settled' | 'excluded' | 'expense'; // tiền ra
+  // tiền vào
+  | 'matched' | 'shopee' | 'capital' | 'sweep_in' | 'expense_credit' | 'other_in' | 'external'
+  // tiền ra
+  | 'refund' | 'shipping' | 'sweep_out' | 'settled' | 'excluded' | 'supplier' | 'expense' | 'stock'
+  | 'unmatched' | 'test';
 
 /** Loại tài khoản của dòng tiền (101): hộ kinh doanh vs cá nhân (null = chưa gán). */
 export type PaymentAccountKind = 'hkd' | 'personal';
